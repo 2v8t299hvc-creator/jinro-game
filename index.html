@@ -3,77 +3,84 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v0.3</title>
+<title>個人用人狼アプリ v0.4</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
-  --accent:#7c9cff; --danger:#ff6b6b; --ok:#5fd3a2; --line:#2b3140; --warn:#ffd166;
+  --accent:#7c9cff; --danger:#ff6b6b; --line:#2b3140; --warn:#ffd166; --ok:#5fd3a2;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Sans","Yu Gothic",sans-serif}
-button,select,input{font:inherit}
-button{border:0;border-radius:12px;padding:11px 14px;background:var(--accent);color:white;font-weight:700;cursor:pointer}
+button,input{font:inherit}
+button{border:0;border-radius:11px;padding:10px 12px;background:var(--accent);color:white;font-weight:700}
 button.secondary{background:var(--panel2)}
 button.danger{background:var(--danger)}
 button.ghost{background:transparent;border:1px solid var(--line)}
-button:disabled{opacity:.45;cursor:not-allowed}
-.wrap{max-width:980px;margin:auto;padding:18px}
-h1{font-size:24px;margin:0 0 6px}
-h2{font-size:18px;margin:0 0 12px}
+button:disabled{opacity:.45}
+.wrap{max-width:980px;margin:auto;padding:14px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:17px;margin:0 0 10px}
 .muted{color:var(--muted)}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;margin:14px 0}
-.grid{display:grid;gap:10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;margin:12px 0}
+.grid{display:grid;gap:8px}
 .cols2{grid-template-columns:repeat(2,minmax(0,1fr))}
 .cols3{grid-template-columns:repeat(3,minmax(0,1fr))}
 @media(max-width:700px){.cols2,.cols3{grid-template-columns:1fr}}
-.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.role-row{display:grid;grid-template-columns:1fr 90px;gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.role-row{display:grid;grid-template-columns:1fr 84px;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}
 .role-row:last-child{border-bottom:0}
-input[type=number],select,input[type=text]{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:#0d1016;color:var(--text)}
-.status{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.badge{padding:6px 9px;border-radius:999px;background:var(--panel2);font-size:13px}
-.player{background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:12px}
-.player.dead{opacity:.5}
-.player .name{font-weight:800}
-.player .meta{margin-top:5px;font-size:13px;color:var(--muted)}
-.player .claim{margin-top:7px;color:var(--warn);font-size:13px}
-.history{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);font-size:13px;line-height:1.5}
-.history .line{margin:2px 0}
-.log{height:360px;overflow:auto;background:#0d1016;border-radius:12px;padding:12px;border:1px solid var(--line)}
-.log p{margin:0 0 9px;line-height:1.5}
+input[type=number],input[type=text]{width:100%;padding:9px 10px;border-radius:10px;border:1px solid var(--line);background:#0d1016;color:var(--text)}
+.status{display:flex;gap:6px;flex-wrap:wrap}
+.badge{padding:5px 8px;border-radius:999px;background:var(--panel2);font-size:12px}
+.hidden{display:none!important}
+.notice{padding:9px 10px;border-radius:11px;background:#111827;border:1px solid var(--line)}
+hr{border:0;border-top:1px solid var(--line);margin:12px 0}
+
+/* compact player UI */
+.claim-board{display:grid;gap:7px}
+.claim-card{background:#11151d;border:1px solid var(--line);border-radius:12px;padding:9px 10px}
+.claim-head{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.claim-name{font-weight:800}
+.claim-role{color:var(--warn);font-size:12px}
+.claim-results{margin-top:5px;font-size:12px;line-height:1.45;color:#dbe3f2}
+.player-list{display:grid;gap:5px}
+.player-row{display:grid;grid-template-columns:minmax(90px,1.1fr) .8fr .7fr;gap:8px;align-items:center;padding:7px 9px;background:var(--panel2);border-radius:10px;border:1px solid var(--line);font-size:13px}
+.player-row.dead{opacity:.48}
+.player-name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.player-co{color:var(--warn);white-space:nowrap}
+.player-life{color:var(--muted);text-align:right}
+@media(max-width:520px){
+ .player-row{grid-template-columns:minmax(88px,1.2fr) .9fr .55fr;font-size:12px;padding:6px 8px}
+}
+
+.log{height:300px;overflow:auto;background:#0d1016;border-radius:11px;padding:10px;border:1px solid var(--line)}
+.log p{margin:0 0 8px;line-height:1.45;font-size:13px}
 .log .system{color:#c7d2fe}
 .log .death{color:#ff9a9a}
 .log .result{color:#a7f3d0}
 .log .claim{color:#ffd166}
-.hidden{display:none!important}
-hr{border:0;border-top:1px solid var(--line);margin:14px 0}
-.notice{padding:10px 12px;border-radius:12px;background:#111827;border:1px solid var(--line)}
-.target-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;margin-top:10px}
+.target-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:7px;margin-top:9px}
 .target-list button{background:var(--panel2);border:1px solid var(--line)}
-.footer{color:var(--muted);font-size:12px;text-align:center;padding:20px 0}
+.footer{color:var(--muted);font-size:12px;text-align:center;padding:16px 0}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>個人用人狼アプリ <span class="muted">v0.3</span></h1>
-  <div class="muted">完全指示制CO / 公開結果履歴 / 個別占い指示</div>
+  <h1>個人用人狼アプリ <span class="muted">v0.4</span></h1>
+  <div class="muted">完全指示制CO / 個別CO / 村人確認 / 重複占い防止 / コンパクトUI</div>
 
   <section id="setupScreen">
     <div class="card">
       <h2>ゲーム設定</h2>
       <div class="grid cols2">
-        <label>参加人数
-          <input id="playerCount" type="number" min="5" max="20" value="9">
-        </label>
-        <label>自分の名前
-          <input id="selfName" type="text" value="あなた" maxlength="12">
-        </label>
+        <label>参加人数<input id="playerCount" type="number" min="5" max="20" value="9"></label>
+        <label>自分の名前<input id="selfName" type="text" value="あなた" maxlength="12"></label>
       </div>
       <hr>
       <h2>配役</h2>
       <div id="roleConfig"></div>
       <div class="notice" id="sumNotice"></div>
-      <div class="row" style="margin-top:14px">
+      <div class="row" style="margin-top:12px">
         <button id="startBtn">ゲーム開始</button>
         <button class="secondary" id="loadBtn">保存データを再開</button>
       </div>
@@ -89,15 +96,20 @@ hr{border:0;border-top:1px solid var(--line);margin:14px 0}
         </div>
         <div class="row">
           <button class="ghost" id="debugBtn">デバッグ</button>
-          <button class="danger" id="resetBtn">ゲーム終了</button>
+          <button class="danger" id="resetBtn">終了</button>
         </div>
       </div>
     </div>
 
+    <div class="card">
+      <h2>CO中の人物</h2>
+      <div id="claimBoard" class="claim-board"></div>
+    </div>
+
     <div class="grid cols2">
       <div class="card">
-        <h2>生存者・公開情報</h2>
-        <div id="players" class="grid cols2"></div>
+        <h2>全プレイヤー</h2>
+        <div id="players" class="player-list"></div>
       </div>
       <div class="card">
         <h2>公開ログ</h2>
@@ -111,11 +123,13 @@ hr{border:0;border-top:1px solid var(--line);margin:14px 0}
         <button id="blackSeerBtn">黒出し占い師CO</button>
         <button id="blackMediumBtn">黒出し霊媒師CO</button>
         <button id="roleCoBtn">役職CO</button>
+        <button id="individualCoBtn">個別CO確認</button>
+        <button id="villagerCheckBtn">個別村人CO</button>
         <button id="hiddenSeerBtn" class="secondary">潜伏占い指示</button>
         <button id="hiddenGuardBtn" class="secondary">潜伏護衛指示</button>
         <button id="publicSeerBtn" class="secondary">CO済占い師へ個別指示</button>
       </div>
-      <div id="actionPanel" class="hidden" style="margin-top:14px"></div>
+      <div id="actionPanel" class="hidden" style="margin-top:12px"></div>
     </div>
 
     <div class="card">
@@ -124,7 +138,7 @@ hr{border:0;border-top:1px solid var(--line);margin:14px 0}
         <button id="executeBtn">処刑対象を選ぶ</button>
         <button id="nightBtn" class="secondary" disabled>夜を解決する</button>
       </div>
-      <div class="muted" style="margin-top:8px">v0.3では投票AIはまだ未実装。処刑対象は自分で選択します。</div>
+      <div class="muted" style="margin-top:7px">v0.4では投票AIはまだ未実装。処刑対象は自分で選択します。</div>
     </div>
 
     <div id="debugPanel" class="card hidden">
@@ -152,12 +166,8 @@ function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random
 function defaultCounts(n){
   const b={villager:3,seer:1,knight:1,medium:1,madman:1,wolf:2,fox:0};
   if(n<9){
-    b.villager=Math.max(1,n-4);
-    b.medium=n>=7?1:0;
-    b.madman=n>=6?1:0;
-    b.knight=n>=6?1:0;
-    b.wolf=n>=7?2:1;
-    b.seer=1;
+    b.villager=Math.max(1,n-4); b.medium=n>=7?1:0; b.madman=n>=6?1:0;
+    b.knight=n>=6?1:0; b.wolf=n>=7?2:1; b.seer=1;
   }else if(n>9){b.villager+=n-9}
   return b;
 }
@@ -184,11 +194,10 @@ function updateSum(){
 function newPlayer(id,name,role,isSelf=false){
   return {
     id,name,role,alive:true,isSelf,claimed:null,
-    seerResults:[],mediumResults:[],
-    fakeSeerResults:[],fakeMediumResults:[],
-    forcedSeerTarget:null,forcedGuardTarget:null,
-    fakeClaimRole:null,
-    lastReportedSeerCount:0,lastReportedMediumCount:0
+    seerResults:[],mediumResults:[],fakeSeerResults:[],fakeMediumResults:[],
+    forcedSeerTarget:null,forcedGuardTarget:null,fakeClaimRole:null,
+    lastReportedSeerCount:0,lastReportedMediumCount:0,
+    villagerClaim:null
   };
 }
 
@@ -204,36 +213,29 @@ function startGame(){
   const ps=[newPlayer(0,$("#selfName").value.trim()||"あなた","villager",true)];
   for(let i=1;i<n;i++)ps.push(newPlayer(i,names[i-1]??`P${i+1}`,roles[i-1],false));
 
-  state={version:"0.3",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null};
+  state={version:"0.4",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null};
 
-  // 初日占い：真占い師は1件だけ結果を持つ
+  // 初日占い
   roleLiving("seer").forEach(s=>{
     const target=randomChoice(state.players.filter(p=>p.id!==s.id));
     if(target)s.seerResults.push({day:1,target:target.id,black:target.role==="wolf"});
   });
 
-  // 人外は「騙り予定」だけ決める。勝手にCOはしない
   assignFakeClaims();
-
   log(`ゲーム開始。参加者は${n}人。あなたの役職は【村人】です。`,"system");
   save();showGame();
 }
 
 function assignFakeClaims(){
   state.players.filter(p=>p.role==="madman").forEach(m=>{
-    const r=Math.random();
-    m.fakeClaimRole=r<0.62?"seer":r<0.82?"medium":null;
+    const r=Math.random(); m.fakeClaimRole=r<0.62?"seer":r<0.82?"medium":null;
   });
-
   const wolves=state.players.filter(p=>p.role==="wolf");
   if(wolves.length&&Math.random()<0.65){
-    const liar=randomChoice(wolves);
-    liar.fakeClaimRole=Math.random()<0.72?"seer":"medium";
+    const liar=randomChoice(wolves); liar.fakeClaimRole=Math.random()<0.72?"seer":"medium";
   }
-
   state.players.filter(p=>p.role==="fox").forEach(f=>{
-    const r=Math.random();
-    f.fakeClaimRole=r<0.18?"seer":r<0.27?"medium":null;
+    const r=Math.random(); f.fakeClaimRole=r<0.18?"seer":r<0.27?"medium":null;
   });
 }
 
@@ -252,47 +254,64 @@ function renderLog(){
 function showGame(){$("#setupScreen").classList.add("hidden");$("#gameScreen").classList.remove("hidden");renderAll()}
 function showSetup(){$("#gameScreen").classList.add("hidden");$("#setupScreen").classList.remove("hidden")}
 
-function publicHistoryHtml(p){
+function resultHistory(p){
   if(p.claimed==="seer"){
-    const arr = p.role==="seer" ? p.seerResults : (p.fakeClaimRole==="seer" ? p.fakeSeerResults : []);
-    if(!arr.length)return `<div class="history"><div class="muted">公開済み占い結果なし</div></div>`;
-    return `<div class="history">${arr.map(r=>`<div class="line">${r.day}日目：${escapeHtml(byId(r.target)?.name??"不明")} ${r.black?"●":"○"}</div>`).join("")}</div>`;
+    const arr=p.role==="seer"?p.seerResults:(p.fakeClaimRole==="seer"?p.fakeSeerResults:[]);
+    return arr.map(r=>`${r.day}日 ${byId(r.target)?.name??"不明"}${r.black?"●":"○"}`).join(" / ");
   }
   if(p.claimed==="medium"){
-    const arr = p.role==="medium" ? p.mediumResults : (p.fakeClaimRole==="medium" ? p.fakeMediumResults : []);
-    if(!arr.length)return `<div class="history"><div class="muted">公開済み霊媒結果なし</div></div>`;
-    return `<div class="history">${arr.map(r=>`<div class="line">${r.day}日目：${escapeHtml(byId(r.target)?.name??"不明")} ${r.black?"●":"○"}</div>`).join("")}</div>`;
+    const arr=p.role==="medium"?p.mediumResults:(p.fakeClaimRole==="medium"?p.fakeMediumResults:[]);
+    return arr.map(r=>`${r.day}日 ${byId(r.target)?.name??"不明"}${r.black?"●":"○"}`).join(" / ");
   }
   return "";
+}
+
+function renderClaimBoard(){
+  const claimants=state.players.filter(p=>p.claimed);
+  if(!claimants.length){
+    $("#claimBoard").innerHTML=`<div class="muted">まだCO者はいません。</div>`;
+    return;
+  }
+  $("#claimBoard").innerHTML=claimants.map(p=>`
+    <div class="claim-card">
+      <div class="claim-head">
+        <div class="claim-name">${escapeHtml(p.name)}${p.alive?"":"（死亡）"}</div>
+        <div class="claim-role">${roleName(p.claimed)}CO</div>
+      </div>
+      ${resultHistory(p)?`<div class="claim-results">${escapeHtml(resultHistory(p))}</div>`:""}
+    </div>`).join("");
 }
 
 function renderAll(){
   if(!state)return;
   $("#phaseTitle").textContent=state.winner?`ゲーム終了：${state.winner}`:`${state.day}日目・${state.phase==="day"?"昼":"夜"}`;
   $("#statusBadges").innerHTML=`<span class="badge">生存 ${living().length}</span><span class="badge">死亡 ${state.players.length-living().length}</span><span class="badge">あなた：村人</span>`;
+  renderClaimBoard();
+
   $("#players").innerHTML=state.players.map(p=>`
-    <div class="player ${p.alive?"":"dead"}">
-      <div class="name">${escapeHtml(p.name)}${p.isSelf?"（あなた）":""}</div>
-      <div class="meta">${p.alive?"生存":"死亡"} / CO：${publicClaim(p)}</div>
-      ${p.claimed?`<div class="claim">【${roleName(p.claimed)}CO】</div>`:""}
-      ${publicHistoryHtml(p)}
+    <div class="player-row ${p.alive?"":"dead"}">
+      <div class="player-name">${escapeHtml(p.name)}${p.isSelf?"（あなた）":""}</div>
+      <div class="player-co">${p.claimed?roleName(p.claimed)+"CO":(p.villagerClaim===true?"村人CO":(p.villagerClaim===false?"非村人":"未CO"))}</div>
+      <div class="player-life">${p.alive?"生存":"死亡"}</div>
     </div>`).join("");
+
   renderLog();
   const dis=!!state.winner||state.phase!=="day";
-  ["#executeBtn","#blackSeerBtn","#blackMediumBtn","#roleCoBtn","#hiddenSeerBtn","#hiddenGuardBtn","#publicSeerBtn"].forEach(s=>$(s).disabled=dis);
+  ["#executeBtn","#blackSeerBtn","#blackMediumBtn","#roleCoBtn","#individualCoBtn","#villagerCheckBtn","#hiddenSeerBtn","#hiddenGuardBtn","#publicSeerBtn"].forEach(s=>$(s).disabled=dis);
   $("#nightBtn").disabled=!!state.winner||state.phase!=="night";
   renderDebug();
 }
 
 function makeTargetPanel(title,cands,onSelect){
   const p=$("#actionPanel");p.classList.remove("hidden");
-  p.innerHTML=`<b>${escapeHtml(title)}</b><div class="target-list">${cands.map(x=>`<button data-target="${x.id}">${escapeHtml(x.name)}</button>`).join("")}</div><div class="row" style="margin-top:10px"><button class="ghost" id="cancelAction">キャンセル</button></div>`;
+  p.innerHTML=`<b>${escapeHtml(title)}</b><div class="target-list">${cands.map(x=>`<button data-target="${x.id}">${escapeHtml(x.name)}</button>`).join("")}</div><div class="row" style="margin-top:9px"><button class="ghost" id="cancelAction">キャンセル</button></div>`;
   p.querySelectorAll("[data-target]").forEach(b=>b.onclick=()=>{onSelect(+b.dataset.target);p.classList.add("hidden")});
   $("#cancelAction").onclick=()=>p.classList.add("hidden");
 }
+
 function makeRolePanel(){
   const p=$("#actionPanel");p.classList.remove("hidden");
-  p.innerHTML=`<b>COさせる役職を選択</b><div class="target-list">${ROLES.map(([r,n])=>`<button data-role="${r}">${n}</button>`).join("")}</div><div class="row" style="margin-top:10px"><button class="ghost" id="cancelAction">キャンセル</button></div>`;
+  p.innerHTML=`<b>COさせる役職を選択</b><div class="target-list">${ROLES.map(([r,n])=>`<button data-role="${r}">${n}</button>`).join("")}</div><div class="row" style="margin-top:9px"><button class="ghost" id="cancelAction">キャンセル</button></div>`;
   p.querySelectorAll("[data-role]").forEach(b=>b.onclick=()=>{forceRoleCO(b.dataset.role);p.classList.add("hidden")});
   $("#cancelAction").onclick=()=>p.classList.add("hidden");
 }
@@ -334,14 +353,9 @@ function forceRoleCO(r){
   const real=roleLiving(r);
   const fake=living().filter(p=>p.fakeClaimRole===r);
   const all=[...real,...fake.filter(p=>!real.includes(p))];
+  if(!all.length){log(`【${roleName(r)}CO指示】CO指示を出しました。`,"system");return}
 
-  if(!all.length){
-    log(`【${roleName(r)}CO指示】CO指示を出しました。`,"system");
-    return;
-  }
-
-  all.forEach(p=>p.claimed=r);
-
+  all.forEach(p=>{p.claimed=r;p.villagerClaim=null});
   if(r==="seer"){
     real.forEach(p=>reportTrueSeer(p,true));
     fake.forEach(p=>{ensureInitialFakeSeerResult(p);reportFakeSeer(p,true)});
@@ -351,7 +365,6 @@ function forceRoleCO(r){
   }else{
     all.forEach(p=>log(`${p.name} が【${roleName(r)}CO】しました。`,"claim"));
   }
-
   save();renderAll();
 }
 
@@ -359,16 +372,10 @@ function blackSeerCO(){
   const real=roleLiving("seer").filter(p=>p.seerResults.some(r=>r.black));
   const fake=living().filter(p=>p.fakeClaimRole==="seer"&&p.fakeSeerResults.some(r=>r.black));
   const all=[...real,...fake.filter(p=>!real.includes(p))];
-
-  if(!all.length){
-    log("【黒出し占い師CO】指示を出しました。","system");
-    return;
-  }
-
-  all.forEach(p=>p.claimed="seer");
+  if(!all.length){log("【黒出し占い師CO】指示を出しました。","system");return}
+  all.forEach(p=>{p.claimed="seer";p.villagerClaim=null});
   real.forEach(p=>reportTrueSeer(p,true));
   fake.forEach(p=>reportFakeSeer(p,true));
-
   save();renderAll();
 }
 
@@ -376,17 +383,77 @@ function blackMediumCO(){
   const real=roleLiving("medium").filter(p=>p.mediumResults.some(r=>r.black));
   const fake=living().filter(p=>p.fakeClaimRole==="medium"&&p.fakeMediumResults.some(r=>r.black));
   const all=[...real,...fake.filter(p=>!real.includes(p))];
-
-  if(!all.length){
-    log("【黒出し霊媒師CO】指示を出しました。","system");
-    return;
-  }
-
-  all.forEach(p=>p.claimed="medium");
+  if(!all.length){log("【黒出し霊媒師CO】指示を出しました。","system");return}
+  all.forEach(p=>{p.claimed="medium";p.villagerClaim=null});
   real.forEach(p=>reportTrueMedium(p,true));
   fake.forEach(p=>reportFakeMedium(p,true));
-
   save();renderAll();
+}
+
+/* 個別CO確認 */
+function individualCoCheck(){
+  makeTargetPanel("COを確認する人物",living(),id=>{
+    const p=byId(id);
+
+    if(p.claimed){
+      log(`【個別CO確認】${p.name}：「${roleName(p.claimed)}COしています」`,"claim");
+      return;
+    }
+
+    // 村陣営の役職持ちは正直にCO
+    if(["seer","knight","medium"].includes(p.role)){
+      p.claimed=p.role;
+      p.villagerClaim=null;
+      if(p.role==="seer")reportTrueSeer(p,true);
+      else if(p.role==="medium")reportTrueMedium(p,true);
+      else log(`${p.name} が【騎士CO】しました。`,"claim");
+    }
+    // 人外は騙り予定があればその役職をCO
+    else if(["madman","wolf","fox"].includes(p.role)&&p.fakeClaimRole){
+      p.claimed=p.fakeClaimRole;
+      p.villagerClaim=null;
+      if(p.fakeClaimRole==="seer"){
+        ensureInitialFakeSeerResult(p);
+        reportFakeSeer(p,true);
+      }else if(p.fakeClaimRole==="medium"){
+        reportFakeMedium(p,true);
+      }
+    }else{
+      log(`【個別CO確認】${p.name}：「COはありません」`,"system");
+    }
+    save();renderAll();
+  });
+}
+
+/* 個別村人CO */
+function villagerCheck(){
+  makeTargetPanel("「村人ですか？」と確認する人物",living(),id=>{
+    const p=byId(id);
+
+    // 既に役職CO済みならそのCOを維持
+    if(p.claimed){
+      p.villagerClaim=false;
+      log(`【個別村人CO】${p.name}：「村人ではありません。${roleName(p.claimed)}COです」`,"claim");
+      save();renderAll();return;
+    }
+
+    let saysVillager=false;
+    if(p.role==="villager"){
+      saysVillager=true;
+    }else if(["seer","knight","medium"].includes(p.role)){
+      saysVillager=false;
+    }else if(p.role==="madman"){
+      saysVillager=Math.random()<0.78;
+    }else if(p.role==="wolf"){
+      saysVillager=Math.random()<0.88;
+    }else if(p.role==="fox"){
+      saysVillager=Math.random()<0.84;
+    }
+
+    p.villagerClaim=saysVillager;
+    log(`【個別村人CO】${p.name}：「${saysVillager?"村人です":"村人ではありません"}」`,saysVillager?"claim":"system");
+    save();renderAll();
+  });
 }
 
 function hiddenSeerInstruction(){
@@ -406,15 +473,11 @@ function hiddenGuardInstruction(){
 function publicSeerInstruction(){
   const claimants=living().filter(p=>p.claimed==="seer");
   const panel=$("#actionPanel");panel.classList.remove("hidden");
-
   if(!claimants.length){
-    panel.innerHTML=`<b>CO済占い師への個別指示</b><div class="muted" style="margin-top:8px">現在公開上の占い師CO者はいません。</div><div class="row" style="margin-top:10px"><button class="ghost" id="cancelAction">閉じる</button></div>`;
-    $("#cancelAction").onclick=()=>panel.classList.add("hidden");
-    return;
+    panel.innerHTML=`<b>CO済占い師への個別指示</b><div class="muted" style="margin-top:8px">現在公開上の占い師CO者はいません。</div><div class="row" style="margin-top:9px"><button class="ghost" id="cancelAction">閉じる</button></div>`;
+    $("#cancelAction").onclick=()=>panel.classList.add("hidden"); return;
   }
-
-  panel.innerHTML=`<b>指示する占い師CO者を選択</b><div class="target-list">${claimants.map(p=>`<button data-seer="${p.id}">${escapeHtml(p.name)}</button>`).join("")}</div><div class="row" style="margin-top:10px"><button class="ghost" id="cancelAction">キャンセル</button></div>`;
-
+  panel.innerHTML=`<b>指示する占い師CO者を選択</b><div class="target-list">${claimants.map(p=>`<button data-seer="${p.id}">${escapeHtml(p.name)}</button>`).join("")}</div><div class="row" style="margin-top:9px"><button class="ghost" id="cancelAction">キャンセル</button></div>`;
   panel.querySelectorAll("[data-seer]").forEach(b=>b.onclick=()=>{
     const seer=byId(+b.dataset.seer);
     makeTargetPanel(`${seer.name} の次回占い先`,living().filter(x=>x.id!==seer.id),id=>{
@@ -423,7 +486,6 @@ function publicSeerInstruction(){
       save();renderAll();
     });
   });
-
   $("#cancelAction").onclick=()=>panel.classList.add("hidden");
 }
 
@@ -431,45 +493,46 @@ function chooseExecution(){
   makeTargetPanel("本日の処刑対象を選択",living(),id=>{
     const p=byId(id);p.alive=false;state.lastExecuted=id;
     log(`${p.name} は処刑されました。`,"death");
-
     roleLiving("medium").forEach(m=>m.mediumResults.push({day:state.day+1,target:id,black:p.role==="wolf"}));
     living().filter(x=>x.fakeClaimRole==="medium").forEach(m=>{
       m.fakeMediumResults.push({day:state.day+1,target:id,black:chooseFakeMediumBlack(m,p)});
     });
-
     const w=checkWin(); if(w){finish(w);return}
     state.phase="night";log("夜になりました。","system");save();renderAll();
   });
 }
 
 function chooseFakeBlack(liar,target){
-  if(liar.role==="wolf"){
-    if(target.role==="wolf")return false;
-    return Math.random()<0.35;
-  }
+  if(liar.role==="wolf"){if(target.role==="wolf")return false; return Math.random()<0.35}
   if(liar.role==="madman")return Math.random()<0.28;
   if(liar.role==="fox")return Math.random()<0.22;
   return false;
 }
 function chooseFakeMediumBlack(liar,executed){
-  if(liar.role==="wolf"){
-    if(executed.role==="wolf")return false;
-    return Math.random()<0.28;
-  }
+  if(liar.role==="wolf"){if(executed.role==="wolf")return false; return Math.random()<0.28}
   if(liar.role==="madman")return Math.random()<0.32;
   if(liar.role==="fox")return Math.random()<0.25;
   return false;
 }
 
+/* 指定なしの場合、未占いの相手を優先 */
+function autoSeerTarget(p,results){
+  const seen=new Set(results.map(r=>r.target));
+  let candidates=living().filter(x=>x.id!==p.id && !seen.has(x.id));
+  if(!candidates.length){
+    // 全員一度は占っていたら、生存者から再選択
+    candidates=living().filter(x=>x.id!==p.id);
+  }
+  return randomChoice(candidates);
+}
+
 function resolveNight(){
   if(state.phase!=="night"||state.winner)return;
-
   let foxKilled=[];
 
-  // 真占い
   roleLiving("seer").forEach(s=>{
     let t=s.forcedSeerTarget!=null&&byId(s.forcedSeerTarget)?.alive?byId(s.forcedSeerTarget):null;
-    if(!t)t=randomChoice(living().filter(p=>p.id!==s.id));
+    if(!t)t=autoSeerTarget(s,s.seerResults);
     if(t){
       s.seerResults.push({day:state.day+1,target:t.id,black:t.role==="wolf"});
       if(t.role==="fox")foxKilled.push(t.id);
@@ -477,15 +540,13 @@ function resolveNight(){
     s.forcedSeerTarget=null;
   });
 
-  // 騙り占い
   living().filter(p=>p.fakeClaimRole==="seer").forEach(s=>{
     let t=s.forcedSeerTarget!=null&&byId(s.forcedSeerTarget)?.alive?byId(s.forcedSeerTarget):null;
-    if(!t)t=randomChoice(living().filter(p=>p.id!==s.id));
+    if(!t)t=autoSeerTarget(s,s.fakeSeerResults);
     if(t)s.fakeSeerResults.push({day:state.day+1,target:t.id,black:chooseFakeBlack(s,t)});
     s.forcedSeerTarget=null;
   });
 
-  // 騎士
   const guardTargets=[];
   roleLiving("knight").forEach(k=>{
     let t=k.forcedGuardTarget!=null&&byId(k.forcedGuardTarget)?.alive?byId(k.forcedGuardTarget):null;
@@ -494,7 +555,6 @@ function resolveNight(){
     k.forcedGuardTarget=null;
   });
 
-  // 人狼襲撃
   const wolves=roleLiving("wolf");
   let attacked=null;
   if(wolves.length)attacked=randomChoice(living().filter(p=>p.role!=="wolf"));
@@ -514,11 +574,9 @@ function resolveNight(){
 
   const w=checkWin(); if(w){finish(w);return}
 
-  state.day++;
-  state.phase="day";
+  state.day++;state.phase="day";
   log(`${state.day}日目の朝になりました。`,"system");
 
-  // CO済み占い師・霊媒師だけが毎朝新結果を自動報告
   living().filter(p=>p.claimed==="seer").forEach(p=>{
     if(p.role==="seer")reportTrueSeer(p,false);
     else if(p.fakeClaimRole==="seer")reportFakeSeer(p,false);
@@ -538,24 +596,22 @@ function checkWin(){
   return null;
 }
 function finish(w){state.winner=w;state.phase="end";log(`ゲーム終了：${w}`,"system");save();renderAll()}
-function save(){localStorage.setItem("jinro_v03_state",JSON.stringify(state))}
+function save(){localStorage.setItem("jinro_v04_state",JSON.stringify(state))}
 function load(){
   try{
-    const r=localStorage.getItem("jinro_v03_state");
+    const r=localStorage.getItem("jinro_v04_state");
     if(!r){alert("保存データがありません");return}
-    state=JSON.parse(r);
-    showGame();
+    state=JSON.parse(r); showGame();
   }catch(e){alert("保存データを読み込めませんでした")}
 }
 function reset(){
   if(confirm("現在のゲームを終了して設定画面に戻りますか？")){
-    localStorage.removeItem("jinro_v03_state");
-    state=null;showSetup();
+    localStorage.removeItem("jinro_v04_state"); state=null; showSetup();
   }
 }
 function renderDebug(){
   if(!state)return;
-  $("#debugText").innerHTML=state.players.map(p=>`${escapeHtml(p.name)}：${roleName(p.role)} / ${p.alive?"生存":"死亡"} / CO ${publicClaim(p)} / 騙り予定 ${p.fakeClaimRole?roleName(p.fakeClaimRole):"なし"}`).join("<br>");
+  $("#debugText").innerHTML=state.players.map(p=>`${escapeHtml(p.name)}：${roleName(p.role)} / ${p.alive?"生存":"死亡"} / CO ${publicClaim(p)} / 騙り予定 ${p.fakeClaimRole?roleName(p.fakeClaimRole):"なし"} / 村人回答 ${p.villagerClaim===null?"未確認":(p.villagerClaim?"村人":"非村人")}`).join("<br>");
 }
 
 $("#playerCount").addEventListener("input",renderRoleConfig);
@@ -565,6 +621,8 @@ $("#resetBtn").onclick=reset;
 $("#blackSeerBtn").onclick=blackSeerCO;
 $("#blackMediumBtn").onclick=blackMediumCO;
 $("#roleCoBtn").onclick=makeRolePanel;
+$("#individualCoBtn").onclick=individualCoCheck;
+$("#villagerCheckBtn").onclick=villagerCheck;
 $("#hiddenSeerBtn").onclick=hiddenSeerInstruction;
 $("#hiddenGuardBtn").onclick=hiddenGuardInstruction;
 $("#publicSeerBtn").onclick=publicSeerInstruction;

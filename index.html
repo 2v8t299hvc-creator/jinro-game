@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v0.4</title>
+<title>個人用人狼アプリ v0.5</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -66,8 +66,8 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="wrap">
-  <h1>個人用人狼アプリ <span class="muted">v0.4</span></h1>
-  <div class="muted">完全指示制CO / 個別CO / 村人確認 / 重複占い防止 / コンパクトUI</div>
+  <h1>個人用人狼アプリ <span class="muted">v0.5</span></h1>
+  <div class="muted">完全指示制CO / 役職別CO表示 / 騎士護衛履歴 / 黒出し騙り対応</div>
 
   <section id="setupScreen">
     <div class="card">
@@ -138,7 +138,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
         <button id="executeBtn">処刑対象を選ぶ</button>
         <button id="nightBtn" class="secondary" disabled>夜を解決する</button>
       </div>
-      <div class="muted" style="margin-top:7px">v0.4では投票AIはまだ未実装。処刑対象は自分で選択します。</div>
+      <div class="muted" style="margin-top:7px">v0.5では投票AIはまだ未実装。処刑対象は自分で選択します。</div>
     </div>
 
     <div id="debugPanel" class="card hidden">
@@ -197,7 +197,7 @@ function newPlayer(id,name,role,isSelf=false){
     seerResults:[],mediumResults:[],fakeSeerResults:[],fakeMediumResults:[],
     forcedSeerTarget:null,forcedGuardTarget:null,fakeClaimRole:null,
     lastReportedSeerCount:0,lastReportedMediumCount:0,
-    villagerClaim:null
+    guardHistory:[], villagerClaim:null
   };
 }
 
@@ -222,6 +222,15 @@ function startGame(){
   });
 
   assignFakeClaims();
+
+  // 占い師騙り予定の人外にも、ゲーム開始時点で偽の初日占い結果を1件持たせる
+  state.players.filter(p=>p.fakeClaimRole==="seer").forEach(p=>{
+    if(!p.fakeSeerResults.length){
+      const t=randomChoice(state.players.filter(x=>x.id!==p.id));
+      if(t)p.fakeSeerResults.push({day:1,target:t.id,black:chooseFakeBlack(p,t)});
+    }
+  });
+
   log(`ゲーム開始。参加者は${n}人。あなたの役職は【村人】です。`,"system");
   save();showGame();
 }
@@ -267,19 +276,56 @@ function resultHistory(p){
 }
 
 function renderClaimBoard(){
-  const claimants=state.players.filter(p=>p.claimed);
-  if(!claimants.length){
+  const groups=[
+    ["seer","占いCO者"],
+    ["medium","霊媒師CO者"],
+    ["knight","騎士CO者"],
+    ["villager","村人CO者"]
+  ];
+
+  const rendered=[];
+
+  for(const [role,label] of groups){
+    let members=[];
+    if(role==="villager"){
+      members=state.players.filter(p=>p.villagerClaim===true && !p.claimed);
+    }else{
+      members=state.players.filter(p=>p.claimed===role);
+    }
+    if(!members.length)continue;
+
+    const cards=members.map(p=>{
+      let detail="";
+      if(role==="seer"||role==="medium"){
+        const h=resultHistory(p);
+        detail=h?`<div class="claim-results">${escapeHtml(h)}</div>`:"";
+      }else if(role==="knight"){
+        const gh=(p.guardHistory||[]).map(r=>`${r.day}日 ${byId(r.target)?.name??"不明"}護衛`).join(" / ");
+        detail=gh?`<div class="claim-results">${escapeHtml(gh)}</div>`:`<div class="claim-results muted">護衛記録なし</div>`;
+      }
+      return `
+        <div class="claim-card">
+          <div class="claim-head">
+            <div class="claim-name">${escapeHtml(p.name)}${p.alive?"":"（死亡）"}</div>
+            <div class="claim-role">${role==="villager"?"村人CO":roleName(role)+"CO"}</div>
+          </div>
+          ${detail}
+        </div>`;
+    }).join("");
+
+    rendered.push(`
+      <div style="margin-bottom:12px">
+        <div style="font-weight:800;margin-bottom:6px;color:var(--warn)">【${label}】</div>
+        <div class="claim-board">${cards}</div>
+      </div>`);
+  }
+
+  if(!rendered.length){
     $("#claimBoard").innerHTML=`<div class="muted">まだCO者はいません。</div>`;
     return;
   }
-  $("#claimBoard").innerHTML=claimants.map(p=>`
-    <div class="claim-card">
-      <div class="claim-head">
-        <div class="claim-name">${escapeHtml(p.name)}${p.alive?"":"（死亡）"}</div>
-        <div class="claim-role">${roleName(p.claimed)}CO</div>
-      </div>
-      ${resultHistory(p)?`<div class="claim-results">${escapeHtml(resultHistory(p))}</div>`:""}
-    </div>`).join("");
+
+  $("#claimBoard").innerHTML=rendered.join("");
 }
 
 function renderAll(){
@@ -343,6 +389,19 @@ function reportFakeMedium(p,first=false){
   p.lastReportedMediumCount=p.fakeMediumResults.length;
 }
 
+function reportKnight(p,first=false){
+  if(first)log(`${p.name} が【騎士CO】しました。`,"claim");
+  const hist=p.guardHistory||[];
+  if(!hist.length&&first){
+    log(`${p.name}（騎士CO）：まだ護衛記録はありません。`,"result");
+    return;
+  }
+  if(hist.length){
+    const last=hist[hist.length-1];
+    log(`${p.name}（騎士CO）：${last.day}日目は ${byId(last.target)?.name??"不明"} を護衛しました。`,"result");
+  }
+}
+
 function ensureInitialFakeSeerResult(p){
   if(p.fakeSeerResults.length)return;
   const t=randomChoice(living().filter(x=>x.id!==p.id));
@@ -362,6 +421,9 @@ function forceRoleCO(r){
   }else if(r==="medium"){
     real.forEach(p=>reportTrueMedium(p,true));
     fake.forEach(p=>reportFakeMedium(p,true));
+  }else if(r==="knight"){
+    real.forEach(p=>reportKnight(p,true));
+    fake.forEach(p=>log(`${p.name} が【騎士CO】しました。`,"claim"));
   }else{
     all.forEach(p=>log(`${p.name} が【${roleName(r)}CO】しました。`,"claim"));
   }
@@ -406,7 +468,7 @@ function individualCoCheck(){
       p.villagerClaim=null;
       if(p.role==="seer")reportTrueSeer(p,true);
       else if(p.role==="medium")reportTrueMedium(p,true);
-      else log(`${p.name} が【騎士CO】しました。`,"claim");
+      else reportKnight(p,true);
     }
     // 人外は騙り予定があればその役職をCO
     else if(["madman","wolf","fox"].includes(p.role)&&p.fakeClaimRole){
@@ -551,7 +613,11 @@ function resolveNight(){
   roleLiving("knight").forEach(k=>{
     let t=k.forcedGuardTarget!=null&&byId(k.forcedGuardTarget)?.alive?byId(k.forcedGuardTarget):null;
     if(!t)t=randomChoice(living().filter(p=>p.id!==k.id));
-    if(t)guardTargets.push(t.id);
+    if(t){
+      guardTargets.push(t.id);
+      if(!k.guardHistory)k.guardHistory=[];
+      k.guardHistory.push({day:state.day+1,target:t.id});
+    }
     k.forcedGuardTarget=null;
   });
 
@@ -584,6 +650,9 @@ function resolveNight(){
   living().filter(p=>p.claimed==="medium").forEach(p=>{
     if(p.role==="medium")reportTrueMedium(p,false);
     else if(p.fakeClaimRole==="medium")reportFakeMedium(p,false);
+  });
+  living().filter(p=>p.claimed==="knight" && p.role==="knight").forEach(p=>{
+    reportKnight(p,false);
   });
 
   save();renderAll();

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v0.5</title>
+<title>個人用人狼アプリ v0.6</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -17,11 +17,11 @@ button.secondary{background:var(--panel2)}
 button.danger{background:var(--danger)}
 button.ghost{background:transparent;border:1px solid var(--line)}
 button:disabled{opacity:.45}
-.wrap{max-width:980px;margin:auto;padding:14px}
+.wrap{max-width:980px;margin:auto;padding:76px 14px 92px}
 h1{font-size:22px;margin:0 0 4px}
 h2{font-size:17px;margin:0 0 10px}
 .muted{color:var(--muted)}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;margin:12px 0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px;margin:10px 0}
 .grid{display:grid;gap:8px}
 .cols2{grid-template-columns:repeat(2,minmax(0,1fr))}
 .cols3{grid-template-columns:repeat(3,minmax(0,1fr))}
@@ -62,12 +62,30 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 .target-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:7px;margin-top:9px}
 .target-list button{background:var(--panel2);border:1px solid var(--line)}
 .footer{color:var(--muted);font-size:12px;text-align:center;padding:16px 0}
+
+.topbar{position:fixed;top:0;left:0;right:0;z-index:50;background:rgba(15,17,23,.96);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.topbar-inner{max-width:980px;margin:auto;padding:10px 14px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.topbar-title{font-weight:800}.topbar-mini{font-size:12px;color:var(--muted)}
+.bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(15,17,23,.97);backdrop-filter:blur(10px);border-top:1px solid var(--line)}
+.bottom-nav-inner{max-width:980px;margin:auto;padding:8px 10px calc(8px + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+.bottom-nav button{padding:10px 6px;font-size:13px}
+.action-sheet{position:fixed;left:10px;right:10px;bottom:76px;z-index:60;max-width:720px;margin:auto;background:#141923;border:1px solid var(--line);border-radius:16px;padding:12px;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+.action-sheet-title{font-weight:800;margin-bottom:8px}.action-sheet-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.action-sheet-grid button{background:var(--panel2)}.action-sheet-close{margin-top:8px;width:100%;background:transparent;border:1px solid var(--line)}
+.tabbar{display:flex;gap:6px;overflow-x:auto;padding-bottom:3px}.tabbar button{flex:0 0 auto;padding:8px 10px;background:var(--panel2);font-size:12px}.tabbar button.active{background:var(--accent)}
+.compact-section{padding:10px}.claim-role-section{margin-top:8px}.claim-role-label{font-weight:800;font-size:13px;color:var(--warn);margin-bottom:6px}
+.claim-card{padding:8px 9px}.claim-results{font-size:11px}.player-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+.player-row{grid-template-columns:1fr auto;gap:6px;padding:7px 8px}.player-row .player-co{grid-column:1/2;font-size:11px}.player-life{grid-row:1/3;grid-column:2/3;align-self:center}
+@media(max-width:520px){.player-list{grid-template-columns:repeat(2,minmax(0,1fr))}.player-row{font-size:11px}}
+.log.collapsed{height:108px}.log-toggle{width:100%;margin-top:8px;background:var(--panel2)}
 </style>
 </head>
 <body>
+<div class="topbar"><div class="topbar-inner">
+  <div><div class="topbar-title">個人用人狼 v0.6</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
+</div></div>
 <div class="wrap">
-  <h1>個人用人狼アプリ <span class="muted">v0.5</span></h1>
-  <div class="muted">完全指示制CO / 役職別CO表示 / 騎士護衛履歴 / 黒出し騙り対応</div>
 
   <section id="setupScreen">
     <div class="card">
@@ -88,58 +106,45 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   </section>
 
   <section id="gameScreen" class="hidden">
-    <div class="card">
-      <div class="row" style="justify-content:space-between">
-        <div>
-          <h2 id="phaseTitle">1日目・昼</h2>
-          <div class="status" id="statusBadges"></div>
-        </div>
-        <div class="row">
-          <button class="ghost" id="debugBtn">デバッグ</button>
-          <button class="danger" id="resetBtn">終了</button>
-        </div>
+
+
+    <div class="card compact-section"><div class="status" id="statusBadges"></div></div>
+
+    <div class="card compact-section">
+      <div class="tabbar" id="claimTabs">
+        <button data-claimtab="seer" class="active">占い</button>
+        <button data-claimtab="medium">霊媒</button>
+        <button data-claimtab="knight">騎士</button>
+        <button data-claimtab="villager">村人</button>
       </div>
+      <div id="claimBoard" class="claim-board claim-role-section"></div>
     </div>
 
-    <div class="card">
-      <h2>CO中の人物</h2>
-      <div id="claimBoard" class="claim-board"></div>
+    <div class="card compact-section">
+      <h2>全プレイヤー</h2>
+      <div id="players" class="player-list"></div>
     </div>
 
-    <div class="grid cols2">
-      <div class="card">
-        <h2>全プレイヤー</h2>
-        <div id="players" class="player-list"></div>
-      </div>
-      <div class="card">
-        <h2>公開ログ</h2>
-        <div id="log" class="log"></div>
-      </div>
+    <div class="card compact-section">
+      <h2>公開ログ</h2>
+      <div id="log" class="log collapsed"></div>
+      <button id="logToggleBtn" class="log-toggle">ログを全部見る</button>
     </div>
 
-    <div class="card">
-      <h2>指示</h2>
-      <div class="grid cols3">
-        <button id="blackSeerBtn">黒出し占い師CO</button>
-        <button id="blackMediumBtn">黒出し霊媒師CO</button>
-        <button id="roleCoBtn">役職CO</button>
-        <button id="individualCoBtn">個別CO確認</button>
-        <button id="villagerCheckBtn">個別村人CO</button>
-        <button id="hiddenSeerBtn" class="secondary">潜伏占い指示</button>
-        <button id="hiddenGuardBtn" class="secondary">潜伏護衛指示</button>
-        <button id="publicSeerBtn" class="secondary">CO済占い師へ個別指示</button>
-      </div>
-      <div id="actionPanel" class="hidden" style="margin-top:12px"></div>
+    <div id="actionPanel" class="hidden"></div>
+
+    <div id="actionSheet" class="action-sheet hidden">
+      <div id="actionSheetTitle" class="action-sheet-title">操作</div>
+      <div id="actionSheetGrid" class="action-sheet-grid"></div>
+      <button id="actionSheetClose" class="action-sheet-close">閉じる</button>
     </div>
 
-    <div class="card">
-      <h2>進行</h2>
-      <div class="row">
-        <button id="executeBtn">処刑対象を選ぶ</button>
-        <button id="nightBtn" class="secondary" disabled>夜を解決する</button>
-      </div>
-      <div class="muted" style="margin-top:7px">v0.5では投票AIはまだ未実装。処刑対象は自分で選択します。</div>
-    </div>
+    <div class="bottom-nav"><div class="bottom-nav-inner">
+      <button id="navCo">CO</button>
+      <button id="navSeer" class="secondary">占い</button>
+      <button id="navGuard" class="secondary">護衛</button>
+      <button id="navFlow" class="secondary">進行</button>
+    </div></div>
 
     <div id="debugPanel" class="card hidden">
       <h2>デバッグ情報</h2>
@@ -276,62 +281,26 @@ function resultHistory(p){
 }
 
 function renderClaimBoard(){
-  const groups=[
-    ["seer","占いCO者"],
-    ["medium","霊媒師CO者"],
-    ["knight","騎士CO者"],
-    ["villager","村人CO者"]
-  ];
-
-  const rendered=[];
-
-  for(const [role,label] of groups){
-    let members=[];
-    if(role==="villager"){
-      members=state.players.filter(p=>p.villagerClaim===true && !p.claimed);
-    }else{
-      members=state.players.filter(p=>p.claimed===role);
-    }
-    if(!members.length)continue;
-
-    const cards=members.map(p=>{
-      let detail="";
-      if(role==="seer"||role==="medium"){
-        const h=resultHistory(p);
-        detail=h?`<div class="claim-results">${escapeHtml(h)}</div>`:"";
-      }else if(role==="knight"){
-        const gh=(p.guardHistory||[]).map(r=>`${r.day}日 ${byId(r.target)?.name??"不明"}護衛`).join(" / ");
-        detail=gh?`<div class="claim-results">${escapeHtml(gh)}</div>`:`<div class="claim-results muted">護衛記録なし</div>`;
-      }
-      return `
-        <div class="claim-card">
-          <div class="claim-head">
-            <div class="claim-name">${escapeHtml(p.name)}${p.alive?"":"（死亡）"}</div>
-            <div class="claim-role">${role==="villager"?"村人CO":roleName(role)+"CO"}</div>
-          </div>
-          ${detail}
-        </div>`;
-    }).join("");
-
-    rendered.push(`
-      <div style="margin-bottom:12px">
-        <div style="font-weight:800;margin-bottom:6px;color:var(--warn)">【${label}】</div>
-        <div class="claim-board">${cards}</div>
-      </div>`);
-  }
-
-  if(!rendered.length){
-    $("#claimBoard").innerHTML=`<div class="muted">まだCO者はいません。</div>`;
-    return;
-  }
-
-  $("#claimBoard").innerHTML=rendered.join("");
+  const role=state.claimTab||"seer";
+  let members=[],label="";
+  if(role==="seer"){members=state.players.filter(p=>p.claimed==="seer");label="【占いCO者】"}
+  if(role==="medium"){members=state.players.filter(p=>p.claimed==="medium");label="【霊媒師CO者】"}
+  if(role==="knight"){members=state.players.filter(p=>p.claimed==="knight");label="【騎士CO者】"}
+  if(role==="villager"){members=state.players.filter(p=>p.villagerClaim===true&&!p.claimed);label="【村人CO者】"}
+  document.querySelectorAll("[data-claimtab]").forEach(b=>b.classList.toggle("active",b.dataset.claimtab===role));
+  if(!members.length){$("#claimBoard").innerHTML=`<div class="muted">${label} なし</div>`;return}
+  $("#claimBoard").innerHTML=`<div class="claim-role-label">${label}</div>`+members.map(p=>{
+    let detail="";
+    if(role==="seer"||role==="medium"){const h=resultHistory(p);detail=h?`<div class="claim-results">${escapeHtml(h)}</div>`:""}
+    else if(role==="knight"){const gh=(p.guardHistory||[]).map(r=>`${r.day}日 ${byId(r.target)?.name??"不明"}護衛`).join(" / ");detail=gh?`<div class="claim-results">${escapeHtml(gh)}</div>`:`<div class="claim-results muted">護衛記録なし</div>`}
+    return `<div class="claim-card"><div class="claim-head"><div class="claim-name">${escapeHtml(p.name)}${p.alive?"":"（死亡）"}</div><div class="claim-role">${role==="villager"?"村人CO":roleName(role)+"CO"}</div></div>${detail}</div>`
+  }).join("");
 }
 
 function renderAll(){
   if(!state)return;
-  $("#phaseTitle").textContent=state.winner?`ゲーム終了：${state.winner}`:`${state.day}日目・${state.phase==="day"?"昼":"夜"}`;
-  $("#statusBadges").innerHTML=`<span class="badge">生存 ${living().length}</span><span class="badge">死亡 ${state.players.length-living().length}</span><span class="badge">あなた：村人</span>`;
+  $("#topbarPhase").textContent=state.winner?`ゲーム終了：${state.winner}`:`${state.day}日目・${state.phase==="day"?"昼":"夜"} / 生存${living().length}`;
+  $("#statusBadges").innerHTML=`<span class="badge">${state.day}日目</span><span class="badge">${state.phase==="day"?"昼":"夜"}</span><span class="badge">生存 ${living().length}</span><span class="badge">死亡 ${state.players.length-living().length}</span>`;
   renderClaimBoard();
 
   $("#players").innerHTML=state.players.map(p=>`
@@ -342,9 +311,7 @@ function renderAll(){
     </div>`).join("");
 
   renderLog();
-  const dis=!!state.winner||state.phase!=="day";
-  ["#executeBtn","#blackSeerBtn","#blackMediumBtn","#roleCoBtn","#individualCoBtn","#villagerCheckBtn","#hiddenSeerBtn","#hiddenGuardBtn","#publicSeerBtn"].forEach(s=>$(s).disabled=dis);
-  $("#nightBtn").disabled=!!state.winner||state.phase!=="night";
+  document.querySelectorAll(".bottom-nav button").forEach(b=>b.disabled=!!state.winner);
   renderDebug();
 }
 
@@ -357,7 +324,8 @@ function makeTargetPanel(title,cands,onSelect){
 
 function makeRolePanel(){
   const p=$("#actionPanel");p.classList.remove("hidden");
-  p.innerHTML=`<b>COさせる役職を選択</b><div class="target-list">${ROLES.map(([r,n])=>`<button data-role="${r}">${n}</button>`).join("")}</div><div class="row" style="margin-top:9px"><button class="ghost" id="cancelAction">キャンセル</button></div>`;
+  const opts=[["seer","占い師"],["medium","霊媒師"],["knight","騎士"]];
+  p.innerHTML=`<div class="action-sheet"><b>COさせる役職を選択</b><div class="target-list">${opts.map(([r,n])=>`<button data-role="${r}">${n}</button>`).join("")}</div><button class="action-sheet-close" id="cancelAction">キャンセル</button></div>`;
   p.querySelectorAll("[data-role]").forEach(b=>b.onclick=()=>{forceRoleCO(b.dataset.role);p.classList.add("hidden")});
   $("#cancelAction").onclick=()=>p.classList.add("hidden");
 }
@@ -683,22 +651,64 @@ function renderDebug(){
   $("#debugText").innerHTML=state.players.map(p=>`${escapeHtml(p.name)}：${roleName(p.role)} / ${p.alive?"生存":"死亡"} / CO ${publicClaim(p)} / 騙り予定 ${p.fakeClaimRole?roleName(p.fakeClaimRole):"なし"} / 村人回答 ${p.villagerClaim===null?"未確認":(p.villagerClaim?"村人":"非村人")}`).join("<br>");
 }
 
+function openActionSheet(title,items){
+  $("#actionSheetTitle").textContent=title;
+  $("#actionSheetGrid").innerHTML=items.map(x=>`<button data-action="${x.id}">${x.label}</button>`).join("");
+  $("#actionSheet").classList.remove("hidden");
+  $("#actionSheetGrid").querySelectorAll("[data-action]").forEach(btn=>{
+    btn.onclick=()=>{
+      const item=items.find(x=>x.id===btn.dataset.action);
+      $("#actionSheet").classList.add("hidden");
+      if(item)item.run();
+    };
+  });
+}
+function closeActionSheet(){$("#actionSheet").classList.add("hidden")}
+function openCoMenu(){
+  if(state.phase!=="day"){log("CO指示は昼のみ使えます。","system");return}
+  openActionSheet("COメニュー",[
+    {id:"bseer",label:"黒出し占い師CO",run:blackSeerCO},
+    {id:"bmed",label:"黒出し霊媒師CO",run:blackMediumCO},
+    {id:"role",label:"役職CO",run:makeRolePanel},
+    {id:"ind",label:"個別CO確認",run:individualCoCheck},
+    {id:"vcheck",label:"個別村人CO",run:villagerCheck}
+  ])
+}
+function openSeerMenu(){
+  if(state.phase!=="day"){log("占い指示は昼のみ使えます。","system");return}
+  openActionSheet("占いメニュー",[
+    {id:"hidden",label:"潜伏占い指示",run:hiddenSeerInstruction},
+    {id:"public",label:"CO済占い師へ個別指示",run:publicSeerInstruction}
+  ])
+}
+function openGuardMenu(){
+  if(state.phase!=="day"){log("護衛指示は昼のみ使えます。","system");return}
+  openActionSheet("護衛メニュー",[{id:"hiddenGuard",label:"潜伏護衛指示",run:hiddenGuardInstruction}])
+}
+function openFlowMenu(){
+  openActionSheet("進行メニュー",[
+    {id:"execute",label:"処刑対象を選ぶ",run:()=>state.phase==="day"?chooseExecution():log("処刑は昼のみです。","system")},
+    {id:"night",label:"夜を解決する",run:()=>state.phase==="night"?resolveNight():log("まだ夜ではありません。","system")}
+  ])
+}
+
 $("#playerCount").addEventListener("input",renderRoleConfig);
 $("#startBtn").onclick=startGame;
 $("#loadBtn").onclick=load;
-$("#resetBtn").onclick=reset;
-$("#blackSeerBtn").onclick=blackSeerCO;
-$("#blackMediumBtn").onclick=blackMediumCO;
-$("#roleCoBtn").onclick=makeRolePanel;
-$("#individualCoBtn").onclick=individualCoCheck;
-$("#villagerCheckBtn").onclick=villagerCheck;
-$("#hiddenSeerBtn").onclick=hiddenSeerInstruction;
-$("#hiddenGuardBtn").onclick=hiddenGuardInstruction;
-$("#publicSeerBtn").onclick=publicSeerInstruction;
-$("#executeBtn").onclick=chooseExecution;
-$("#nightBtn").onclick=resolveNight;
-$("#debugBtn").onclick=()=>$("#debugPanel").classList.toggle("hidden");
-
+$("#debugBtnTop").onclick=()=>$("#debugPanel").classList.toggle("hidden");
+$("#resetBtnTop").onclick=reset;
+$("#actionSheetClose").onclick=closeActionSheet;
+$("#navCo").onclick=openCoMenu;
+$("#navSeer").onclick=openSeerMenu;
+$("#navGuard").onclick=openGuardMenu;
+$("#navFlow").onclick=openFlowMenu;
+$("#logToggleBtn").onclick=()=>{
+  const e=$("#log"),collapsed=e.classList.toggle("collapsed");
+  $("#logToggleBtn").textContent=collapsed?"ログを全部見る":"ログをたたむ";
+};
+document.querySelectorAll("[data-claimtab]").forEach(btn=>{
+  btn.onclick=()=>{if(!state)return;state.claimTab=btn.dataset.claimtab;save();renderClaimBoard()}
+});
 renderRoleConfig();
 </script>
 </body>

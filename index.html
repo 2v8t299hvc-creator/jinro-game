@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v0.2</title>
+<title>個人用人狼アプリ v0.3</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -37,6 +37,8 @@ input[type=number],select,input[type=text]{width:100%;padding:10px 12px;border-r
 .player .name{font-weight:800}
 .player .meta{margin-top:5px;font-size:13px;color:var(--muted)}
 .player .claim{margin-top:7px;color:var(--warn);font-size:13px}
+.history{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);font-size:13px;line-height:1.5}
+.history .line{margin:2px 0}
 .log{height:360px;overflow:auto;background:#0d1016;border-radius:12px;padding:12px;border:1px solid var(--line)}
 .log p{margin:0 0 9px;line-height:1.5}
 .log .system{color:#c7d2fe}
@@ -53,8 +55,8 @@ hr{border:0;border-top:1px solid var(--line);margin:14px 0}
 </head>
 <body>
 <div class="wrap">
-  <h1>個人用人狼アプリ <span class="muted">v0.2</span></h1>
-  <div class="muted">自分＝村人固定 / 5〜20人 / 騙りAI・初日占い・CO後自動報告</div>
+  <h1>個人用人狼アプリ <span class="muted">v0.3</span></h1>
+  <div class="muted">完全指示制CO / 公開結果履歴 / 個別占い指示</div>
 
   <section id="setupScreen">
     <div class="card">
@@ -94,7 +96,7 @@ hr{border:0;border-top:1px solid var(--line);margin:14px 0}
 
     <div class="grid cols2">
       <div class="card">
-        <h2>生存者</h2>
+        <h2>生存者・公開情報</h2>
         <div id="players" class="grid cols2"></div>
       </div>
       <div class="card">
@@ -122,7 +124,7 @@ hr{border:0;border-top:1px solid var(--line);margin:14px 0}
         <button id="executeBtn">処刑対象を選ぶ</button>
         <button id="nightBtn" class="secondary" disabled>夜を解決する</button>
       </div>
-      <div class="muted" style="margin-top:8px">v0.2では投票AIはまだ未実装。処刑対象は自分で選択します。</div>
+      <div class="muted" style="margin-top:8px">v0.3では投票AIはまだ未実装。処刑対象は自分で選択します。</div>
     </div>
 
     <div id="debugPanel" class="card hidden">
@@ -183,9 +185,10 @@ function newPlayer(id,name,role,isSelf=false){
   return {
     id,name,role,alive:true,isSelf,claimed:null,
     seerResults:[],mediumResults:[],
-    forcedSeerTarget:null,forcedGuardTarget:null,
     fakeSeerResults:[],fakeMediumResults:[],
-    fakeClaimRole:null,lastReportedSeerCount:0,lastReportedMediumCount:0
+    forcedSeerTarget:null,forcedGuardTarget:null,
+    fakeClaimRole:null,
+    lastReportedSeerCount:0,lastReportedMediumCount:0
   };
 }
 
@@ -201,66 +204,36 @@ function startGame(){
   const ps=[newPlayer(0,$("#selfName").value.trim()||"あなた","villager",true)];
   for(let i=1;i<n;i++)ps.push(newPlayer(i,names[i-1]??`P${i+1}`,roles[i-1],false));
 
-  state={version:"0.2",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null};
+  state={version:"0.3",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null};
 
-  // 初日占い
+  // 初日占い：真占い師は1件だけ結果を持つ
   roleLiving("seer").forEach(s=>{
     const target=randomChoice(state.players.filter(p=>p.id!==s.id));
-    if(target)s.seerResults.push({day:0,target:target.id,black:target.role==="wolf"});
+    if(target)s.seerResults.push({day:1,target:target.id,black:target.role==="wolf"});
   });
 
-  // 騙りAIを決定
+  // 人外は「騙り予定」だけ決める。勝手にCOはしない
   assignFakeClaims();
 
   log(`ゲーム開始。参加者は${n}人。あなたの役職は【村人】です。`,"system");
-
-  // 初日の自発CO
-  initialAutoClaims();
-
   save();showGame();
 }
 
 function assignFakeClaims(){
-  const madmen=state.players.filter(p=>p.role==="madman");
-  madmen.forEach(m=>{
+  state.players.filter(p=>p.role==="madman").forEach(m=>{
     const r=Math.random();
     m.fakeClaimRole=r<0.62?"seer":r<0.82?"medium":null;
   });
 
   const wolves=state.players.filter(p=>p.role==="wolf");
-  if(wolves.length){
-    const r=Math.random();
-    if(r<0.65){
-      const liar=randomChoice(wolves);
-      liar.fakeClaimRole=Math.random()<0.72?"seer":"medium";
-    }
+  if(wolves.length&&Math.random()<0.65){
+    const liar=randomChoice(wolves);
+    liar.fakeClaimRole=Math.random()<0.72?"seer":"medium";
   }
 
-  const foxes=state.players.filter(p=>p.role==="fox");
-  foxes.forEach(f=>{
+  state.players.filter(p=>p.role==="fox").forEach(f=>{
     const r=Math.random();
     f.fakeClaimRole=r<0.18?"seer":r<0.27?"medium":null;
-  });
-}
-
-function initialAutoClaims(){
-  // 真役職も一定確率で初日CO
-  roleLiving("seer").forEach(s=>{ if(Math.random()<0.72){s.claimed="seer"; revealSeerResults(s,true)} });
-  roleLiving("medium").forEach(m=>{ if(Math.random()<0.48){m.claimed="medium"; revealMediumResults(m,true)} });
-
-  // 人外騙り
-  living().filter(p=>p.fakeClaimRole).forEach(p=>{
-    if(p.fakeClaimRole==="seer"){
-      p.claimed="seer";
-      if(!p.fakeSeerResults.length){
-        const t=randomChoice(living().filter(x=>x.id!==p.id));
-        if(t)p.fakeSeerResults.push({day:0,target:t.id,black:chooseFakeBlack(p,t)});
-      }
-      revealFakeSeerResults(p,true);
-    }else if(p.fakeClaimRole==="medium"){
-      p.claimed="medium";
-      log(`${p.name} が【霊媒師CO】しました。`,"claim");
-    }
   });
 }
 
@@ -279,6 +252,20 @@ function renderLog(){
 function showGame(){$("#setupScreen").classList.add("hidden");$("#gameScreen").classList.remove("hidden");renderAll()}
 function showSetup(){$("#gameScreen").classList.add("hidden");$("#setupScreen").classList.remove("hidden")}
 
+function publicHistoryHtml(p){
+  if(p.claimed==="seer"){
+    const arr = p.role==="seer" ? p.seerResults : (p.fakeClaimRole==="seer" ? p.fakeSeerResults : []);
+    if(!arr.length)return `<div class="history"><div class="muted">公開済み占い結果なし</div></div>`;
+    return `<div class="history">${arr.map(r=>`<div class="line">${r.day}日目：${escapeHtml(byId(r.target)?.name??"不明")} ${r.black?"●":"○"}</div>`).join("")}</div>`;
+  }
+  if(p.claimed==="medium"){
+    const arr = p.role==="medium" ? p.mediumResults : (p.fakeClaimRole==="medium" ? p.fakeMediumResults : []);
+    if(!arr.length)return `<div class="history"><div class="muted">公開済み霊媒結果なし</div></div>`;
+    return `<div class="history">${arr.map(r=>`<div class="line">${r.day}日目：${escapeHtml(byId(r.target)?.name??"不明")} ${r.black?"●":"○"}</div>`).join("")}</div>`;
+  }
+  return "";
+}
+
 function renderAll(){
   if(!state)return;
   $("#phaseTitle").textContent=state.winner?`ゲーム終了：${state.winner}`:`${state.day}日目・${state.phase==="day"?"昼":"夜"}`;
@@ -288,6 +275,7 @@ function renderAll(){
       <div class="name">${escapeHtml(p.name)}${p.isSelf?"（あなた）":""}</div>
       <div class="meta">${p.alive?"生存":"死亡"} / CO：${publicClaim(p)}</div>
       ${p.claimed?`<div class="claim">【${roleName(p.claimed)}CO】</div>`:""}
+      ${publicHistoryHtml(p)}
     </div>`).join("");
   renderLog();
   const dis=!!state.winner||state.phase!=="day";
@@ -309,71 +297,98 @@ function makeRolePanel(){
   $("#cancelAction").onclick=()=>p.classList.add("hidden");
 }
 
-function revealSeerResults(p,first=false){
-  const arr=p.seerResults;
-  if(first) log(`${p.name} が【占い師CO】しました。`,"claim");
-  const unread=arr.slice(p.lastReportedSeerCount||0);
-  if(!unread.length && first){log(`${p.name}（占い師CO）：まだ占い結果はありません。`,"result");return}
+function reportTrueSeer(p,first=false){
+  if(first)log(`${p.name} が【占い師CO】しました。`,"claim");
+  const unread=p.seerResults.slice(p.lastReportedSeerCount||0);
+  if(!unread.length&&first){log(`${p.name}（占い師CO）：まだ占い結果はありません。`,"result");return}
   unread.forEach(r=>log(`${p.name}（占い師CO）：${byId(r.target).name} → ${r.black?"人狼":"人狼ではない"}`,"result"));
-  p.lastReportedSeerCount=arr.length;
+  p.lastReportedSeerCount=p.seerResults.length;
 }
-function revealMediumResults(p,first=false){
-  if(first) log(`${p.name} が【霊媒師CO】しました。`,"claim");
-  const arr=p.mediumResults, unread=arr.slice(p.lastReportedMediumCount||0);
-  if(!unread.length && first){log(`${p.name}（霊媒師CO）：まだ霊媒結果はありません。`,"result");return}
-  unread.forEach(r=>log(`${p.name}（霊媒師CO）：${byId(r.target).name} → ${r.black?"人狼":"人狼ではない"}`,"result"));
-  p.lastReportedMediumCount=arr.length;
-}
-function revealFakeSeerResults(p,first=false){
-  if(first) log(`${p.name} が【占い師CO】しました。`,"claim");
-  const arr=p.fakeSeerResults, unread=arr.slice(p.lastReportedSeerCount||0);
+function reportFakeSeer(p,first=false){
+  if(first)log(`${p.name} が【占い師CO】しました。`,"claim");
+  const unread=p.fakeSeerResults.slice(p.lastReportedSeerCount||0);
   unread.forEach(r=>log(`${p.name}（占い師CO）：${byId(r.target).name} → ${r.black?"人狼":"人狼ではない"}`,"result"));
-  p.lastReportedSeerCount=arr.length;
+  p.lastReportedSeerCount=p.fakeSeerResults.length;
 }
-function revealFakeMediumResults(p,first=false){
-  if(first) log(`${p.name} が【霊媒師CO】しました。`,"claim");
-  const arr=p.fakeMediumResults, unread=arr.slice(p.lastReportedMediumCount||0);
+function reportTrueMedium(p,first=false){
+  if(first)log(`${p.name} が【霊媒師CO】しました。`,"claim");
+  const unread=p.mediumResults.slice(p.lastReportedMediumCount||0);
+  if(!unread.length&&first){log(`${p.name}（霊媒師CO）：まだ霊媒結果はありません。`,"result");return}
   unread.forEach(r=>log(`${p.name}（霊媒師CO）：${byId(r.target).name} → ${r.black?"人狼":"人狼ではない"}`,"result"));
-  p.lastReportedMediumCount=arr.length;
+  p.lastReportedMediumCount=p.mediumResults.length;
+}
+function reportFakeMedium(p,first=false){
+  if(first)log(`${p.name} が【霊媒師CO】しました。`,"claim");
+  const unread=p.fakeMediumResults.slice(p.lastReportedMediumCount||0);
+  unread.forEach(r=>log(`${p.name}（霊媒師CO）：${byId(r.target).name} → ${r.black?"人狼":"人狼ではない"}`,"result"));
+  p.lastReportedMediumCount=p.fakeMediumResults.length;
+}
+
+function ensureInitialFakeSeerResult(p){
+  if(p.fakeSeerResults.length)return;
+  const t=randomChoice(living().filter(x=>x.id!==p.id));
+  if(t)p.fakeSeerResults.push({day:1,target:t.id,black:chooseFakeBlack(p,t)});
 }
 
 function forceRoleCO(r){
   const real=roleLiving(r);
   const fake=living().filter(p=>p.fakeClaimRole===r);
   const all=[...real,...fake.filter(p=>!real.includes(p))];
-  if(!all.length){log(`【${roleName(r)}CO指示】CO指示を出しました。`,"system");return}
+
+  if(!all.length){
+    log(`【${roleName(r)}CO指示】CO指示を出しました。`,"system");
+    return;
+  }
+
   all.forEach(p=>p.claimed=r);
+
   if(r==="seer"){
-    real.forEach(p=>revealSeerResults(p,true));
-    fake.forEach(p=>revealFakeSeerResults(p,true));
+    real.forEach(p=>reportTrueSeer(p,true));
+    fake.forEach(p=>{ensureInitialFakeSeerResult(p);reportFakeSeer(p,true)});
   }else if(r==="medium"){
-    real.forEach(p=>revealMediumResults(p,true));
-    fake.forEach(p=>revealFakeMediumResults(p,true));
+    real.forEach(p=>reportTrueMedium(p,true));
+    fake.forEach(p=>reportFakeMedium(p,true));
   }else{
     all.forEach(p=>log(`${p.name} が【${roleName(r)}CO】しました。`,"claim"));
   }
+
   save();renderAll();
 }
+
 function blackSeerCO(){
   const real=roleLiving("seer").filter(p=>p.seerResults.some(r=>r.black));
   const fake=living().filter(p=>p.fakeClaimRole==="seer"&&p.fakeSeerResults.some(r=>r.black));
   const all=[...real,...fake.filter(p=>!real.includes(p))];
+
+  if(!all.length){
+    log("【黒出し占い師CO】指示を出しました。","system");
+    return;
+  }
+
   all.forEach(p=>p.claimed="seer");
-  if(!all.length){log("【黒出し占い師CO】指示を出しました。","system");return}
-  real.forEach(p=>revealSeerResults(p,true));
-  fake.forEach(p=>revealFakeSeerResults(p,true));
+  real.forEach(p=>reportTrueSeer(p,true));
+  fake.forEach(p=>reportFakeSeer(p,true));
+
   save();renderAll();
 }
+
 function blackMediumCO(){
   const real=roleLiving("medium").filter(p=>p.mediumResults.some(r=>r.black));
   const fake=living().filter(p=>p.fakeClaimRole==="medium"&&p.fakeMediumResults.some(r=>r.black));
   const all=[...real,...fake.filter(p=>!real.includes(p))];
+
+  if(!all.length){
+    log("【黒出し霊媒師CO】指示を出しました。","system");
+    return;
+  }
+
   all.forEach(p=>p.claimed="medium");
-  if(!all.length){log("【黒出し霊媒師CO】指示を出しました。","system");return}
-  real.forEach(p=>revealMediumResults(p,true));
-  fake.forEach(p=>revealFakeMediumResults(p,true));
+  real.forEach(p=>reportTrueMedium(p,true));
+  fake.forEach(p=>reportFakeMedium(p,true));
+
   save();renderAll();
 }
+
 function hiddenSeerInstruction(){
   makeTargetPanel("潜伏占い師への占い先指示",living(),id=>{
     roleLiving("seer").filter(p=>p.claimed!=="seer").forEach(p=>p.forcedSeerTarget=id);
@@ -391,11 +406,15 @@ function hiddenGuardInstruction(){
 function publicSeerInstruction(){
   const claimants=living().filter(p=>p.claimed==="seer");
   const panel=$("#actionPanel");panel.classList.remove("hidden");
+
   if(!claimants.length){
     panel.innerHTML=`<b>CO済占い師への個別指示</b><div class="muted" style="margin-top:8px">現在公開上の占い師CO者はいません。</div><div class="row" style="margin-top:10px"><button class="ghost" id="cancelAction">閉じる</button></div>`;
-    $("#cancelAction").onclick=()=>panel.classList.add("hidden"); return;
+    $("#cancelAction").onclick=()=>panel.classList.add("hidden");
+    return;
   }
+
   panel.innerHTML=`<b>指示する占い師CO者を選択</b><div class="target-list">${claimants.map(p=>`<button data-seer="${p.id}">${escapeHtml(p.name)}</button>`).join("")}</div><div class="row" style="margin-top:10px"><button class="ghost" id="cancelAction">キャンセル</button></div>`;
+
   panel.querySelectorAll("[data-seer]").forEach(b=>b.onclick=()=>{
     const seer=byId(+b.dataset.seer);
     makeTargetPanel(`${seer.name} の次回占い先`,living().filter(x=>x.id!==seer.id),id=>{
@@ -404,6 +423,7 @@ function publicSeerInstruction(){
       save();renderAll();
     });
   });
+
   $("#cancelAction").onclick=()=>panel.classList.add("hidden");
 }
 
@@ -412,12 +432,9 @@ function chooseExecution(){
     const p=byId(id);p.alive=false;state.lastExecuted=id;
     log(`${p.name} は処刑されました。`,"death");
 
-    // 真霊媒
-    roleLiving("medium").forEach(m=>m.mediumResults.push({day:state.day,target:id,black:p.role==="wolf"}));
-    // 偽霊媒
+    roleLiving("medium").forEach(m=>m.mediumResults.push({day:state.day+1,target:id,black:p.role==="wolf"}));
     living().filter(x=>x.fakeClaimRole==="medium").forEach(m=>{
-      const fakeBlack=chooseFakeMediumBlack(m,p);
-      m.fakeMediumResults.push({day:state.day,target:id,black:fakeBlack});
+      m.fakeMediumResults.push({day:state.day+1,target:id,black:chooseFakeMediumBlack(m,p)});
     });
 
     const w=checkWin(); if(w){finish(w);return}
@@ -430,12 +447,8 @@ function chooseFakeBlack(liar,target){
     if(target.role==="wolf")return false;
     return Math.random()<0.35;
   }
-  if(liar.role==="madman"){
-    return Math.random()<0.28;
-  }
-  if(liar.role==="fox"){
-    return Math.random()<0.22;
-  }
+  if(liar.role==="madman")return Math.random()<0.28;
+  if(liar.role==="fox")return Math.random()<0.22;
   return false;
 }
 function chooseFakeMediumBlack(liar,executed){
@@ -443,31 +456,32 @@ function chooseFakeMediumBlack(liar,executed){
     if(executed.role==="wolf")return false;
     return Math.random()<0.28;
   }
-  if(liar.role==="madman") return Math.random()<0.32;
-  if(liar.role==="fox") return Math.random()<0.25;
+  if(liar.role==="madman")return Math.random()<0.32;
+  if(liar.role==="fox")return Math.random()<0.25;
   return false;
 }
 
 function resolveNight(){
   if(state.phase!=="night"||state.winner)return;
 
-  // 真占い
   let foxKilled=[];
+
+  // 真占い
   roleLiving("seer").forEach(s=>{
     let t=s.forcedSeerTarget!=null&&byId(s.forcedSeerTarget)?.alive?byId(s.forcedSeerTarget):null;
     if(!t)t=randomChoice(living().filter(p=>p.id!==s.id));
     if(t){
-      s.seerResults.push({day:state.day,target:t.id,black:t.role==="wolf"});
+      s.seerResults.push({day:state.day+1,target:t.id,black:t.role==="wolf"});
       if(t.role==="fox")foxKilled.push(t.id);
     }
     s.forcedSeerTarget=null;
   });
 
-  // 偽占い
+  // 騙り占い
   living().filter(p=>p.fakeClaimRole==="seer").forEach(s=>{
     let t=s.forcedSeerTarget!=null&&byId(s.forcedSeerTarget)?.alive?byId(s.forcedSeerTarget):null;
     if(!t)t=randomChoice(living().filter(p=>p.id!==s.id));
-    if(t)s.fakeSeerResults.push({day:state.day,target:t.id,black:chooseFakeBlack(s,t)});
+    if(t)s.fakeSeerResults.push({day:state.day+1,target:t.id,black:chooseFakeBlack(s,t)});
     s.forcedSeerTarget=null;
   });
 
@@ -499,41 +513,22 @@ function resolveNight(){
   }
 
   const w=checkWin(); if(w){finish(w);return}
-  state.day++;state.phase="day";
+
+  state.day++;
+  state.phase="day";
   log(`${state.day}日目の朝になりました。`,"system");
 
-  // CO済み占い師・霊媒師が毎朝自動報告
+  // CO済み占い師・霊媒師だけが毎朝新結果を自動報告
   living().filter(p=>p.claimed==="seer").forEach(p=>{
-    if(p.role==="seer")revealSeerResults(p,false);
-    else if(p.fakeClaimRole==="seer")revealFakeSeerResults(p,false);
+    if(p.role==="seer")reportTrueSeer(p,false);
+    else if(p.fakeClaimRole==="seer")reportFakeSeer(p,false);
   });
   living().filter(p=>p.claimed==="medium").forEach(p=>{
-    if(p.role==="medium")revealMediumResults(p,false);
-    else if(p.fakeClaimRole==="medium")revealFakeMediumResults(p,false);
+    if(p.role==="medium")reportTrueMedium(p,false);
+    else if(p.fakeClaimRole==="medium")reportFakeMedium(p,false);
   });
-
-  // 潜伏人外の追加騙り判断
-  opportunisticClaims();
 
   save();renderAll();
-}
-
-function opportunisticClaims(){
-  living().filter(p=>!p.claimed&&p.fakeClaimRole).forEach(p=>{
-    const chance = state.day>=2 ? 0.28 : 0.12;
-    if(Math.random()<chance){
-      p.claimed=p.fakeClaimRole;
-      if(p.fakeClaimRole==="seer"){
-        if(!p.fakeSeerResults.length){
-          const t=randomChoice(living().filter(x=>x.id!==p.id));
-          if(t)p.fakeSeerResults.push({day:state.day,target:t.id,black:chooseFakeBlack(p,t)});
-        }
-        revealFakeSeerResults(p,true);
-      }else if(p.fakeClaimRole==="medium"){
-        revealFakeMediumResults(p,true);
-      }
-    }
-  });
 }
 
 function checkWin(){
@@ -543,9 +538,21 @@ function checkWin(){
   return null;
 }
 function finish(w){state.winner=w;state.phase="end";log(`ゲーム終了：${w}`,"system");save();renderAll()}
-function save(){localStorage.setItem("jinro_v02_state",JSON.stringify(state))}
-function load(){try{const r=localStorage.getItem("jinro_v02_state");if(!r){alert("保存データがありません");return}state=JSON.parse(r);showGame()}catch(e){alert("保存データを読み込めませんでした")}}
-function reset(){if(confirm("現在のゲームを終了して設定画面に戻りますか？")){localStorage.removeItem("jinro_v02_state");state=null;showSetup()}}
+function save(){localStorage.setItem("jinro_v03_state",JSON.stringify(state))}
+function load(){
+  try{
+    const r=localStorage.getItem("jinro_v03_state");
+    if(!r){alert("保存データがありません");return}
+    state=JSON.parse(r);
+    showGame();
+  }catch(e){alert("保存データを読み込めませんでした")}
+}
+function reset(){
+  if(confirm("現在のゲームを終了して設定画面に戻りますか？")){
+    localStorage.removeItem("jinro_v03_state");
+    state=null;showSetup();
+  }
+}
 function renderDebug(){
   if(!state)return;
   $("#debugText").innerHTML=state.players.map(p=>`${escapeHtml(p.name)}：${roleName(p.role)} / ${p.alive?"生存":"死亡"} / CO ${publicClaim(p)} / 騙り予定 ${p.fakeClaimRole?roleName(p.fakeClaimRole):"なし"}`).join("<br>");

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v0.8</title>
+<title>個人用人狼アプリ v0.9</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -83,11 +83,15 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 .confirm-list{display:grid;gap:6px;margin:10px 0}
 .confirm-item{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px}
 .confirm-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+.player-row.dimmed{opacity:.22;filter:saturate(.35)}
+.player-row.selectable{cursor:pointer;outline:1px solid transparent}
+.player-number{font-size:10px;color:var(--muted);margin-right:4px}
 </style>
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v0.8</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v0.9</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -229,11 +233,11 @@ function startGame(){
   for(const[r]of ROLES)for(let i=0;i<assign[r];i++)roles.push(r);
   shuffle(roles);
 
-  const names=["アキ","ユウ","ハル","レン","ミオ","ナギ","ソラ","リク","カイ","ヒナ","レイ","シン","アオ","トワ","マコ","ユキ","セナ","リン","ケイ"];
+  const names=["アキラ","ユウト","ハルキ","レンジ","ミサキ","ナオト","ソウマ","リクヤ","カイト","ヒナタ","レイジ","シオン","アオイ","トウマ","マコト","ユキト","セナト","リンカ","ケンタ"];
   const ps=[newPlayer(0,$("#selfName").value.trim()||"あなた","villager",true)];
   for(let i=1;i<n;i++)ps.push(newPlayer(i,names[i-1]??`P${i+1}`,roles[i-1],false));
 
-  state={version:"0.4",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null};
+  state={version:"0.9",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null};
 
   // 初日占い
   roleLiving("seer").forEach(s=>{
@@ -318,13 +322,24 @@ function renderAll(){
   $("#statusBadges").innerHTML=`<span class="badge">${state.day}日目</span><span class="badge">${state.phase==="day"?"昼":"夜"}</span><span class="badge">生存 ${living().length}</span><span class="badge">死亡 ${state.players.length-living().length}</span>`;
   renderClaimBoard();
 
-  $("#players").innerHTML=state.players.map(p=>`
-    <div class="player-row ${p.alive?"":"dead"} ${state.selectionMode&&p.alive&&(!state._selectionAllowed||state._selectionAllowed.includes(p.id))?"selectable":""}" data-player-id="${p.id}">
-      <div class="player-name">${escapeHtml(p.name)}${p.isSelf?"（あなた）":""}${state.winner?`<div class="role-reveal">${roleName(p.role)}</div>`:""}</div>
+  $("#players").innerHTML=state.players.map(p=>{
+    const selectable=state.selectionMode&&p.alive&&(!state._selectionAllowed||state._selectionAllowed.includes(p.id));
+    const dimmed=state.selectionMode&&p.alive&&!selectable;
+    return `<div class="player-row ${p.alive?"":"dead"} ${selectable?"selectable":""} ${dimmed?"dimmed":""}" data-player-id="${p.id}">
+      <div class="player-name"><span class="player-number">${String(p.id+1).padStart(2,"0")}</span>${escapeHtml(p.name)}${p.isSelf?"（あなた）":""}${state.winner?`<div class="role-reveal">${roleName(p.role)}</div>`:""}</div>
       <div class="player-co">${p.claimed?roleName(p.claimed)+"CO":(p.villagerClaim===true?"村人CO":(p.villagerClaim===false?"非村人":"未CO"))}</div>
       <div class="player-life">${p.alive?"生存":"死亡"}</div>
-    </div>`).join("");
-  document.querySelectorAll("[data-player-id]").forEach(row=>{row.onclick=()=>{if(!state.selectionMode)return;const id=+row.dataset.playerId;const p=byId(id);if(!p?.alive)return;handlePanelSelection(id)}});
+    </div>`;
+  }).join("");
+  document.querySelectorAll("[data-player-id]").forEach(row=>{
+    row.onclick=()=>{
+      if(!state.selectionMode)return;
+      const id=+row.dataset.playerId;
+      const p=byId(id);
+      if(!p?.alive)return;
+      handlePanelSelection(id);
+    };
+  });
 
   renderLog();
   if(state.selectionMode){$("#selectionHint").textContent=`${state.selectionTitle}：名前パネルをタップして選択`;$("#selectionHint").classList.remove("hidden")}else{$("#selectionHint").classList.add("hidden")}
@@ -343,13 +358,25 @@ function makeTargetPanel(title,cands,onSelect){
 }
 
 function clearSelection(){
-  state.selectionMode=null;state.selectionTitle=null;state._selectionAllowed=null;state._selectionCallback=null;
-  $("#selectionHint").classList.add("hidden");$("#selectionHint").textContent="";
+  state.selectionMode=null;
+  state.selectionTitle=null;
+  state.selectionSourceId=null;
+  state._selectionAllowed=null;
+  state._selectionCallback=null;
+  $("#selectionHint").classList.add("hidden");
+  $("#selectionHint").textContent="";
 }
 function handlePanelSelection(id){
   if(!state.selectionMode||!state._selectionCallback)return;
   if(state._selectionAllowed&&!state._selectionAllowed.includes(id))return;
-  const cb=state._selectionCallback;clearSelection();cb(id);renderAll();
+  const cb=state._selectionCallback;
+  if(state.selectionMode==="seer-source"){
+    cb(id);
+    return;
+  }
+  clearSelection();
+  cb(id);
+  renderAll();
 }
 
 function makeRolePanel(){
@@ -532,21 +559,38 @@ function hiddenGuardInstruction(){
 }
 function publicSeerInstruction(){
   const claimants=living().filter(p=>p.claimed==="seer");
-  const panel=$("#actionPanel");panel.classList.remove("hidden");
   if(!claimants.length){
-    panel.innerHTML=`<b>CO済占い師への個別指示</b><div class="muted" style="margin-top:8px">現在公開上の占い師CO者はいません。</div><div class="row" style="margin-top:9px"><button class="ghost" id="cancelAction">閉じる</button></div>`;
-    $("#cancelAction").onclick=()=>panel.classList.add("hidden"); return;
+    log("現在、占い師CO者はいません。","system");
+    return;
   }
-  panel.innerHTML=`<b>指示する占い師CO者を選択</b><div class="target-list">${claimants.map(p=>`<button data-seer="${p.id}">${escapeHtml(p.name)}</button>`).join("")}</div><div class="row" style="margin-top:9px"><button class="ghost" id="cancelAction">キャンセル</button></div>`;
-  panel.querySelectorAll("[data-seer]").forEach(b=>b.onclick=()=>{
-    const seer=byId(+b.dataset.seer);
-    makeTargetPanel(`${seer.name} の次回占い先`,living().filter(x=>x.id!==seer.id),id=>{
-      seer.forcedSeerTarget=id;
-      log(`【公開占い指示】${seer.name} の次回占い先を ${byId(id).name} に指定しました。`,"system");
-      save();renderAll();
-    });
-  });
-  $("#cancelAction").onclick=()=>panel.classList.add("hidden");
+
+  state.selectionMode="seer-source";
+  state.selectionTitle="① 指示する占い師CO者を選択";
+  state._selectionAllowed=claimants.map(p=>p.id);
+  state._selectionCallback=(seerId)=>{
+    const seer=byId(seerId);
+    if(!seer||!seer.alive)return;
+
+    state.selectionMode="seer-target";
+    state.selectionSourceId=seer.id;
+    state.selectionTitle=`② ${seer.name} の占い先を選択`;
+    state._selectionAllowed=living().filter(p=>p.id!==seer.id).map(p=>p.id);
+    state._selectionCallback=(targetId)=>{
+      const target=byId(targetId);
+      if(!target||!target.alive)return;
+      seer.forcedSeerTarget=targetId;
+      log(`【公開占い指示】${seer.name} の次回占い先を ${target.name} に指定しました。`,"system");
+      save();
+    };
+
+    $("#selectionHint").textContent=`② ${seer.name} の占い先を選択：名前パネルをタップ`;
+    $("#selectionHint").classList.remove("hidden");
+    renderAll();
+  };
+
+  $("#selectionHint").textContent="① 指示する占い師CO者を選択：名前パネルをタップ";
+  $("#selectionHint").classList.remove("hidden");
+  renderAll();
 }
 
 function chooseExecution(){

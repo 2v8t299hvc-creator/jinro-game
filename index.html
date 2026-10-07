@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v1.5</title>
+<title>個人用人狼アプリ v1.6</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -97,7 +97,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v1.5</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v1.6</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -230,7 +230,7 @@ function newPlayer(id,name,role,isSelf=false){
     forcedSeerTarget:null,forcedGuardTarget:null,fakeClaimRole:null,
     lastReportedSeerCount:0,lastReportedMediumCount:0,
     guardHistory:[], resonancePartners:[], villagerClaim:null,
-    lastSpeechDay:0,lastSpeechText:""
+    lastSpeechDay:0,lastSpeechText:"",speechHistory:[],lastSuspectId:null
   };
 }
 
@@ -875,6 +875,7 @@ function updateWolfAIAfterNight(attacked,guardTargets,attackDied){
 }
 
 
+
 function publicSeerResults(){
   const out=[];
   state.players.forEach(p=>{
@@ -885,7 +886,6 @@ function publicSeerResults(){
   });
   return out;
 }
-
 function publicMediumResults(){
   const out=[];
   state.players.forEach(p=>{
@@ -896,102 +896,129 @@ function publicMediumResults(){
   });
   return out;
 }
-
+function lastNightWasPeace(){
+  for(let i=state.logs.length-1;i>=0;i--){
+    const t=String(state.logs[i]?.text||"");
+    if(t.includes("平和な朝"))return true;
+    if(t.includes("無残な姿"))return false;
+  }
+  return false;
+}
+function publicGuardHints(){
+  const hints=[];
+  state.players.forEach(p=>{
+    if(p.alive&&p.claimed==="knight"){
+      (p.guardHistory||[]).forEach(r=>{
+        const target=byId(r.target);
+        if(target)hints.push({knight:p,target,day:r.day});
+      });
+    }
+  });
+  return hints;
+}
+function targetResultConflict(targetId){
+  const rs=publicSeerResults().filter(r=>r.target?.id===targetId);
+  return rs.some(r=>r.black)&&rs.some(r=>!r.black);
+}
+function seerVsMediumConflict(seer){
+  const own=seer.role==="seer"?(seer.seerResults||[]):(seer.fakeClaimRole==="seer"?(seer.fakeSeerResults||[]):[]);
+  const meds=publicMediumResults();
+  for(const r of own){
+    const ms=meds.filter(m=>m.target?.id===r.target);
+    if(ms.some(m=>m.black!==r.black)) return {target:byId(r.target)};
+  }
+  return null;
+}
 function estimateSuspicion(observer,target){
   if(!target.alive||target.id===observer.id)return {score:-999,reasons:[]};
+  let score=0; const reasons=[];
+  const sr=publicSeerResults();
+  const black=sr.filter(r=>r.target?.id===target.id&&r.black);
+  const white=sr.filter(r=>r.target?.id===target.id&&!r.black);
 
-  let score=0;
-  const reasons=[];
-  const seerResults=publicSeerResults();
-  const mediumResults=publicMediumResults();
+  if(black.length){score+=4.2*black.length;reasons.push(`${black[0].seer.name}さんから黒が出ています`);}
+  if(white.length){score-=1.4*white.length;reasons.push(`${white[0].seer.name}さんから白が出ています`);}
+  if(targetResultConflict(target.id)){score+=1.6;reasons.unshift("占い結果が白黒に割れています");}
 
-  const blackHits=seerResults.filter(r=>r.target?.id===target.id&&r.black);
-  const whiteHits=seerResults.filter(r=>r.target?.id===target.id&&!r.black);
-
-  if(blackHits.length){
-    score+=4*blackHits.length;
-    reasons.push(`${blackHits[0].seer.name}さんから黒が出ています`);
-  }
-  if(whiteHits.length){
-    score-=1.4*whiteHits.length;
-    reasons.push(`${whiteHits[0].seer.name}さんから白が出ています`);
-  }
-
-  if(target.claimed==="resonator"){
-    score-=5;
-    reasons.push("共鳴者COで相方確認があります");
-  }
-  if(target.claimed==="cat"){
-    score-=3;
-    reasons.push("猫又COなので処刑は慎重にしたいです");
-  }
-  if(["seer","medium","knight"].includes(target.claimed))score-=0.4;
-  if(!target.claimed&&target.villagerClaim!==true)score+=0.5;
+  if(target.claimed==="resonator"){score-=5;reasons.push("共鳴者COで相方確認があります");}
+  if(target.claimed==="cat"){score-=3.2;reasons.push("猫又COなので処刑は慎重にしたいです");}
+  if(!target.claimed&&target.villagerClaim!==true){score+=0.5;reasons.push("まだCOも白結果もありません");}
 
   if(target.claimed==="seer"){
-    const own=target.role==="seer"?(target.seerResults||[]):(target.fakeClaimRole==="seer"?(target.fakeSeerResults||[]):[]);
-    for(const or of own){
-      const matches=mediumResults.filter(m=>m.target?.id===or.target);
-      if(matches.some(m=>m.black!==or.black)){
-        score+=3;
-        reasons.push("霊媒結果と占い結果に食い違いがあります");
-        break;
-      }
-    }
+    const c=seerVsMediumConflict(target);
+    if(c){score+=3.6;reasons.unshift(`${c.target?.name||"処刑者"}の判定が霊媒結果と食い違っています`);}
+    if(living().filter(p=>p.claimed==="seer").length>=2){score+=0.5;reasons.push("占い師COが複数います");}
   }
+  if(target.claimed==="medium"&&living().filter(p=>p.claimed==="medium").length>=2){score+=0.8;reasons.push("霊媒師COが複数います");}
+  if(target.claimed==="knight"&&living().filter(p=>p.claimed==="knight").length>=2){score+=0.7;reasons.push("騎士COが複数います");}
 
-  // 人外は公開情報を使いつつ、自陣営に有利な方向へ少し評価を歪める
   if(observer.role==="wolf"){
     if(target.role==="wolf")score-=8;
-    if(target.role==="seer")score+=1.5;
+    if(target.role==="seer")score+=1.6;
     if(target.role==="resonator")score+=1;
     if(target.role==="medium")score+=0.5;
   }else if(observer.role==="madman"){
     if(target.role==="wolf")score-=5;
     if(target.role==="seer")score+=1;
-  }else if(observer.role==="fox"){
-    if(target.claimed==="seer")score+=0.5;
+  }else if(observer.role==="fox"&&target.claimed==="seer"){
+    score+=0.6;
   }
-
   return {score,reasons};
 }
-
 function chooseSpeechTopic(observer){
   const candidates=living().filter(p=>p.id!==observer.id);
-  if(!candidates.length)return null;
+  if(!candidates.length)return {kind:"none",targetId:null,text:"今のところ特に意見はありません。"};
 
-  const evals=candidates.map(target=>({target,...estimateSuspicion(observer,target)}))
-                        .sort((a,b)=>b.score-a.score);
+  const evals=candidates.map(target=>({target,...estimateSuspicion(observer,target)})).sort((a,b)=>b.score-a.score);
   const top=evals[0];
 
-  if(top.score>=1.5){
-    const reason=top.reasons[0]||"公開情報を見ると少し気になります";
-    return `${top.target.name}さんが気になります。${reason}。`;
+  if(top.score>=3){
+    const reason=top.reasons[0]||"公開情報を見るとかなり気になります";
+    let text=`${top.target.name}さんを疑っています。${reason}。`;
+    if(observer.lastSuspectId!=null&&observer.lastSuspectId!==top.target.id){
+      const prev=byId(observer.lastSuspectId);
+      if(prev) text=`昨日は${prev.name}さんを気にしていましたが、今日は${top.target.name}さんをより疑っています。${reason}。`;
+    }
+    return {kind:"suspect",targetId:top.target.id,text};
   }
 
-  const seerClaimers=living().filter(p=>p.claimed==="seer");
-  if(seerClaimers.length>=2){
-    return "占い師が複数いるので、今日はまだ決め打たず結果を見たいです。";
+  const split=living().find(p=>targetResultConflict(p.id));
+  if(split)return {kind:"split",targetId:split.id,text:`${split.name}さんの占い結果が白黒に割れています。占い師の真偽を見る材料になりそうです。`};
+
+  for(const s of living().filter(p=>p.claimed==="seer")){
+    const c=seerVsMediumConflict(s);
+    if(c)return {kind:"seerMediumConflict",targetId:s.id,text:`${s.name}さんの${c.target?.name||"処刑者"}判定が霊媒結果と合っていません。${s.name}さんは少し疑って見たいです。`};
   }
 
-  const resonator=living().find(p=>p.claimed==="resonator");
-  if(resonator){
-    return `${resonator.name}さんは共鳴者COなので、今は処刑候補から外したいです。`;
+  if(lastNightWasPeace()){
+    const g=publicGuardHints().find(x=>x.day===state.day);
+    if(g)return {kind:"peace",targetId:g.target.id,text:`昨夜は平和でした。${g.knight.name}さんの護衛先は${g.target.name}さんなので、護衛成功か妖狐噛みかを考えたいです。`};
+    return {kind:"peace",targetId:null,text:"昨夜は平和でした。騎士の護衛成功か、妖狐を噛んだ可能性がありそうです。"};
   }
+
+  const seers=living().filter(p=>p.claimed==="seer");
+  const meds=living().filter(p=>p.claimed==="medium");
+  const knights=living().filter(p=>p.claimed==="knight");
+  if(seers.length>=2)return {kind:"multiSeer",targetId:null,text:"占い師が複数いるので、白黒の出し方と霊媒結果との整合性を見たいです。"};
+  if(meds.length>=2)return {kind:"multiMedium",targetId:null,text:"霊媒師が複数いるので、処刑結果が割れるかどうかを見たいです。"};
+  if(knights.length>=2)return {kind:"multiKnight",targetId:null,text:"騎士COが複数いるので、護衛先と平和の出方を見比べたいです。"};
+
+  const res=living().find(p=>p.claimed==="resonator");
+  if(res)return {kind:"trustResonator",targetId:res.id,text:`${res.name}さんは共鳴者COで相方確認もあるので、今は村寄りで見ています。`};
 
   const cat=living().find(p=>p.claimed==="cat");
-  if(cat){
-    return `${cat.name}さんは猫又COなので、今日は処刑を避けたいです。`;
+  if(cat)return {kind:"avoidCat",targetId:cat.id,text:`${cat.name}さんは猫又COなので、処刑は慎重にしたいです。`};
+
+  if(top.score>=1){
+    const reason=top.reasons[0]||"まだ情報が少ないです";
+    return {kind:"gray",targetId:top.target.id,text:`${top.target.name}さんは少し気になります。${reason}。`};
   }
-
-  return "まだ決め手が少ないので、COと結果をもう少し見たいです。";
+  return {kind:"wait",targetId:null,text:"まだ決め手が少ないので、今日はCOと結果をもう少し見たいです。"};
 }
-
 function generateComSpeech(observer){
-  const body=chooseSpeechTopic(observer)||"今のところ特に意見はありません。";
-  return `${observer.name}：「${body}」`;
+  const topic=chooseSpeechTopic(observer);
+  return {...topic,fullText:`${observer.name}：「${topic.text}」`};
 }
-
 function runDaySpeeches(){
   if(state.phase!=="day"||state.winner)return;
   const speakers=living().filter(p=>!p.isSelf&&(p.lastSpeechDay||0)!==state.day);
@@ -999,10 +1026,13 @@ function runDaySpeeches(){
 
   log(`── ${state.day}日目の意見 ──`,"system");
   speakers.forEach(p=>{
-    const text=generateComSpeech(p);
+    const speech=generateComSpeech(p);
+    if(!Array.isArray(p.speechHistory))p.speechHistory=[];
+    p.speechHistory.push({day:state.day,kind:speech.kind,targetId:speech.targetId,text:speech.text});
+    if(speech.targetId!=null&&["suspect","gray","seerMediumConflict"].includes(speech.kind))p.lastSuspectId=speech.targetId;
     p.lastSpeechDay=state.day;
-    p.lastSpeechText=text;
-    log(text,"talk");
+    p.lastSpeechText=speech.fullText;
+    log(speech.fullText,"talk");
   });
 }
 

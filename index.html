@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v1.2</title>
+<title>個人用人狼アプリ v1.3</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -95,7 +95,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v1.2</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v1.3</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -735,6 +735,8 @@ function confirmExecution(){
     m.fakeMediumResults.push({day:state.day+1,target:id,black:chooseFakeMediumBlack(m,p)});
   });
 
+  updateWolfAIAfterNight(attacked,guardTargets,attackDied);
+
   const w=checkWin(); if(w){finish(w);return}
   state.phase="night";
   log("夜になりました。","system");
@@ -771,6 +773,105 @@ function autoSeerTarget(p,results){
   return randomChoice(candidates);
 }
 
+
+function wolfAttackScore(target){
+  if(!target.alive || target.role==="wolf") return -999;
+
+  let score=1;
+
+  // 公開COの価値
+  if(target.claimed==="seer") score+=7;
+  if(target.claimed==="medium") score+=4.5;
+  if(target.claimed==="resonator") score+=5.5;
+  if(target.claimed==="knight") score+=3.5;
+  if(target.claimed==="cat") score-=10;
+
+  if(target.villagerClaim===true) score-=0.5;
+
+  // 狼に黒を出している占い師は危険
+  if(target.claimed==="seer"){
+    const results = target.role==="seer" ? target.seerResults : (target.fakeClaimRole==="seer" ? target.fakeSeerResults : []);
+    const hitWolf = results.some(r=>{
+      const t=byId(r.target);
+      return r.black && t && t.role==="wolf" && t.alive;
+    });
+    if(hitWolf) score+=6;
+  }
+
+  // 既知の護衛先は避ける
+  const livingKnights=roleLiving("knight");
+  const currentlyGuarded=new Set();
+  livingKnights.forEach(k=>{
+    if(k.forcedGuardTarget!=null) currentlyGuarded.add(k.forcedGuardTarget);
+  });
+  if(currentlyGuarded.has(target.id)) score-=6;
+
+  // 前夜に噛んで平和だった相手は狐/護衛の可能性があるので少し避ける
+  const suspicion=(state.wolfAI?.suspectedFox?.[target.id]||0);
+  score-=suspicion*2.5;
+
+  // 終盤は確定村・情報役をより優先
+  const aliveCount=living().length;
+  if(aliveCount<=7){
+    if(target.claimed==="resonator") score+=2.5;
+    if(target.claimed==="seer") score+=2;
+    if(target.claimed==="medium") score+=1;
+  }
+
+  // 猫又COはかなり避けるが、終盤に他候補が薄い場合はゼロにはしない
+  if(target.claimed==="cat" && aliveCount<=5) score+=4;
+
+  // 少しランダム性
+  score += Math.random()*2.2;
+  return score;
+}
+
+function chooseWolfAttackTarget(){
+  const candidates=living().filter(p=>p.role!=="wolf");
+  if(!candidates.length) return null;
+
+  const scored=candidates.map(p=>({p,score:wolfAttackScore(p)}));
+
+  // 上位候補ほど選ばれやすい重み付きランダム
+  const minScore=Math.min(...scored.map(x=>x.score));
+  const weighted=scored.map(x=>({
+    p:x.p,
+    w:Math.max(0.15, x.score-minScore+0.5)
+  }));
+  const total=weighted.reduce((a,b)=>a+b.w,0);
+  let r=Math.random()*total;
+  for(const x of weighted){
+    r-=x.w;
+    if(r<=0) return x.p;
+  }
+  return weighted[0].p;
+}
+
+function updateWolfAIAfterNight(attacked,guardTargets,attackDied){
+  if(!state.wolfAI) state.wolfAI={suspectedFox:{},lastAttackTarget:null,lastAttackWasPeace:false};
+  state.wolfAI.lastAttackTarget=attacked?.id ?? null;
+
+  if(!attacked){
+    state.wolfAI.lastAttackWasPeace=false;
+    return;
+  }
+
+  const guarded=guardTargets.includes(attacked.id);
+  const peace=!attackDied;
+
+  state.wolfAI.lastAttackWasPeace=peace;
+
+  // 平和で、しかも公開上は護衛先ではなさそうなら狐疑惑を上げる
+  if(peace){
+    let delta=guarded ? 0.5 : 1.25;
+    if(attacked.claimed==="cat") delta=0.2;
+    state.wolfAI.suspectedFox[attacked.id]=(state.wolfAI.suspectedFox[attacked.id]||0)+delta;
+  }else{
+    // 噛めた相手は狐ではないと判断
+    state.wolfAI.suspectedFox[attacked.id]=0;
+  }
+}
+
 function resolveNight(){
   if(state.phase!=="night"||state.winner)return;
 
@@ -790,7 +891,7 @@ function resolveNight(){
   // 2. 人狼の襲撃先を決定
   const wolves=roleLiving("wolf");
   let attacked=null;
-  if(wolves.length)attacked=randomChoice(living().filter(p=>p.role!=="wolf"));
+  if(wolves.length)attacked=chooseWolfAttackTarget();
 
   // 3. 占い結果を生成
   //    ただし、その夜に襲撃死する占い師は結果を残せない
@@ -838,6 +939,7 @@ function resolveNight(){
   });
 
   // 5. 人狼襲撃
+  let attackDied=false;
   if(attacked&&attacked.alive){
     if(guardTargets.includes(attacked.id)){
       log("平和な朝がやってきました。","result");
@@ -846,6 +948,7 @@ function resolveNight(){
       log("平和な朝がやってきました。","result");
     }else{
       attacked.alive=false;
+      attackDied=true;
       log(`${attacked.name} が無残な姿で発見されました。`,"death");
 
       // 猫又が人狼に襲撃された場合、生存している人狼からランダムに1匹を道連れ

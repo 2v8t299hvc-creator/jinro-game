@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v0.9</title>
+<title>個人用人狼アプリ v1.0</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -91,7 +91,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v0.9</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v1.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -177,9 +177,9 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 <script>
 const ROLES=[
   ["villager","村人"],["seer","占い師"],["knight","騎士"],["medium","霊媒師"],
-  ["madman","狂人"],["wolf","人狼"],["fox","妖狐"]
+  ["madman","狂人"],["wolf","人狼"],["fox","妖狐"],["resonator","共鳴者"],["cat","猫又"]
 ];
-const TEAM={villager:"村人陣営",seer:"村人陣営",knight:"村人陣営",medium:"村人陣営",madman:"人狼陣営",wolf:"人狼陣営",fox:"妖狐陣営"};
+const TEAM={villager:"村人陣営",seer:"村人陣営",knight:"村人陣営",medium:"村人陣営",madman:"人狼陣営",wolf:"人狼陣営",fox:"妖狐陣営",resonator:"村人陣営",cat:"村人陣営"};
 let state=null;
 const $=s=>document.querySelector(s);
 const roleName=r=>ROLES.find(x=>x[0]===r)?.[1]??r;
@@ -188,7 +188,7 @@ const randomChoice=a=>a.length?a[Math.floor(Math.random()*a.length)]:null;
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
 
 function defaultCounts(n){
-  const b={villager:3,seer:1,knight:1,medium:1,madman:1,wolf:2,fox:0};
+  const b={villager:3,seer:1,knight:1,medium:1,madman:1,wolf:2,fox:0,resonator:0,cat:0};
   if(n<9){
     b.villager=Math.max(1,n-4); b.medium=n>=7?1:0; b.madman=n>=6?1:0;
     b.knight=n>=6?1:0; b.wolf=n>=7?2:1; b.seer=1;
@@ -221,13 +221,17 @@ function newPlayer(id,name,role,isSelf=false){
     seerResults:[],mediumResults:[],fakeSeerResults:[],fakeMediumResults:[],
     forcedSeerTarget:null,forcedGuardTarget:null,fakeClaimRole:null,
     lastReportedSeerCount:0,lastReportedMediumCount:0,
-    guardHistory:[], villagerClaim:null
+    guardHistory:[], resonancePartners:[], villagerClaim:null
   };
 }
 
 function startGame(){
   const n=clamp(+$("#playerCount").value,5,20),c=getRoleCounts();
   if(Object.values(c).reduce((a,b)=>a+b,0)!==n||c.villager<1||c.wolf<1)return;
+  if(c.resonator===1){
+    alert("共鳴者は2人以上で配役してください。");
+    return;
+  }
 
   const roles=[],assign={...c,villager:c.villager-1};
   for(const[r]of ROLES)for(let i=0;i<assign[r];i++)roles.push(r);
@@ -370,7 +374,7 @@ function handlePanelSelection(id){
   if(!state.selectionMode||!state._selectionCallback)return;
   if(state._selectionAllowed&&!state._selectionAllowed.includes(id))return;
   const cb=state._selectionCallback;
-  if(state.selectionMode==="seer-source"){
+  if(state.selectionMode==="seer-source"||state.selectionMode==="guard-source"){
     cb(id);
     return;
   }
@@ -488,12 +492,19 @@ function individualCoCheck(){
     }
 
     // 村陣営の役職持ちは正直にCO
-    if(["seer","knight","medium"].includes(p.role)){
+    if(["seer","knight","medium","resonator","cat"].includes(p.role)){
       p.claimed=p.role;
       p.villagerClaim=null;
       if(p.role==="seer")reportTrueSeer(p,true);
       else if(p.role==="medium")reportTrueMedium(p,true);
-      else reportKnight(p,true);
+      else if(p.role==="knight")reportKnight(p,true);
+      else if(p.role==="resonator"){
+        log(`${p.name} が【共鳴者CO】しました。`,"claim");
+        const partners=(p.resonancePartners||[]).map(id=>byId(id)?.name).filter(Boolean);
+        if(partners.length)log(`${p.name}：「相方は ${partners.join("、")} です」`,"result");
+      }else if(p.role==="cat"){
+        log(`${p.name} が【猫又CO】しました。`,"claim");
+      }
     }
     // 人外は騙り予定があればその役職をCO
     else if(["madman","wolf","fox"].includes(p.role)&&p.fakeClaimRole){
@@ -527,7 +538,7 @@ function villagerCheck(){
     let saysVillager=false;
     if(p.role==="villager"){
       saysVillager=true;
-    }else if(["seer","knight","medium"].includes(p.role)){
+    }else if(["seer","knight","medium","resonator","cat"].includes(p.role)){
       saysVillager=false;
     }else if(p.role==="madman"){
       saysVillager=Math.random()<0.78;
@@ -593,6 +604,43 @@ function publicSeerInstruction(){
   renderAll();
 }
 
+
+function publicGuardInstruction(){
+  const claimants=living().filter(p=>p.claimed==="knight");
+  if(!claimants.length){
+    log("現在、騎士CO者はいません。","system");
+    return;
+  }
+
+  state.selectionMode="guard-source";
+  state.selectionTitle="① 指示する騎士CO者を選択";
+  state._selectionAllowed=claimants.map(p=>p.id);
+  state._selectionCallback=(knightId)=>{
+    const knight=byId(knightId);
+    if(!knight||!knight.alive)return;
+
+    state.selectionMode="guard-target";
+    state.selectionSourceId=knight.id;
+    state.selectionTitle=`② ${knight.name} の護衛先を選択`;
+    state._selectionAllowed=living().filter(p=>p.id!==knight.id).map(p=>p.id);
+    state._selectionCallback=(targetId)=>{
+      const target=byId(targetId);
+      if(!target||!target.alive)return;
+      knight.forcedGuardTarget=targetId;
+      log(`【公開護衛指示】${knight.name} の次回護衛先を ${target.name} に指定しました。`,"system");
+      save();
+    };
+
+    $("#selectionHint").textContent=`② ${knight.name} の護衛先を選択：名前パネルをタップ`;
+    $("#selectionHint").classList.remove("hidden");
+    renderAll();
+  };
+
+  $("#selectionHint").textContent="① 指示する騎士CO者を選択：名前パネルをタップ";
+  $("#selectionHint").classList.remove("hidden");
+  renderAll();
+}
+
 function chooseExecution(){
   makeTargetPanel("本日の処刑対象を選択",living(),id=>{
     state.pendingExecution=id;
@@ -648,6 +696,16 @@ function confirmExecution(){
   p.alive=false;
   state.lastExecuted=id;
   log(`${p.name} は処刑されました。`,"death");
+
+  // 猫又が処刑された場合、生存者からランダムで1人を道連れ
+  if(p.role==="cat"){
+    const candidates=living();
+    const victim=randomChoice(candidates);
+    if(victim){
+      victim.alive=false;
+      log(`${victim.name} は猫又の道連れになりました。`,"death");
+    }
+  }
 
   roleLiving("medium").forEach(m=>m.mediumResults.push({day:state.day+1,target:id,black:p.role==="wolf"}));
   living().filter(x=>x.fakeClaimRole==="medium").forEach(m=>{
@@ -763,6 +821,16 @@ function resolveNight(){
     }else{
       attacked.alive=false;
       log(`${attacked.name} が無残な姿で発見されました。`,"death");
+
+      // 猫又が人狼に襲撃された場合、生存している人狼からランダムに1匹を道連れ
+      if(attacked.role==="cat"){
+        const wolfVictim=randomChoice(roleLiving("wolf"));
+        if(wolfVictim){
+          wolfVictim.alive=false;
+          // 通常の襲撃死と同じメッセージにして、猫又による道連れとは公開しない
+          log(`${wolfVictim.name} が無残な姿で発見されました。`,"death");
+        }
+      }
     }
   }else if(!foxKilled.length){
     log("平和な朝がやってきました。","result");
@@ -811,7 +879,7 @@ function reset(){
 }
 function renderDebug(){
   if(!state)return;
-  $("#debugText").innerHTML=state.players.map(p=>`${escapeHtml(p.name)}：${roleName(p.role)} / ${p.alive?"生存":"死亡"} / CO ${publicClaim(p)} / 騙り予定 ${p.fakeClaimRole?roleName(p.fakeClaimRole):"なし"} / 村人回答 ${p.villagerClaim===null?"未確認":(p.villagerClaim?"村人":"非村人")}`).join("<br>");
+  $("#debugText").innerHTML=state.players.map(p=>`${escapeHtml(p.name)}：${roleName(p.role)} / ${p.alive?"生存":"死亡"} / CO ${publicClaim(p)} / 騙り予定 ${p.fakeClaimRole?roleName(p.fakeClaimRole):"なし"} / 共鳴相方 ${(p.resonancePartners||[]).map(id=>byId(id)?.name).filter(Boolean).join("・")||"なし"} / 村人回答 ${p.villagerClaim===null?"未確認":(p.villagerClaim?"村人":"非村人")}`).join("<br>");
 }
 
 function openActionSheet(title,items){
@@ -846,7 +914,10 @@ function openSeerMenu(){
 }
 function openGuardMenu(){
   if(state.phase!=="day"){log("護衛指示は昼のみ使えます。","system");return}
-  openActionSheet("護衛メニュー",[{id:"hiddenGuard",label:"潜伏護衛指示",run:hiddenGuardInstruction}])
+  openActionSheet("護衛メニュー",[
+    {id:"hiddenGuard",label:"潜伏護衛指示",run:hiddenGuardInstruction},
+    {id:"publicGuard",label:"CO済騎士へ個別指示",run:publicGuardInstruction}
+  ])
 }
 function openFlowMenu(){
   openActionSheet("進行メニュー",[

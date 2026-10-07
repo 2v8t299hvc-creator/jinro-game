@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v1.1</title>
+<title>個人用人狼アプリ v1.2</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -95,7 +95,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v1.1</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v1.2</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -463,9 +463,11 @@ function forceRoleCO(r){
     real.forEach(p=>reportKnight(p,true));
     fake.forEach(p=>log(`${p.name} が【騎士CO】しました。`,"claim"));
   }else if(r==="resonator"){
-    real.forEach(p=>{
+    const livingResonators=roleLiving("resonator");
+    livingResonators.forEach(p=>p.claimed="resonator");
+    livingResonators.forEach(p=>{
       log(`${p.name} が【共鳴者CO】しました。`,"claim");
-      const partners=(p.resonancePartners||[]).map(id=>byId(id)?.name).filter(Boolean);
+      const partners=livingResonators.filter(x=>x.id!==p.id).map(x=>x.name);
       if(partners.length)log(`${p.name}：「相方は ${partners.join("、")} です」`,"result");
     });
   }else if(r==="cat"){
@@ -516,9 +518,13 @@ function individualCoCheck(){
       else if(p.role==="medium")reportTrueMedium(p,true);
       else if(p.role==="knight")reportKnight(p,true);
       else if(p.role==="resonator"){
-        log(`${p.name} が【共鳴者CO】しました。`,"claim");
-        const partners=(p.resonancePartners||[]).map(id=>byId(id)?.name).filter(Boolean);
-        if(partners.length)log(`${p.name}：「相方は ${partners.join("、")} です」`,"result");
+        const livingResonators=roleLiving("resonator");
+        livingResonators.forEach(x=>x.claimed="resonator");
+        livingResonators.forEach(x=>{
+          log(`${x.name} が【共鳴者CO】しました。`,"claim");
+          const partners=livingResonators.filter(y=>y.id!==x.id).map(y=>y.name);
+          if(partners.length)log(`${x.name}：「相方は ${partners.join("、")} です」`,"result");
+        });
       }else if(p.role==="cat"){
         log(`${p.name} が【猫又CO】しました。`,"claim");
       }
@@ -834,6 +840,9 @@ function resolveNight(){
   // 5. 人狼襲撃
   if(attacked&&attacked.alive){
     if(guardTargets.includes(attacked.id)){
+      log("平和な朝がやってきました。","result");
+    }else if(attacked.role==="fox"){
+      // 妖狐は人狼の襲撃では死亡しない
       log("平和な朝がやってきました。","result");
     }else{
       attacked.alive=false;

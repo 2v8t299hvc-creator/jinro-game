@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v0.7</title>
+<title>個人用人狼アプリ v0.8</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -78,11 +78,16 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 .player-row{grid-template-columns:1fr auto;gap:6px;padding:7px 8px}.player-row .player-co{grid-column:1/2;font-size:11px}.player-life{grid-row:1/3;grid-column:2/3;align-self:center}
 @media(max-width:520px){.player-list{grid-template-columns:repeat(2,minmax(0,1fr))}.player-row{font-size:11px}}
 .log.collapsed{height:108px}.log-toggle{width:100%;margin-top:8px;background:var(--panel2)}
-.player-row.selectable{cursor:pointer;outline:1px solid transparent}.player-row.selectable:hover{outline-color:var(--accent)}.player-row.selectable.selected{background:#2b3655;outline:2px solid var(--accent)}.selection-hint{font-size:12px;color:var(--warn);margin-top:6px}.role-reveal{font-size:11px;color:var(--ok);font-weight:800;margin-top:3px}</style>
+.player-row.selectable{cursor:pointer;outline:1px solid transparent}.player-row.selectable:hover{outline-color:var(--accent)}.player-row.selectable.selected{background:#2b3655;outline:2px solid var(--accent)}.selection-hint{font-size:12px;color:var(--warn);margin-top:6px}.role-reveal{font-size:11px;color:var(--ok);font-weight:800;margin-top:3px}
+.confirm-sheet{position:fixed;left:10px;right:10px;bottom:76px;z-index:70;max-width:720px;margin:auto;background:#141923;border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.confirm-list{display:grid;gap:6px;margin:10px 0}
+.confirm-item{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px}
+.confirm-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+</style>
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v0.7</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v0.8</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -137,6 +142,16 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
       <div id="actionSheetTitle" class="action-sheet-title">操作</div>
       <div id="actionSheetGrid" class="action-sheet-grid"></div>
       <button id="actionSheetClose" class="action-sheet-close">閉じる</button>
+    </div>
+
+    <div id="confirmSheet" class="confirm-sheet hidden">
+      <div style="font-weight:800">処刑前の確認</div>
+      <div id="confirmTarget" class="muted" style="margin-top:4px"></div>
+      <div id="confirmInstructions" class="confirm-list"></div>
+      <div class="confirm-actions">
+        <button id="confirmExecuteBtn">確認して処刑</button>
+        <button id="cancelExecuteBtn" class="secondary">戻る</button>
+      </div>
     </div>
 
     <div class="bottom-nav"><div class="bottom-nav-inner">
@@ -536,15 +551,75 @@ function publicSeerInstruction(){
 
 function chooseExecution(){
   makeTargetPanel("本日の処刑対象を選択",living(),id=>{
-    const p=byId(id);p.alive=false;state.lastExecuted=id;
-    log(`${p.name} は処刑されました。`,"death");
-    roleLiving("medium").forEach(m=>m.mediumResults.push({day:state.day+1,target:id,black:p.role==="wolf"}));
-    living().filter(x=>x.fakeClaimRole==="medium").forEach(m=>{
-      m.fakeMediumResults.push({day:state.day+1,target:id,black:chooseFakeMediumBlack(m,p)});
-    });
-    const w=checkWin(); if(w){finish(w);return}
-    state.phase="night";log("夜になりました。","system");save();renderAll();
+    state.pendingExecution=id;
+    showExecutionConfirmation();
   });
+}
+
+
+function getTonightInstructionSummary(){
+  const items=[];
+
+  const hiddenSeers=roleLiving("seer").filter(p=>p.claimed!=="seer" && p.forcedSeerTarget!=null);
+  if(hiddenSeers.length){
+    const t=byId(hiddenSeers[0].forcedSeerTarget);
+    if(t)items.push(`潜伏占い：${t.name}`);
+  }
+
+  living().filter(p=>p.claimed==="seer" && p.forcedSeerTarget!=null).forEach(p=>{
+    const t=byId(p.forcedSeerTarget);
+    if(t)items.push(`${p.name}の占い：${t.name}`);
+  });
+
+  const hiddenKnights=roleLiving("knight").filter(p=>p.claimed!=="knight" && p.forcedGuardTarget!=null);
+  if(hiddenKnights.length){
+    const t=byId(hiddenKnights[0].forcedGuardTarget);
+    if(t)items.push(`潜伏護衛：${t.name}`);
+  }
+
+  return items;
+}
+
+function showExecutionConfirmation(){
+  const p=byId(state.pendingExecution);
+  if(!p)return;
+
+  $("#confirmTarget").textContent=`処刑対象：${p.name}`;
+  const items=getTonightInstructionSummary();
+  $("#confirmInstructions").innerHTML=items.length
+    ? items.map(x=>`<div class="confirm-item">${escapeHtml(x)}</div>`).join("")
+    : `<div class="confirm-item muted">今夜の指示はありません</div>`;
+
+  $("#confirmSheet").classList.remove("hidden");
+}
+
+function confirmExecution(){
+  const id=state.pendingExecution;
+  const p=byId(id);
+  if(!p||!p.alive){$("#confirmSheet").classList.add("hidden");state.pendingExecution=null;return}
+
+  $("#confirmSheet").classList.add("hidden");
+  state.pendingExecution=null;
+
+  p.alive=false;
+  state.lastExecuted=id;
+  log(`${p.name} は処刑されました。`,"death");
+
+  roleLiving("medium").forEach(m=>m.mediumResults.push({day:state.day+1,target:id,black:p.role==="wolf"}));
+  living().filter(x=>x.fakeClaimRole==="medium").forEach(m=>{
+    m.fakeMediumResults.push({day:state.day+1,target:id,black:chooseFakeMediumBlack(m,p)});
+  });
+
+  const w=checkWin(); if(w){finish(w);return}
+  state.phase="night";
+  log("夜になりました。","system");
+  save();renderAll();
+}
+
+function cancelExecution(){
+  $("#confirmSheet").classList.add("hidden");
+  state.pendingExecution=null;
+  renderAll();
 }
 
 function chooseFakeBlack(liar,target){
@@ -573,25 +648,8 @@ function autoSeerTarget(p,results){
 
 function resolveNight(){
   if(state.phase!=="night"||state.winner)return;
-  let foxKilled=[];
 
-  roleLiving("seer").forEach(s=>{
-    let t=s.forcedSeerTarget!=null&&byId(s.forcedSeerTarget)?.alive?byId(s.forcedSeerTarget):null;
-    if(!t)t=autoSeerTarget(s,s.seerResults);
-    if(t){
-      s.seerResults.push({day:state.day+1,target:t.id,black:t.role==="wolf"});
-      if(t.role==="fox")foxKilled.push(t.id);
-    }
-    s.forcedSeerTarget=null;
-  });
-
-  living().filter(p=>p.fakeClaimRole==="seer").forEach(s=>{
-    let t=s.forcedSeerTarget!=null&&byId(s.forcedSeerTarget)?.alive?byId(s.forcedSeerTarget):null;
-    if(!t)t=autoSeerTarget(s,s.fakeSeerResults);
-    if(t)s.fakeSeerResults.push({day:state.day+1,target:t.id,black:chooseFakeBlack(s,t)});
-    s.forcedSeerTarget=null;
-  });
-
+  // 1. 騎士の護衛先を確定
   const guardTargets=[];
   roleLiving("knight").forEach(k=>{
     let t=k.forcedGuardTarget!=null&&byId(k.forcedGuardTarget)?.alive?byId(k.forcedGuardTarget):null;
@@ -604,28 +662,76 @@ function resolveNight(){
     k.forcedGuardTarget=null;
   });
 
+  // 2. 人狼の襲撃先を決定
   const wolves=roleLiving("wolf");
   let attacked=null;
   if(wolves.length)attacked=randomChoice(living().filter(p=>p.role!=="wolf"));
 
+  // 3. 占い結果を生成
+  //    ただし、その夜に襲撃死する占い師は結果を残せない
+  const seersBefore=roleLiving("seer").slice();
+  const fakeSeersBefore=living().filter(p=>p.fakeClaimRole==="seer").slice();
+
+  // 先に襲撃死する人物を特定（護衛成功なら死なない）
+  const attackedDies = attacked && attacked.alive && !guardTargets.includes(attacked.id);
+  const doomedByWolf = attackedDies ? attacked.id : null;
+
+  let foxKilled=[];
+  seersBefore.forEach(s=>{
+    if(s.id===doomedByWolf){
+      s.forcedSeerTarget=null;
+      return;
+    }
+    let t=s.forcedSeerTarget!=null&&byId(s.forcedSeerTarget)?.alive?byId(s.forcedSeerTarget):null;
+    if(!t)t=autoSeerTarget(s,s.seerResults);
+    if(t){
+      s.seerResults.push({day:state.day+1,target:t.id,black:t.role==="wolf"});
+      if(t.role==="fox")foxKilled.push(t.id);
+    }
+    s.forcedSeerTarget=null;
+  });
+
+  fakeSeersBefore.forEach(s=>{
+    if(s.id===doomedByWolf){
+      s.forcedSeerTarget=null;
+      return;
+    }
+    let t=s.forcedSeerTarget!=null&&byId(s.forcedSeerTarget)?.alive?byId(s.forcedSeerTarget):null;
+    if(!t)t=autoSeerTarget(s,s.fakeSeerResults);
+    if(t)s.fakeSeerResults.push({day:state.day+1,target:t.id,black:chooseFakeBlack(s,t)});
+    s.forcedSeerTarget=null;
+  });
+
+  // 4. 妖狐呪殺
   foxKilled=[...new Set(foxKilled)];
   foxKilled.forEach(id=>{
     const p=byId(id);
-    if(p&&p.alive){p.alive=false;log(`${p.name} が無残な姿で発見されました。`,"death")}
+    if(p&&p.alive){
+      p.alive=false;
+      log(`${p.name} が無残な姿で発見されました。`,"death");
+    }
   });
 
+  // 5. 人狼襲撃
   if(attacked&&attacked.alive){
-    if(guardTargets.includes(attacked.id))log("平和な朝がやってきました。","result");
-    else{attacked.alive=false;log(`${attacked.name} が無残な姿で発見されました。`,"death")}
+    if(guardTargets.includes(attacked.id)){
+      log("平和な朝がやってきました。","result");
+    }else{
+      attacked.alive=false;
+      log(`${attacked.name} が無残な姿で発見されました。`,"death");
+    }
   }else if(!foxKilled.length){
     log("平和な朝がやってきました。","result");
   }
 
   const w=checkWin(); if(w){finish(w);return}
 
-  state.day++;state.phase="day";
+  state.day++;
+  state.phase="day";
   log(`${state.day}日目の朝になりました。`,"system");
 
+  // 6. 朝の自動報告
+  //    生存しているCO者だけが報告する。夜に死亡した者は報告しない。
   living().filter(p=>p.claimed==="seer").forEach(p=>{
     if(p.role==="seer")reportTrueSeer(p,false);
     else if(p.fakeClaimRole==="seer")reportFakeSeer(p,false);
@@ -634,9 +740,7 @@ function resolveNight(){
     if(p.role==="medium")reportTrueMedium(p,false);
     else if(p.fakeClaimRole==="medium")reportFakeMedium(p,false);
   });
-  living().filter(p=>p.claimed==="knight" && p.role==="knight").forEach(p=>{
-    reportKnight(p,false);
-  });
+  living().filter(p=>p.claimed==="knight"&&p.role==="knight").forEach(p=>reportKnight(p,false));
 
   save();renderAll();
 }
@@ -713,6 +817,8 @@ $("#loadBtn").onclick=load;
 $("#debugBtnTop").onclick=()=>$("#debugPanel").classList.toggle("hidden");
 $("#resetBtnTop").onclick=reset;
 $("#actionSheetClose").onclick=closeActionSheet;
+$("#confirmExecuteBtn").onclick=confirmExecution;
+$("#cancelExecuteBtn").onclick=cancelExecution;
 $("#navCo").onclick=openCoMenu;
 $("#navSeer").onclick=openSeerMenu;
 $("#navGuard").onclick=openGuardMenu;

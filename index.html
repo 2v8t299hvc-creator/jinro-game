@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v1.0</title>
+<title>個人用人狼アプリ v1.1</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -17,7 +17,7 @@ button.secondary{background:var(--panel2)}
 button.danger{background:var(--danger)}
 button.ghost{background:transparent;border:1px solid var(--line)}
 button:disabled{opacity:.45}
-.wrap{max-width:980px;margin:auto;padding:76px 14px 92px}
+.wrap{max-width:980px;margin:auto;padding:76px 14px 118px}
 h1{font-size:22px;margin:0 0 4px}
 h2{font-size:17px;margin:0 0 10px}
 .muted{color:var(--muted)}
@@ -67,8 +67,12 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 .topbar-inner{max-width:980px;margin:auto;padding:10px 14px;display:flex;justify-content:space-between;gap:10px;align-items:center}
 .topbar-title{font-weight:800}.topbar-mini{font-size:12px;color:var(--muted)}
 .bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:50;background:rgba(15,17,23,.97);backdrop-filter:blur(10px);border-top:1px solid var(--line)}
-.bottom-nav-inner{max-width:980px;margin:auto;padding:8px 10px calc(8px + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
-.bottom-nav button{padding:10px 6px;font-size:13px}
+.bottom-nav-inner{max-width:980px;margin:auto;padding:10px 12px calc(12px + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.bottom-nav button{min-height:52px;padding:12px 8px;font-size:14px;border-radius:14px;touch-action:manipulation}
+@media(max-width:520px){
+  .bottom-nav-inner{gap:8px;padding-left:8px;padding-right:8px}
+  .bottom-nav button{min-height:50px;font-size:13px}
+}
 .action-sheet{position:fixed;left:10px;right:10px;bottom:76px;z-index:60;max-width:720px;margin:auto;background:#141923;border:1px solid var(--line);border-radius:16px;padding:12px;box-shadow:0 20px 60px rgba(0,0,0,.45)}
 .action-sheet-title{font-weight:800;margin-bottom:8px}.action-sheet-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .action-sheet-grid button{background:var(--panel2)}.action-sheet-close{margin-top:8px;width:100%;background:transparent;border:1px solid var(--line)}
@@ -91,7 +95,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v1.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v1.1</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -124,6 +128,8 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
         <button data-claimtab="seer" class="active">占い</button>
         <button data-claimtab="medium">霊媒</button>
         <button data-claimtab="knight">騎士</button>
+        <button data-claimtab="resonator">共鳴</button>
+        <button data-claimtab="cat">猫又</button>
         <button data-claimtab="villager">村人</button>
       </div>
       <div id="claimBoard" class="claim-board claim-role-section"></div>
@@ -309,6 +315,8 @@ function renderClaimBoard(){
   if(role==="seer"){members=state.players.filter(p=>p.claimed==="seer");label="【占いCO者】"}
   if(role==="medium"){members=state.players.filter(p=>p.claimed==="medium");label="【霊媒師CO者】"}
   if(role==="knight"){members=state.players.filter(p=>p.claimed==="knight");label="【騎士CO者】"}
+  if(role==="resonator"){members=state.players.filter(p=>p.claimed==="resonator");label="【共鳴者CO者】"}
+  if(role==="cat"){members=state.players.filter(p=>p.claimed==="cat");label="【猫又CO者】"}
   if(role==="villager"){members=state.players.filter(p=>p.villagerClaim===true&&!p.claimed);label="【村人CO者】"}
   document.querySelectorAll("[data-claimtab]").forEach(b=>b.classList.toggle("active",b.dataset.claimtab===role));
   if(!members.length){$("#claimBoard").innerHTML=`<div class="muted">${label} なし</div>`;return}
@@ -316,6 +324,7 @@ function renderClaimBoard(){
     let detail="";
     if(role==="seer"||role==="medium"){const h=resultHistory(p);detail=h?`<div class="claim-results">${escapeHtml(h)}</div>`:""}
     else if(role==="knight"){const gh=(p.guardHistory||[]).map(r=>`${r.day}日 ${byId(r.target)?.name??"不明"}護衛`).join(" / ");detail=gh?`<div class="claim-results">${escapeHtml(gh)}</div>`:`<div class="claim-results muted">護衛記録なし</div>`}
+    else if(role==="resonator"){const partners=(p.resonancePartners||[]).map(id=>byId(id)?.name).filter(Boolean).join("、");detail=partners?`<div class="claim-results">相方：${escapeHtml(partners)}</div>`:""}
     return `<div class="claim-card"><div class="claim-head"><div class="claim-name">${escapeHtml(p.name)}${p.alive?"":"（死亡）"}</div><div class="claim-role">${role==="villager"?"村人CO":roleName(role)+"CO"}</div></div>${detail}</div>`
   }).join("");
 }
@@ -385,7 +394,7 @@ function handlePanelSelection(id){
 
 function makeRolePanel(){
   const p=$("#actionPanel");p.classList.remove("hidden");
-  const opts=[["seer","占い師"],["medium","霊媒師"],["knight","騎士"]];
+  const opts=[["seer","占い師"],["medium","霊媒師"],["knight","騎士"],["resonator","共鳴者"],["cat","猫又"]];
   p.innerHTML=`<div class="action-sheet"><b>COさせる役職を選択</b><div class="target-list">${opts.map(([r,n])=>`<button data-role="${r}">${n}</button>`).join("")}</div><button class="action-sheet-close" id="cancelAction">キャンセル</button></div>`;
   p.querySelectorAll("[data-role]").forEach(b=>b.onclick=()=>{forceRoleCO(b.dataset.role);p.classList.add("hidden")});
   $("#cancelAction").onclick=()=>p.classList.add("hidden");
@@ -453,6 +462,14 @@ function forceRoleCO(r){
   }else if(r==="knight"){
     real.forEach(p=>reportKnight(p,true));
     fake.forEach(p=>log(`${p.name} が【騎士CO】しました。`,"claim"));
+  }else if(r==="resonator"){
+    real.forEach(p=>{
+      log(`${p.name} が【共鳴者CO】しました。`,"claim");
+      const partners=(p.resonancePartners||[]).map(id=>byId(id)?.name).filter(Boolean);
+      if(partners.length)log(`${p.name}：「相方は ${partners.join("、")} です」`,"result");
+    });
+  }else if(r==="cat"){
+    real.forEach(p=>log(`${p.name} が【猫又CO】しました。`,"claim"));
   }else{
     all.forEach(p=>log(`${p.name} が【${roleName(r)}CO】しました。`,"claim"));
   }

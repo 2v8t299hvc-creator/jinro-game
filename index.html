@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v1.9</title>
+<title>個人用人狼アプリ v2.0</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -97,11 +97,14 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 .log-head-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .log-head-row h2{margin-bottom:0}
 #logPersonFilter{min-height:40px;max-width:180px;padding:7px 9px;border-radius:10px}
+
+.broken-badge{display:inline-block;margin-left:4px;padding:2px 6px;border-radius:999px;font-size:11px;font-weight:800;background:#b42318;color:#fff;vertical-align:middle}
+.broken-reason{margin-top:6px;padding:7px 9px;border-radius:8px;background:rgba(180,35,24,.10);font-size:12px;font-weight:700}
 </style>
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v1.9</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -239,7 +242,7 @@ function newPlayer(id,name,role,isSelf=false){
     forcedSeerTarget:null,forcedGuardTarget:null,fakeClaimRole:null,
     lastReportedSeerCount:0,lastReportedMediumCount:0,
     guardHistory:[], resonancePartners:[], villagerClaim:null,
-    lastSpeechDay:0,lastSpeechText:"",speechHistory:[],lastSuspectId:null,coCheckedNone:false
+    lastSpeechDay:0,lastSpeechText:"",speechHistory:[],lastSuspectId:null,coCheckedNone:false,deathDay:null,deathPhase:null
   };
 }
 
@@ -259,7 +262,12 @@ function startGame(){
   const ps=[newPlayer(0,$("#selfName").value.trim()||"あなた","villager",true)];
   for(let i=1;i<n;i++)ps.push(newPlayer(i,names[i-1]??`P${i+1}`,roles[i-1],false));
 
-  state={version:"0.9",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null};
+  state={
+    version:"2.0",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
+    publicRoleCounts:{...c},
+    publicRecords:{seerResults:[],mediumResults:[],guards:[],executions:[],deaths:[],catChains:[],resonatorClaims:[]},
+    logPersonFilterId:null
+  };
 
   // 初日占い
   roleLiving("seer").forEach(s=>{
@@ -301,6 +309,42 @@ function roleLiving(r){return living().filter(p=>p.role===r)}
 function publicClaim(p){return p.claimed?roleName(p.claimed):(p.coCheckedNone?"COなし":"未CO")}
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]))}
 
+
+function ensurePublicRecords(){
+  if(!state.publicRecords)state.publicRecords={};
+  const r=state.publicRecords;
+  for(const k of ["seerResults","mediumResults","guards","executions","deaths","catChains","resonatorClaims"]){
+    if(!Array.isArray(r[k]))r[k]=[];
+  }
+  if(!state.publicRoleCounts)state.publicRoleCounts=null;
+}
+function pushPublicRecord(kind,record,keyFields=[]){
+  ensurePublicRecords();
+  const arr=state.publicRecords[kind];
+  const exists=arr.some(x=>keyFields.every(k=>x[k]===record[k]));
+  if(!exists)arr.push(record);
+}
+function recordPublicDeath(p,day,phase,label){
+  if(!p)return;
+  p.deathDay=day;
+  p.deathPhase=phase;
+  pushPublicRecord("deaths",{playerId:p.id,day,phase,label},["playerId","day","phase"]);
+}
+function publishedSeerRecord(seer,targetId,black,day){
+  pushPublicRecord("seerResults",{seerId:seer.id,targetId,black:!!black,day},["seerId","targetId","day","black"]);
+}
+function publishedMediumRecord(medium,targetId,black,day){
+  pushPublicRecord("mediumResults",{mediumId:medium.id,targetId,black:!!black,day},["mediumId","targetId","day","black"]);
+}
+function publishedGuardRecord(knight,targetId,day){
+  pushPublicRecord("guards",{knightId:knight.id,targetId,day},["knightId","targetId","day"]);
+}
+function publishedResonatorClaim(p,partnerIds){
+  pushPublicRecord("resonatorClaims",{playerId:p.id,partnerIds:[...partnerIds].sort((a,b)=>a-b),day:state.day},["playerId","day"]);
+}
+function publicRoleCount(role){
+  return state.publicRoleCounts?.[role] ?? null;
+}
 function log(msg,cls=""){state.logs.push({msg,cls});renderLog()}
 function renderLogFilterOptions(){
   const sel=$("#logPersonFilter");
@@ -354,7 +398,9 @@ function renderClaimBoard(){
     if(role==="seer"||role==="medium"){const h=resultHistory(p);detail=h?`<div class="claim-results">${escapeHtml(h)}</div>`:""}
     else if(role==="knight"){const gh=(p.guardHistory||[]).map(r=>`${r.day}日 ${byId(r.target)?.name??"不明"}護衛`).join(" / ");detail=gh?`<div class="claim-results">${escapeHtml(gh)}</div>`:`<div class="claim-results muted">護衛記録なし</div>`}
     else if(role==="resonator"){const partners=(p.resonancePartners||[]).map(id=>byId(id)?.name).filter(Boolean).join("、");detail=partners?`<div class="claim-results">相方：${escapeHtml(partners)}</div>`:""}
-    return `<div class="claim-card"><div class="claim-head"><div class="claim-name">${escapeHtml(p.name)}${p.alive?"":"（死亡）"}</div><div class="claim-role">${role==="villager"?"村人CO":roleName(role)+"CO"}</div></div>${detail}</div>`
+    const br=brokenReasonsFor(p.id);
+    const broken=br.length?`<div class="broken-reason">⚠ 破綻：${escapeHtml(br.join(" / "))}</div>`:"";
+    return `<div class="claim-card"><div class="claim-head"><div class="claim-name">${escapeHtml(p.name)}${p.alive?"":"（死亡）"}</div><div class="claim-role">${role==="villager"?"村人CO":roleName(role)+"CO"}${br.length?` <span class="broken-badge">破綻</span>`:""}</div></div>${detail}${broken}</div>`
   }).join("");
 }
 
@@ -369,7 +415,7 @@ function renderAll(){
     const dimmed=state.selectionMode&&p.alive&&!selectable;
     return `<div class="player-row ${p.alive?"":"dead"} ${selectable?"selectable":""} ${dimmed?"dimmed":""}" data-player-id="${p.id}">
       <div class="player-name"><span class="player-number">${String(p.id+1).padStart(2,"0")}</span>${escapeHtml(p.name)}${p.isSelf?"（あなた）":""}${state.winner?`<div class="role-reveal">${roleName(p.role)}</div>`:""}</div>
-      <div class="player-co">${p.claimed?roleName(p.claimed)+"CO":(p.villagerClaim===true?"村人CO":(p.villagerClaim===false?"非村人":(p.coCheckedNone?"COなし":"未CO")))}</div>
+      <div class="player-co">${p.claimed?roleName(p.claimed)+"CO":(p.villagerClaim===true?"村人CO":(p.villagerClaim===false?"非村人":(p.coCheckedNone?"COなし":"未CO")))}${isPubliclyBroken(p.id)?` <span class="broken-badge">破綻</span>`:""}</div>
       <div class="player-life">${p.alive?"生存":"死亡"}</div>
     </div>`;
   }).join("");
@@ -433,26 +479,38 @@ function reportTrueSeer(p,first=false){
   if(first)log(`${p.name} が【占い師CO】しました。`,"claim");
   const unread=p.seerResults.slice(p.lastReportedSeerCount||0);
   if(!unread.length&&first){log(`${p.name}（占い師CO）：まだ占い結果はありません。`,"result");return}
-  unread.forEach(r=>log(`${p.name}（占い師CO）：${byId(r.target).name} → ${r.black?"人狼":"人狼ではない"}`,"result"));
+  unread.forEach(r=>{
+    log(`${p.name}（占い師CO）：${byId(r.target).name} → ${r.black?"人狼":"人狼ではない"}`,"result");
+    publishedSeerRecord(p,r.target,r.black,r.day);
+  });
   p.lastReportedSeerCount=p.seerResults.length;
 }
 function reportFakeSeer(p,first=false){
   if(first)log(`${p.name} が【占い師CO】しました。`,"claim");
   const unread=p.fakeSeerResults.slice(p.lastReportedSeerCount||0);
-  unread.forEach(r=>log(`${p.name}（占い師CO）：${byId(r.target).name} → ${r.black?"人狼":"人狼ではない"}`,"result"));
+  unread.forEach(r=>{
+    log(`${p.name}（占い師CO）：${byId(r.target).name} → ${r.black?"人狼":"人狼ではない"}`,"result");
+    publishedSeerRecord(p,r.target,r.black,r.day);
+  });
   p.lastReportedSeerCount=p.fakeSeerResults.length;
 }
 function reportTrueMedium(p,first=false){
   if(first)log(`${p.name} が【霊媒師CO】しました。`,"claim");
   const unread=p.mediumResults.slice(p.lastReportedMediumCount||0);
   if(!unread.length&&first){log(`${p.name}（霊媒師CO）：まだ霊媒結果はありません。`,"result");return}
-  unread.forEach(r=>log(`${p.name}（霊媒師CO）：${byId(r.target).name} → ${r.black?"人狼":"人狼ではない"}`,"result"));
+  unread.forEach(r=>{
+    log(`${p.name}（霊媒師CO）：${byId(r.target).name} → ${r.black?"人狼":"人狼ではない"}`,"result");
+    publishedMediumRecord(p,r.target,r.black,r.day);
+  });
   p.lastReportedMediumCount=p.mediumResults.length;
 }
 function reportFakeMedium(p,first=false){
   if(first)log(`${p.name} が【霊媒師CO】しました。`,"claim");
   const unread=p.fakeMediumResults.slice(p.lastReportedMediumCount||0);
-  unread.forEach(r=>log(`${p.name}（霊媒師CO）：${byId(r.target).name} → ${r.black?"人狼":"人狼ではない"}`,"result"));
+  unread.forEach(r=>{
+    log(`${p.name}（霊媒師CO）：${byId(r.target).name} → ${r.black?"人狼":"人狼ではない"}`,"result");
+    publishedMediumRecord(p,r.target,r.black,r.day);
+  });
   p.lastReportedMediumCount=p.fakeMediumResults.length;
 }
 
@@ -466,6 +524,7 @@ function reportKnight(p,first=false){
   if(hist.length){
     const last=hist[hist.length-1];
     log(`${p.name}（騎士CO）：${last.day}日目は ${byId(last.target)?.name??"不明"} を護衛しました。`,"result");
+    publishedGuardRecord(p,last.target,last.day);
   }
 }
 
@@ -496,7 +555,9 @@ function forceRoleCO(r){
     livingResonators.forEach(p=>p.claimed="resonator");
     livingResonators.forEach(p=>{
       log(`${p.name} が【共鳴者CO】しました。`,"claim");
-      const partners=livingResonators.filter(x=>x.id!==p.id).map(x=>x.name);
+      const partnerObjs=livingResonators.filter(x=>x.id!==p.id);
+      const partners=partnerObjs.map(x=>x.name);
+      publishedResonatorClaim(p,partnerObjs.map(x=>x.id));
       if(partners.length)log(`${p.name}：「相方は ${partners.join("、")} です」`,"result");
     });
   }else if(r==="cat"){
@@ -552,7 +613,9 @@ function individualCoCheck(){
         livingResonators.forEach(x=>x.claimed="resonator");
         livingResonators.forEach(x=>{
           log(`${x.name} が【共鳴者CO】しました。`,"claim");
-          const partners=livingResonators.filter(y=>y.id!==x.id).map(y=>y.name);
+          const partnerObjs=livingResonators.filter(y=>y.id!==x.id);
+          const partners=partnerObjs.map(y=>y.name);
+          publishedResonatorClaim(x,partnerObjs.map(y=>y.id));
           if(partners.length)log(`${x.name}：「相方は ${partners.join("、")} です」`,"result");
         });
       }else if(p.role==="cat"){
@@ -750,6 +813,8 @@ function confirmExecution(){
 
   p.alive=false;
   state.lastExecuted=id;
+  recordPublicDeath(p,state.day,"day","execution");
+  pushPublicRecord("executions",{playerId:p.id,day:state.day},["playerId","day"]);
   log(`${p.name} は処刑されました。`,"death");
 
   // 猫又が処刑された場合、生存者からランダムで1人を道連れ
@@ -758,6 +823,8 @@ function confirmExecution(){
     const victim=randomChoice(candidates);
     if(victim){
       victim.alive=false;
+      recordPublicDeath(victim,state.day,"day","cat-chain");
+      pushPublicRecord("catChains",{catId:p.id,victimId:victim.id,day:state.day},["catId","day"]);
       log(`${victim.name} は猫又の道連れになりました。`,"death");
     }
   }
@@ -956,9 +1023,9 @@ function buildPublicInfo(){
       claimed:p.claimed||null,
       villagerClaim:p.villagerClaim===true?true:(p.villagerClaim===false?false:null)
     })),
-    seerResults:publicSeerResults(),
-    mediumResults:publicMediumResults(),
-    guardHints:publicGuardHints(),
+    seerResults:(ensurePublicRecords(),state.publicRecords.seerResults.map(r=>({...r,seerName:byId(r.seerId)?.name||"不明",targetName:byId(r.targetId)?.name||"不明"}))),
+    mediumResults:state.publicRecords.mediumResults.map(r=>({...r,mediumName:byId(r.mediumId)?.name||"不明",targetName:byId(r.targetId)?.name||"不明"})),
+    guardHints:state.publicRecords.guards.map(r=>({...r,knightName:byId(r.knightId)?.name||"不明",targetName:byId(r.targetId)?.name||"不明"})),
     lastExecutedId:state.lastExecuted,
     peace:lastNightWasPeace()
   };
@@ -1064,6 +1131,137 @@ function applyPrivateStrategy(observer,privateInfo,publicInfo,entry){
 }
 
 
+
+function getPublicBreakdowns(){
+  ensurePublicRecords();
+  const r=state.publicRecords;
+  const broken=new Map();
+  const add=(id,reason)=>{
+    if(id==null)return;
+    if(!broken.has(id))broken.set(id,[]);
+    if(!broken.get(id).includes(reason))broken.get(id).push(reason);
+  };
+
+  const playerBy=id=>state.players.find(p=>p.id===id);
+
+  // A. 占い師：同じ相手への白黒自己矛盾
+  const seerClaims=new Map();
+  for(const x of r.seerResults){
+    const key=`${x.seerId}:${x.targetId}`;
+    if(!seerClaims.has(key))seerClaims.set(key,new Set());
+    seerClaims.get(key).add(x.black?"black":"white");
+  }
+  for(const [key,set] of seerClaims){
+    if(set.size>1)add(+key.split(":")[0],"同じ人物に白と黒の両方を出している");
+  }
+
+  // B. 占い師：その結果日より前に死亡済みの人物を占った
+  for(const x of r.seerResults){
+    const death=r.deaths.find(d=>d.playerId===x.targetId);
+    if(death && death.day < x.day){
+      add(x.seerId,`${playerBy(x.targetId)?.name||"死亡者"}は占い結果の日より前に死亡している`);
+    }
+  }
+
+  // C. 霊媒師：同じ処刑者への白黒自己矛盾
+  const medClaims=new Map();
+  for(const x of r.mediumResults){
+    const key=`${x.mediumId}:${x.targetId}`;
+    if(!medClaims.has(key))medClaims.set(key,new Set());
+    medClaims.get(key).add(x.black?"black":"white");
+  }
+  for(const [key,set] of medClaims){
+    if(set.size>1)add(+key.split(":")[0],"同じ処刑者に白と黒の両方の霊媒結果を出している");
+  }
+
+  // D. 霊媒師：処刑されていない人物への結果 / 結果日の不整合
+  for(const x of r.mediumResults){
+    const ex=r.executions.find(e=>e.playerId===x.targetId);
+    if(!ex){
+      add(x.mediumId,`${playerBy(x.targetId)?.name||"対象"}は処刑されていない`);
+    }else if(x.day!==ex.day+1){
+      add(x.mediumId,`${playerBy(x.targetId)?.name||"対象"}の霊媒結果を出した日が成立しない`);
+    }
+  }
+
+  // E. 騎士：自護衛 / 同夜複数護衛 / 死亡済み護衛
+  const guardDays=new Map();
+  for(const g of r.guards){
+    if(g.knightId===g.targetId)add(g.knightId,"自分自身を護衛している");
+    const key=`${g.knightId}:${g.day}`;
+    if(!guardDays.has(key))guardDays.set(key,new Set());
+    guardDays.get(key).add(g.targetId);
+
+    const death=r.deaths.find(d=>d.playerId===g.targetId);
+    if(death && death.day < g.day){
+      add(g.knightId,`${playerBy(g.targetId)?.name||"死亡者"}は護衛日の前に死亡している`);
+    }
+  }
+  for(const [key,set] of guardDays){
+    if(set.size>1)add(+key.split(":")[0],"同じ夜に複数人を護衛したと主張している");
+  }
+
+  // F. 共鳴者：相方宣言の不一致 / 配役人数超過
+  const latestRes=new Map();
+  for(const c of r.resonatorClaims)latestRes.set(c.playerId,c);
+  for(const [id,c] of latestRes){
+    for(const partnerId of c.partnerIds||[]){
+      const back=latestRes.get(partnerId);
+      if(back && !(back.partnerIds||[]).includes(id)){
+        add(id,`${playerBy(partnerId)?.name||"相方"}との相方宣言が一致していない`);
+        add(partnerId,`${playerBy(id)?.name||"相方"}との相方宣言が一致していない`);
+      }
+    }
+  }
+  const resCount=publicRoleCount("resonator");
+  if(resCount!=null){
+    const involved=new Set();
+    for(const [id,c] of latestRes){
+      involved.add(id);
+      (c.partnerIds||[]).forEach(x=>involved.add(x));
+    }
+    if(involved.size>resCount){
+      for(const id of involved)add(id,`共鳴者の公開ラインが配役数${resCount}人を超えている`);
+    }
+  }
+
+  // G. 猫又：処刑された猫又CO者なのに専用道連れがない
+  for(const ex of r.executions){
+    const p=playerBy(ex.playerId);
+    if(p?.claimed==="cat"){
+      const chain=r.catChains.find(c=>c.catId===p.id&&c.day===ex.day);
+      if(!chain)add(p.id,"猫又COで処刑されたが専用の道連れが起きていない");
+    }
+  }
+
+  // H. 猫又処刑＋専用道連れが起きた人物は公開上の真猫又確定。
+  // 猫又1人配役なら他の猫又COは破綻。
+  const confirmedCats=new Set(r.catChains.map(c=>c.catId));
+  const catCount=publicRoleCount("cat");
+  if(catCount!=null && confirmedCats.size>=catCount && catCount>0){
+    for(const p of state.players){
+      if(p.claimed==="cat"&&!confirmedCats.has(p.id)){
+        add(p.id,"配役上の猫又枠が真確定した猫又で埋まっている");
+      }
+    }
+  }
+
+  // I. 真確定した猫又に黒を出した占い師は破綻
+  for(const x of r.seerResults){
+    if(x.black && confirmedCats.has(x.targetId)){
+      add(x.seerId,`${playerBy(x.targetId)?.name||"真猫又"}は猫又として公開確定しているのに黒を出している`);
+    }
+  }
+
+  return broken;
+}
+
+function brokenReasonsFor(id){
+  return getPublicBreakdowns().get(id)||[];
+}
+function isPubliclyBroken(id){
+  return brokenReasonsFor(id).length>0;
+}
 function publicSeerCredibility(publicInfo,seerId){
   const seer=publicInfo.players.find(p=>p.id===seerId);
   if(!seer||seer.claimed!=="seer")return {score:0,reasons:[]};
@@ -1125,6 +1323,13 @@ function chooseSpeechTopic(observer){
       return applyPrivateStrategy(observer,privateInfo,publicInfo,{target,...pub});
     })
     .sort((a,b)=>b.score-a.score);
+
+  const brokenMap=getPublicBreakdowns();
+  const brokenTarget=candidates.find(p=>brokenMap.has(p.id));
+  if(brokenTarget){
+    const reason=brokenMap.get(brokenTarget.id)[0];
+    return {kind:"broken",targetId:brokenTarget.id,text:`${brokenTarget.name}さんは破綻しています。${reason}。`};
+  }
 
   const top=evals[0];
 
@@ -1218,7 +1423,7 @@ function runDaySpeeches(){
     const speech=generateComSpeech(p);
     if(!Array.isArray(p.speechHistory))p.speechHistory=[];
     p.speechHistory.push({day:state.day,kind:speech.kind,targetId:speech.targetId,text:speech.text});
-    if(speech.targetId!=null&&["suspect","gray","seerMediumConflict"].includes(speech.kind))p.lastSuspectId=speech.targetId;
+    if(speech.targetId!=null&&["suspect","gray","seerMediumConflict","broken"].includes(speech.kind))p.lastSuspectId=speech.targetId;
     p.lastSpeechDay=state.day;
     p.lastSpeechText=speech.fullText;
     log(speech.fullText,"talk");
@@ -1287,6 +1492,7 @@ function resolveNight(){
     const p=byId(id);
     if(p&&p.alive){
       p.alive=false;
+      recordPublicDeath(p,state.day+1,"night","found-dead");
       log(`${p.name} が無残な姿で発見されました。`,"death");
     }
   });
@@ -1302,6 +1508,7 @@ function resolveNight(){
     }else{
       attacked.alive=false;
       attackDied=true;
+      recordPublicDeath(attacked,state.day+1,"night","found-dead");
       log(`${attacked.name} が無残な姿で発見されました。`,"death");
 
       // 猫又が人狼に襲撃された場合、生存している人狼からランダムに1匹を道連れ
@@ -1309,6 +1516,7 @@ function resolveNight(){
         const wolfVictim=randomChoice(roleLiving("wolf"));
         if(wolfVictim){
           wolfVictim.alive=false;
+          recordPublicDeath(wolfVictim,state.day+1,"night","found-dead");
           // 通常の襲撃死と同じメッセージにして、猫又による道連れとは公開しない
           log(`${wolfVictim.name} が無残な姿で発見されました。`,"death");
         }
@@ -1374,9 +1582,12 @@ function load(){
     state=JSON.parse(r);
     state.selectionMode=null;state.selectionTitle=null;state._selectionAllowed=null;state._selectionCallback=null;
     if(state.logPersonFilterId===undefined)state.logPersonFilterId=null;
+    ensurePublicRecords();
     (state.players||[]).forEach(p=>{
       if(p.coCheckedNone===undefined)p.coCheckedNone=false;
       if(!Array.isArray(p.speechHistory))p.speechHistory=[];
+      if(p.deathDay===undefined)p.deathDay=null;
+      if(p.deathPhase===undefined)p.deathPhase=null;
     });
     showGame();
   }catch(e){alert("保存データを読み込めませんでした")}

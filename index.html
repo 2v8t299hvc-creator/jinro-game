@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.0</title>
+<title>個人用人狼アプリ v2.1</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -100,11 +100,14 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 
 .broken-badge{display:inline-block;margin-left:4px;padding:2px 6px;border-radius:999px;font-size:11px;font-weight:800;background:#b42318;color:#fff;vertical-align:middle}
 .broken-reason{margin-top:6px;padding:7px 9px;border-radius:8px;background:rgba(180,35,24,.10);font-size:12px;font-weight:700}
+
+.confirmed-badge{display:inline-block;margin-left:4px;padding:2px 6px;border-radius:999px;font-size:11px;font-weight:800;background:#18794e;color:#fff;vertical-align:middle}
+.confirmed-reason{margin-top:6px;padding:7px 9px;border-radius:8px;background:rgba(24,121,78,.10);font-size:12px;font-weight:700}
 </style>
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.1</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -263,9 +266,9 @@ function startGame(){
   for(let i=1;i<n;i++)ps.push(newPlayer(i,names[i-1]??`P${i+1}`,roles[i-1],false));
 
   state={
-    version:"2.0",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
+    version:"2.1",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
     publicRoleCounts:{...c},
-    publicRecords:{seerResults:[],mediumResults:[],guards:[],executions:[],deaths:[],catChains:[],resonatorClaims:[]},
+    publicRecords:{seerResults:[],mediumResults:[],guards:[],executions:[],deaths:[],catChains:[],resonatorClaims:[],fullCoRequests:[]},
     logPersonFilterId:null
   };
 
@@ -291,15 +294,24 @@ function startGame(){
 }
 
 function assignFakeClaims(){
+  // 狂人：占い騙りが中心。低確率で猫又騙りも選ぶ。
   state.players.filter(p=>p.role==="madman").forEach(m=>{
-    const r=Math.random(); m.fakeClaimRole=r<0.62?"seer":r<0.82?"medium":null;
+    const r=Math.random();
+    m.fakeClaimRole=r<0.58?"seer":r<0.76?"medium":r<0.84?"cat":null;
   });
+
+  // 人狼：一定確率で1匹が騙り役。占い中心、霊媒、低確率で猫又。
   const wolves=state.players.filter(p=>p.role==="wolf");
   if(wolves.length&&Math.random()<0.65){
-    const liar=randomChoice(wolves); liar.fakeClaimRole=Math.random()<0.72?"seer":"medium";
+    const liar=randomChoice(wolves);
+    const r=Math.random();
+    liar.fakeClaimRole=r<0.65?"seer":r<0.86?"medium":"cat";
   }
+
+  // 妖狐：騙り自体は控えめ。猫又騙りも低確率で残す。
   state.players.filter(p=>p.role==="fox").forEach(f=>{
-    const r=Math.random(); f.fakeClaimRole=r<0.18?"seer":r<0.27?"medium":null;
+    const r=Math.random();
+    f.fakeClaimRole=r<0.16?"seer":r<0.24?"medium":r<0.32?"cat":null;
   });
 }
 
@@ -313,7 +325,7 @@ function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":
 function ensurePublicRecords(){
   if(!state.publicRecords)state.publicRecords={};
   const r=state.publicRecords;
-  for(const k of ["seerResults","mediumResults","guards","executions","deaths","catChains","resonatorClaims"]){
+  for(const k of ["seerResults","mediumResults","guards","executions","deaths","catChains","resonatorClaims","fullCoRequests"]){
     if(!Array.isArray(r[k]))r[k]=[];
   }
   if(!state.publicRoleCounts)state.publicRoleCounts=null;
@@ -399,8 +411,10 @@ function renderClaimBoard(){
     else if(role==="knight"){const gh=(p.guardHistory||[]).map(r=>`${r.day}日 ${byId(r.target)?.name??"不明"}護衛`).join(" / ");detail=gh?`<div class="claim-results">${escapeHtml(gh)}</div>`:`<div class="claim-results muted">護衛記録なし</div>`}
     else if(role==="resonator"){const partners=(p.resonancePartners||[]).map(id=>byId(id)?.name).filter(Boolean).join("、");detail=partners?`<div class="claim-results">相方：${escapeHtml(partners)}</div>`:""}
     const br=brokenReasonsFor(p.id);
+    const cr=confirmedReasonsFor(p.id);
     const broken=br.length?`<div class="broken-reason">⚠ 破綻：${escapeHtml(br.join(" / "))}</div>`:"";
-    return `<div class="claim-card"><div class="claim-head"><div class="claim-name">${escapeHtml(p.name)}${p.alive?"":"（死亡）"}</div><div class="claim-role">${role==="villager"?"村人CO":roleName(role)+"CO"}${br.length?` <span class="broken-badge">破綻</span>`:""}</div></div>${detail}${broken}</div>`
+    const confirmed=cr.length?`<div class="confirmed-reason">✓ 真確定：${escapeHtml(cr.join(" / "))}</div>`:"";
+    return `<div class="claim-card"><div class="claim-head"><div class="claim-name">${escapeHtml(p.name)}${p.alive?"":"（死亡）"}</div><div class="claim-role">${role==="villager"?"村人CO":roleName(role)+"CO"}${br.length?` <span class="broken-badge">破綻</span>`:""}${cr.length?` <span class="confirmed-badge">真確定</span>`:""}</div></div>${detail}${broken}${confirmed}</div>`
   }).join("");
 }
 
@@ -415,7 +429,7 @@ function renderAll(){
     const dimmed=state.selectionMode&&p.alive&&!selectable;
     return `<div class="player-row ${p.alive?"":"dead"} ${selectable?"selectable":""} ${dimmed?"dimmed":""}" data-player-id="${p.id}">
       <div class="player-name"><span class="player-number">${String(p.id+1).padStart(2,"0")}</span>${escapeHtml(p.name)}${p.isSelf?"（あなた）":""}${state.winner?`<div class="role-reveal">${roleName(p.role)}</div>`:""}</div>
-      <div class="player-co">${p.claimed?roleName(p.claimed)+"CO":(p.villagerClaim===true?"村人CO":(p.villagerClaim===false?"非村人":(p.coCheckedNone?"COなし":"未CO")))}${isPubliclyBroken(p.id)?` <span class="broken-badge">破綻</span>`:""}</div>
+      <div class="player-co">${p.claimed?roleName(p.claimed)+"CO":(p.villagerClaim===true?"村人CO":(p.villagerClaim===false?"非村人":(p.coCheckedNone?"COなし":"未CO")))}${isPubliclyBroken(p.id)?` <span class="broken-badge">破綻</span>`:""}${isPubliclyConfirmedTrue(p.id)?` <span class="confirmed-badge">真確定</span>`:""}</div>
       <div class="player-life">${p.alive?"生存":"死亡"}</div>
     </div>`;
   }).join("");
@@ -535,10 +549,15 @@ function ensureInitialFakeSeerResult(p){
 }
 
 function forceRoleCO(r){
+  ensurePublicRecords();
+  pushPublicRecord("fullCoRequests",{role:r,day:state.day},["role"]);
   const real=roleLiving(r);
   const fake=living().filter(p=>p.fakeClaimRole===r);
   const all=[...real,...fake.filter(p=>!real.includes(p))];
-  if(!all.length){log(`【${roleName(r)}CO指示】CO指示を出しました。`,"system");return}
+  if(!all.length){
+    log(`【${roleName(r)}CO指示】CO指示を出しました。`,"system");
+    save();renderAll();return;
+  }
 
   all.forEach(p=>{p.claimed=r;p.villagerClaim=null});
   if(r==="seer"){
@@ -562,6 +581,7 @@ function forceRoleCO(r){
     });
   }else if(r==="cat"){
     real.forEach(p=>log(`${p.name} が【猫又CO】しました。`,"claim"));
+    fake.forEach(p=>log(`${p.name} が【猫又CO】しました。`,"claim"));
   }else{
     all.forEach(p=>log(`${p.name} が【${roleName(r)}CO】しました。`,"claim"));
   }
@@ -632,6 +652,8 @@ function individualCoCheck(){
         reportFakeSeer(p,true);
       }else if(p.fakeClaimRole==="medium"){
         reportFakeMedium(p,true);
+      }else if(p.fakeClaimRole==="cat"){
+        log(`${p.name} が【猫又CO】しました。`,"claim");
       }
     }else{
       p.coCheckedNone=true;
@@ -1057,6 +1079,9 @@ function seerVsMediumConflict(publicInfo,seerId){
 function estimatePublicSuspicion(publicInfo,observerId,targetId){
   const target=publicInfo.players.find(p=>p.id===targetId);
   if(!target||!target.alive||target.id===observerId)return {score:-999,reasons:[]};
+  if(isPubliclyConfirmedTrue(targetId)){
+    return {score:-12,reasons:["公開情報から真役職として確定しています"]};
+  }
 
   let score=0;
   const reasons=[];
@@ -1132,7 +1157,7 @@ function applyPrivateStrategy(observer,privateInfo,publicInfo,entry){
 
 
 
-function getPublicBreakdowns(){
+function getBasePublicBreakdowns(){
   ensurePublicRecords();
   const r=state.publicRecords;
   const broken=new Map();
@@ -1256,11 +1281,163 @@ function getPublicBreakdowns(){
   return broken;
 }
 
+
+function solvePublicTruth(){
+  ensurePublicRecords();
+
+  const cloneMap=m=>{
+    const out=new Map();
+    for(const [k,v] of m)out.set(k,[...v]);
+    return out;
+  };
+  const broken=cloneMap(getBasePublicBreakdowns());
+  const confirmed=new Map();
+
+  const addBroken=(id,reason)=>{
+    if(id==null)return false;
+    if(!broken.has(id))broken.set(id,[]);
+    if(broken.get(id).includes(reason))return false;
+    broken.get(id).push(reason);
+    return true;
+  };
+  const addConfirmed=(id,reason)=>{
+    if(id==null||broken.has(id))return false;
+    if(!confirmed.has(id))confirmed.set(id,[]);
+    if(confirmed.get(id).includes(reason))return false;
+    confirmed.get(id).push(reason);
+    return true;
+  };
+
+  const fullCoRoles=new Set((state.publicRecords.fullCoRequests||[]).map(x=>x.role));
+  const roleCount=role=>publicRoleCount(role);
+
+  // 猫又の処刑専用道連れは、その猫又本人を公開上100%証明する。
+  for(const c of state.publicRecords.catChains||[]){
+    addConfirmed(c.catId,"処刑時に猫又専用の道連れが発生した");
+  }
+
+  // 共鳴者：全員CO指示後、相方関係が相互一致し、公開ライン人数が配役数と一致すれば確定。
+  if(fullCoRoles.has("resonator")){
+    const count=roleCount("resonator");
+    const latest=new Map();
+    for(const c of state.publicRecords.resonatorClaims||[])latest.set(c.playerId,c);
+
+    if(count!=null&&count>0){
+      const involved=new Set();
+      for(const [id,c] of latest){
+        involved.add(id);
+        (c.partnerIds||[]).forEach(x=>involved.add(x));
+      }
+      let mutual=involved.size===count&&involved.size>0;
+      if(mutual){
+        for(const id of involved){
+          const claim=latest.get(id);
+          if(!claim){mutual=false;break}
+          const expected=[...involved].filter(x=>x!==id).sort((a,b)=>a-b);
+          const actual=[...(claim.partnerIds||[])].filter(x=>involved.has(x)).sort((a,b)=>a-b);
+          if(expected.length!==actual.length||expected.some((x,i)=>x!==actual[i])){
+            mutual=false;break;
+          }
+        }
+      }
+      if(mutual){
+        for(const id of involved){
+          if(!broken.has(id))addConfirmed(id,`共鳴者の全員CO後、${count}人の相方関係が相互一致した`);
+        }
+      }
+    }
+  }
+
+  // 破綻→真確定→新たな破綻、を数回回して収束させる。
+  for(let pass=0;pass<8;pass++){
+    let changed=false;
+
+    // 全員CO指示済みの単独役職。
+    // 「配役人数ぶんだけ非破綻COが残った」なら、その全員が真。
+    for(const role of ["seer","medium","knight","cat"]){
+      if(!fullCoRoles.has(role))continue;
+      const count=roleCount(role);
+      if(count==null||count<=0)continue;
+
+      const claimants=state.players.filter(p=>p.claimed===role);
+      const viable=claimants.filter(p=>!broken.has(p.id));
+
+      if(viable.length===count){
+        for(const p of viable){
+          if(addConfirmed(p.id,
+            claimants.length===count
+              ? `${roleName(role)}の全員CO後、CO者数が配役数${count}人と一致した`
+              : `${roleName(role)}の対抗が全員破綻し、配役数${count}人ぶんだけ残った`
+          ))changed=true;
+        }
+      }
+    }
+
+    // 配役枠が真確定者で埋まったら、他の同役職COは破綻。
+    for(const role of ["seer","medium","knight","cat","resonator"]){
+      const count=roleCount(role);
+      if(count==null||count<=0)continue;
+      const confirmedOfRole=[...confirmed.keys()]
+        .map(id=>byId(id))
+        .filter(p=>p&&p.claimed===role);
+      if(confirmedOfRole.length>=count){
+        for(const p of state.players.filter(p=>p.claimed===role)){
+          if(!confirmed.has(p.id)){
+            if(addBroken(p.id,`${roleName(role)}の配役枠${count}人が真確定者で埋まっている`))changed=true;
+          }
+        }
+      }
+    }
+
+    // 真確定した村役職に黒を出した占い師は破綻。
+    for(const x of state.publicRecords.seerResults||[]){
+      if(!x.black)continue;
+      const target=byId(x.targetId);
+      if(!target||!confirmed.has(target.id))continue;
+      if(["seer","medium","knight","resonator","cat"].includes(target.claimed)){
+        if(addBroken(x.seerId,`${target.name}さんは${roleName(target.claimed)}として真確定しているのに黒を出している`))changed=true;
+      }
+    }
+
+    // 真確定霊媒と占い結果が食い違えば、占い師側が破綻。
+    const trueMediumIds=[...confirmed.keys()].filter(id=>byId(id)?.claimed==="medium");
+    for(const mid of trueMediumIds){
+      const medResults=(state.publicRecords.mediumResults||[]).filter(r=>r.mediumId===mid);
+      for(const mr of medResults){
+        const seerResults=(state.publicRecords.seerResults||[]).filter(r=>r.targetId===mr.targetId);
+        for(const sr of seerResults){
+          if(sr.black!==mr.black){
+            const target=byId(mr.targetId);
+            if(addBroken(sr.seerId,`${target?.name||"処刑者"}さんの判定が真確定霊媒の結果と食い違っている`))changed=true;
+          }
+        }
+      }
+    }
+
+    if(!changed)break;
+  }
+
+  return {broken,confirmed};
+}
+
+function getPublicBreakdowns(){
+  return solvePublicTruth().broken;
+}
+function getPublicConfirmations(){
+  return solvePublicTruth().confirmed;
+}
+
 function brokenReasonsFor(id){
   return getPublicBreakdowns().get(id)||[];
 }
 function isPubliclyBroken(id){
   return brokenReasonsFor(id).length>0;
+}
+function confirmedReasonsFor(id){
+  return getPublicConfirmations().get(id)||[];
+}
+function isPubliclyConfirmedTrue(id){
+  return confirmedReasonsFor(id).length>0;
 }
 function publicSeerCredibility(publicInfo,seerId){
   const seer=publicInfo.players.find(p=>p.id===seerId);
@@ -1329,6 +1506,13 @@ function chooseSpeechTopic(observer){
   if(brokenTarget){
     const reason=brokenMap.get(brokenTarget.id)[0];
     return {kind:"broken",targetId:brokenTarget.id,text:`${brokenTarget.name}さんは破綻しています。${reason}。`};
+  }
+
+  const confirmedMap=getPublicConfirmations();
+  const confirmedTarget=candidates.find(p=>confirmedMap.has(p.id));
+  if(confirmedTarget){
+    const reason=confirmedMap.get(confirmedTarget.id)[0];
+    return {kind:"confirmed",targetId:confirmedTarget.id,text:`${confirmedTarget.name}さんは真確定で見ていいです。${reason}。`};
   }
 
   const top=evals[0];
@@ -1501,10 +1685,11 @@ function resolveNight(){
   let attackDied=false;
   if(attacked&&attacked.alive){
     if(guardTargets.includes(attacked.id)){
-      log("平和な朝がやってきました。","result");
+      if(!foxKilled.length)log("平和な朝がやってきました。","result");
     }else if(attacked.role==="fox"){
-      // 妖狐は人狼の襲撃では死亡しない
-      log("平和な朝がやってきました。","result");
+      // 妖狐は人狼の襲撃では死亡しない。
+      // ただし同じ夜に呪殺死体が出ている場合は「平和な朝」とは表示しない。
+      if(!foxKilled.length)log("平和な朝がやってきました。","result");
     }else{
       attacked.alive=false;
       attackDied=true;

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.1.1</title>
+<title>個人用人狼アプリ v2.1.2</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -109,11 +109,12 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 .assist-toggle input{width:18px;height:18px;margin:0}
 .assist-note{font-size:12px;margin-top:4px}
 @media(max-width:520px){.assist-settings{grid-template-columns:1fr}}
+.role-summary{font-size:11px;line-height:1.6;opacity:.72;margin-top:5px;word-break:keep-all}
 </style>
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.1.1</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.1.2</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -146,7 +147,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <section id="gameScreen" class="hidden">
 
 
-    <div class="card compact-section"><div class="status" id="statusBadges"></div><div id="selectionHint" class="selection-hint hidden"></div></div>
+    <div class="card compact-section"><div class="status" id="statusBadges"></div><div id="roleSummary" class="role-summary"></div><div id="selectionHint" class="selection-hint hidden"></div></div>
 
     <div class="card compact-section">
       <div class="tabbar" id="claimTabs">
@@ -279,7 +280,7 @@ function startGame(){
   for(let i=1;i<n;i++)ps.push(newPlayer(i,names[i-1]??`P${i+1}`,roles[i-1],false));
 
   state={
-    version:"2.1.1",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
+    version:"2.1.2",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
     publicRoleCounts:{...c},
     publicRecords:{seerResults:[],mediumResults:[],guards:[],executions:[],deaths:[],catChains:[],resonatorClaims:[],fullCoRequests:[]},
     uiSettings:{
@@ -528,6 +529,8 @@ function renderAll(){
   if(!state)return;
   $("#topbarPhase").textContent=state.winner?`ゲーム終了：${state.winner}`:`${state.day}日目・${state.phase==="day"?"昼":"夜"} / 生存${living().length}`;
   $("#statusBadges").innerHTML=`<span class="badge">${state.day}日目</span><span class="badge">${state.phase==="day"?"昼":"夜"}</span><span class="badge">生存 ${living().length}</span><span class="badge">死亡 ${state.players.length-living().length}</span>`;
+  const counts=state.publicRoleCounts||{};
+  $("#roleSummary").textContent="配役："+ROLES.filter(([r])=>(counts[r]||0)>0).map(([r,n])=>`${n}×${counts[r]}`).join(" / ");
   renderClaimBoard();
 
   $("#players").innerHTML=state.players.map(p=>{
@@ -1041,8 +1044,26 @@ function wolfAttackScore(target){
   // 猫又COはかなり避けるが、終盤に他候補が薄い場合はゼロにはしない
   if(target.claimed==="cat" && aliveCount<=5) score+=4;
 
-  // 少しランダム性
-  score += Math.random()*2.2;
+  // 終盤の勝ち筋：確定村や情報役を残すと、翌日の処刑候補が狼へ集中する。
+  // 特に4人以下では村人よりも真確定の共鳴者・霊媒師を優先して除く。
+  // 真偽は必ず公開情報の推理エンジンで判定。猫又襲撃の危険は別途残す。
+  const nonWolves=living().filter(p=>p.role!=="wolf");
+  if(aliveCount<=6){
+    const publicConfirmed=isPubliclyConfirmedTrue(target.id);
+    if(publicConfirmed){
+      score += aliveCount<=4?24:11;
+      if(target.claimed==="medium"||target.claimed==="resonator"||target.claimed==="seer")score+=5;
+    }
+    if(target.claimed==="medium"||target.claimed==="resonator"){
+      score += aliveCount<=4?11:5;
+    }
+    if(target.claimed==="cat")score-=28; // 確定猫又でも道連れを警戒
+    if(target.villagerClaim===true||(!target.claimed&&target.coCheckedNone))score-=aliveCount<=4?8:2;
+    if(nonWolves.length<=3 && publicConfirmed && target.claimed!=="cat")score+=9;
+  }
+
+  // 少しランダム性（終盤は勝ち筋を壊さないよう幅を狭める）
+  score += Math.random()*(aliveCount<=5?0.65:2.2);
   return score;
 }
 
@@ -1052,7 +1073,15 @@ function chooseWolfAttackTarget(){
 
   const scored=candidates.map(p=>({p,score:wolfAttackScore(p)}));
 
-  // 上位候補ほど選ばれやすい重み付きランダム
+  // 終盤は「詰みを避ける襲撃」を優先。明らかな悪手を抽選候補に入れない。
+  if(living().length<=5){
+    scored.sort((a,b)=>b.score-a.score);
+    const best=scored[0];
+    const close=scored.filter(x=>best.score-x.score<2.5);
+    return randomChoice(close).p;
+  }
+
+  // 序中盤は上位候補ほど選ばれやすい重み付きランダム
   const minScore=Math.min(...scored.map(x=>x.score));
   const weighted=scored.map(x=>({
     p:x.p,
@@ -1119,7 +1148,7 @@ function publicMediumResults(){
 
 function lastNightWasPeace(){
   for(let i=state.logs.length-1;i>=0;i--){
-    const t=String(state.logs[i]?.text||"");
+    const t=String(state.logs[i]?.msg||"");
     if(t.includes("平和な朝"))return true;
     if(t.includes("無残な姿"))return false;
   }
@@ -1468,7 +1497,19 @@ function solvePublicTruth(){
       const claimants=state.players.filter(p=>p.claimed===role);
       const viable=claimants.filter(p=>!broken.has(p.id));
 
-      if(viable.length===count){
+      // 生存者への全員COだけでは、未CO死亡者の潜伏真を排除できない。
+      // 役職が公開確定した死者や、CO指示前に別役職として確定した死者のみ除外する。
+      const request=(state.publicRecords.fullCoRequests||[]).find(x=>x.role===role);
+      const unexcludedDeaths=state.players.filter(p=>{
+        if(p.alive)return false;
+        const death=(state.publicRecords.deaths||[]).find(d=>d.playerId===p.id);
+        if(!death || !request || death.day>request.day)return false;
+        if(p.claimed===role)return false; // この役職のCO歴があれば潜伏不明枠ではない
+        const certainOther=confirmed.has(p.id)&&p.claimed&&p.claimed!==role;
+        const certainlyEnemy=(state.publicRecords.mediumResults||[]).some(x=>x.targetId===p.id&&x.black&&[...confirmed.keys()].some(id=>id===x.mediumId&&byId(id)?.claimed==="medium"));
+        return !certainOther&&!certainlyEnemy;
+      });
+      if(viable.length===count&&unexcludedDeaths.length===0){
         for(const p of viable){
           if(addConfirmed(p.id,
             claimants.length===count

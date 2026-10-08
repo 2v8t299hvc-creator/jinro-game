@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.1</title>
+<title>個人用人狼アプリ v2.1.1</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -103,11 +103,17 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 
 .confirmed-badge{display:inline-block;margin-left:4px;padding:2px 6px;border-radius:999px;font-size:11px;font-weight:800;background:#18794e;color:#fff;vertical-align:middle}
 .confirmed-reason{margin-top:6px;padding:7px 9px;border-radius:8px;background:rgba(24,121,78,.10);font-size:12px;font-weight:700}
+
+.assist-settings{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0}
+.assist-toggle{display:flex;align-items:center;gap:8px;padding:10px 11px;border:1px solid var(--line);border-radius:10px;font-weight:700}
+.assist-toggle input{width:18px;height:18px;margin:0}
+.assist-note{font-size:12px;margin-top:4px}
+@media(max-width:520px){.assist-settings{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.1</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.1.1</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -119,6 +125,13 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
         <label>参加人数<input id="playerCount" type="number" min="5" max="20" value="9"></label>
         <label>自分の名前<input id="selfName" type="text" value="あなた" maxlength="12"></label>
       </div>
+      <hr>
+      <h2>推理補助表示</h2>
+      <div class="assist-settings">
+        <label class="assist-toggle"><input id="showConfirmedBadges" type="checkbox" checked> 真確定を自動表示</label>
+        <label class="assist-toggle"><input id="showBrokenBadges" type="checkbox" checked> 破綻を自動表示</label>
+      </div>
+      <div class="muted assist-note">OFFでも内部判定とCOMの推理はそのまま動作します。</div>
       <hr>
       <h2>配役</h2>
       <div id="roleConfig"></div>
@@ -266,9 +279,13 @@ function startGame(){
   for(let i=1;i<n;i++)ps.push(newPlayer(i,names[i-1]??`P${i+1}`,roles[i-1],false));
 
   state={
-    version:"2.1",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
+    version:"2.1.1",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
     publicRoleCounts:{...c},
     publicRecords:{seerResults:[],mediumResults:[],guards:[],executions:[],deaths:[],catChains:[],resonatorClaims:[],fullCoRequests:[]},
+    uiSettings:{
+      showConfirmedBadges:!!$("#showConfirmedBadges")?.checked,
+      showBrokenBadges:!!$("#showBrokenBadges")?.checked
+    },
     logPersonFilterId:null
   };
 
@@ -394,6 +411,93 @@ function resultHistory(p){
   return "";
 }
 
+
+function showConfirmedAssist(){
+  return state?.uiSettings?.showConfirmedBadges!==false;
+}
+function showBrokenAssist(){
+  return state?.uiSettings?.showBrokenBadges!==false;
+}
+function speechTopicCountToday(kind,targetId=null){
+  if(!state)return 0;
+  let n=0;
+  for(const p of state.players||[]){
+    for(const h of p.speechHistory||[]){
+      if(h.day!==state.day||h.kind!==kind)continue;
+      if(targetId!==null&&h.targetId!==targetId)continue;
+      n++;
+    }
+  }
+  return n;
+}
+function observerMentionedRecently(observer,kind,targetId=null,days=1){
+  return (observer.speechHistory||[]).some(h=>
+    h.kind===kind &&
+    (targetId===null||h.targetId===targetId) &&
+    h.day>=state.day-days &&
+    h.day<state.day
+  );
+}
+function truthFirstMentionDay(kind,targetId){
+  const matching=[];
+  for(const p of state.players||[]){
+    for(const h of p.speechHistory||[]){
+      if(h.kind===kind&&h.targetId===targetId)matching.push(h.day);
+    }
+  }
+  return matching.length?Math.min(...matching):null;
+}
+function latestPublicSeerResultFor(seerId){
+  const rows=(state.publicRecords?.seerResults||[]).filter(r=>r.seerId===seerId);
+  return rows.sort((a,b)=>b.day-a.day)[0]||null;
+}
+function latestPublicMediumResultFor(mediumId){
+  const rows=(state.publicRecords?.mediumResults||[]).filter(r=>r.mediumId===mediumId);
+  return rows.sort((a,b)=>b.day-a.day)[0]||null;
+}
+function confirmedPremiseTopic(observer,publicInfo,confirmedMap){
+  const confirmed=[...confirmedMap.keys()]
+    .map(id=>byId(id))
+    .filter(p=>p&&p.alive&&p.id!==observer.id);
+
+  // 真占いの最新結果を「次の推理」に接続
+  const cs=confirmed.find(p=>p.claimed==="seer");
+  if(cs){
+    const r=latestPublicSeerResultFor(cs.id);
+    if(r){
+      const t=byId(r.targetId);
+      if(t&&t.alive&&t.id!==observer.id){
+        if(r.black){
+          return {kind:"confirmedPremise",targetId:t.id,
+            text:`${cs.name}さんは真占いで確定しているので、${t.name}さんへの黒は重く見ます。今日は${t.name}さんを優先して考えたいです。`};
+        }
+        return {kind:"confirmedPremise",targetId:t.id,
+          text:`${cs.name}さんは真占いで確定しているので、${t.name}さんは少なくとも人狼ではありません。この結果を前提に灰を見たいです。`};
+      }
+    }
+  }
+
+  // 真霊媒の最新結果を次の整理に利用
+  const cm=confirmed.find(p=>p.claimed==="medium");
+  if(cm){
+    const r=latestPublicMediumResultFor(cm.id);
+    if(r){
+      const t=byId(r.targetId);
+      if(t){
+        return {kind:"confirmedPremise",targetId:t.id,
+          text:`${cm.name}さんは真霊媒で確定しているので、${t.name}さんの霊媒結果は確定情報として扱えます。ここから占い結果との整合性を見たいです。`};
+      }
+    }
+  }
+
+  // 共鳴・猫又などは「吊り候補から外す」前提として使う
+  const cv=confirmed.find(p=>["resonator","cat","knight"].includes(p.claimed));
+  if(cv){
+    return {kind:"confirmedPremise",targetId:cv.id,
+      text:`${cv.name}さんは真${roleName(cv.claimed)}で確定しているので、今日はそこを疑うより未確定の人を見たいです。`};
+  }
+  return null;
+}
 function renderClaimBoard(){
   const role=state.claimTab||"seer";
   let members=[],label="";
@@ -412,9 +516,11 @@ function renderClaimBoard(){
     else if(role==="resonator"){const partners=(p.resonancePartners||[]).map(id=>byId(id)?.name).filter(Boolean).join("、");detail=partners?`<div class="claim-results">相方：${escapeHtml(partners)}</div>`:""}
     const br=brokenReasonsFor(p.id);
     const cr=confirmedReasonsFor(p.id);
-    const broken=br.length?`<div class="broken-reason">⚠ 破綻：${escapeHtml(br.join(" / "))}</div>`:"";
-    const confirmed=cr.length?`<div class="confirmed-reason">✓ 真確定：${escapeHtml(cr.join(" / "))}</div>`:"";
-    return `<div class="claim-card"><div class="claim-head"><div class="claim-name">${escapeHtml(p.name)}${p.alive?"":"（死亡）"}</div><div class="claim-role">${role==="villager"?"村人CO":roleName(role)+"CO"}${br.length?` <span class="broken-badge">破綻</span>`:""}${cr.length?` <span class="confirmed-badge">真確定</span>`:""}</div></div>${detail}${broken}${confirmed}</div>`
+    const showBr=showBrokenAssist()&&br.length;
+    const showCr=showConfirmedAssist()&&cr.length;
+    const broken=showBr?`<div class="broken-reason">⚠ 破綻：${escapeHtml(br.join(" / "))}</div>`:"";
+    const confirmed=showCr?`<div class="confirmed-reason">✓ 真確定：${escapeHtml(cr.join(" / "))}</div>`:"";
+    return `<div class="claim-card"><div class="claim-head"><div class="claim-name">${escapeHtml(p.name)}${p.alive?"":"（死亡）"}</div><div class="claim-role">${role==="villager"?"村人CO":roleName(role)+"CO"}${showBr?` <span class="broken-badge">破綻</span>`:""}${showCr?` <span class="confirmed-badge">真確定</span>`:""}</div></div>${detail}${broken}${confirmed}</div>`
   }).join("");
 }
 
@@ -429,7 +535,7 @@ function renderAll(){
     const dimmed=state.selectionMode&&p.alive&&!selectable;
     return `<div class="player-row ${p.alive?"":"dead"} ${selectable?"selectable":""} ${dimmed?"dimmed":""}" data-player-id="${p.id}">
       <div class="player-name"><span class="player-number">${String(p.id+1).padStart(2,"0")}</span>${escapeHtml(p.name)}${p.isSelf?"（あなた）":""}${state.winner?`<div class="role-reveal">${roleName(p.role)}</div>`:""}</div>
-      <div class="player-co">${p.claimed?roleName(p.claimed)+"CO":(p.villagerClaim===true?"村人CO":(p.villagerClaim===false?"非村人":(p.coCheckedNone?"COなし":"未CO")))}${isPubliclyBroken(p.id)?` <span class="broken-badge">破綻</span>`:""}${isPubliclyConfirmedTrue(p.id)?` <span class="confirmed-badge">真確定</span>`:""}</div>
+      <div class="player-co">${p.claimed?roleName(p.claimed)+"CO":(p.villagerClaim===true?"村人CO":(p.villagerClaim===false?"非村人":(p.coCheckedNone?"COなし":"未CO")))}${showBrokenAssist()&&isPubliclyBroken(p.id)?` <span class="broken-badge">破綻</span>`:""}${showConfirmedAssist()&&isPubliclyConfirmedTrue(p.id)?` <span class="confirmed-badge">真確定</span>`:""}</div>
       <div class="player-life">${p.alive?"生存":"死亡"}</div>
     </div>`;
   }).join("");
@@ -1502,17 +1608,37 @@ function chooseSpeechTopic(observer){
     .sort((a,b)=>b.score-a.score);
 
   const brokenMap=getPublicBreakdowns();
-  const brokenTarget=candidates.find(p=>brokenMap.has(p.id));
+  const brokenTarget=candidates.find(p=>
+    brokenMap.has(p.id) &&
+    speechTopicCountToday("broken",p.id)<2 &&
+    !observerMentionedRecently(observer,"broken",p.id,1)
+  );
   if(brokenTarget){
     const reason=brokenMap.get(brokenTarget.id)[0];
     return {kind:"broken",targetId:brokenTarget.id,text:`${brokenTarget.name}さんは破綻しています。${reason}。`};
   }
 
   const confirmedMap=getPublicConfirmations();
-  const confirmedTarget=candidates.find(p=>confirmedMap.has(p.id));
-  if(confirmedTarget){
-    const reason=confirmedMap.get(confirmedTarget.id)[0];
-    return {kind:"confirmed",targetId:confirmedTarget.id,text:`${confirmedTarget.name}さんは真確定で見ていいです。${reason}。`};
+
+  // 真確定は「全員が毎日復唱する情報」ではなく、原則として推理の前提に使う。
+  // まだ誰もその確定に触れていない場合だけ、当日は最大2人まで直接言及。
+  const newlyMentionable=candidates.find(p=>
+    confirmedMap.has(p.id) &&
+    truthFirstMentionDay("confirmed",p.id)===null &&
+    speechTopicCountToday("confirmed",p.id)<2
+  );
+  if(newlyMentionable && Math.random()<0.55){
+    const reason=confirmedMap.get(newlyMentionable.id)[0];
+    return {kind:"confirmed",targetId:newlyMentionable.id,text:`${newlyMentionable.name}さんは真確定で見ていいです。${reason}。`};
+  }
+
+  // 既知の真確定情報は、一定確率で「次の推理」へ接続する。
+  // 同じCOMが前日も同じ前提話題を話していたら抑制。
+  if(speechTopicCountToday("confirmedPremise")<Math.max(1,Math.ceil(candidates.length/3))){
+    const premise=confirmedPremiseTopic(observer,publicInfo,confirmedMap);
+    if(premise && !observerMentionedRecently(observer,"confirmedPremise",premise.targetId,1) && Math.random()<0.38){
+      return premise;
+    }
   }
 
   const top=evals[0];
@@ -1532,7 +1658,10 @@ function chooseSpeechTopic(observer){
 
   // 公開結果から信用できる占い師がいる場合は、疑い以外の意見も出す
   const trustedSeer=chooseTrustedSeer(publicInfo);
-  if(trustedSeer && Math.random()<0.42){
+  if(trustedSeer &&
+     speechTopicCountToday("trustSeer",trustedSeer.seer.id)<2 &&
+     !observerMentionedRecently(observer,"trustSeer",trustedSeer.seer.id,1) &&
+     Math.random()<0.34){
     const reason=trustedSeer.reasons[0]||"これまでの結果に大きな矛盾がありません";
     return {kind:"trustSeer",targetId:trustedSeer.seer.id,text:`${trustedSeer.seer.name}さんは今のところ少し信用しています。${reason}。`};
   }
@@ -1565,9 +1694,12 @@ function chooseSpeechTopic(observer){
   const meds=publicInfo.players.filter(p=>p.alive&&p.claimed==="medium");
   const knights=publicInfo.players.filter(p=>p.alive&&p.claimed==="knight");
 
-  if(seers.length>=2)return {kind:"multiSeer",targetId:null,text:"占い師が複数いるので、白黒の出し方と霊媒結果との整合性を見たいです。"};
-  if(meds.length>=2)return {kind:"multiMedium",targetId:null,text:"霊媒師が複数いるので、処刑結果が割れるかどうかを見たいです。"};
-  if(knights.length>=2)return {kind:"multiKnight",targetId:null,text:"騎士COが複数いるので、護衛先と平和の出方を見比べたいです。"};
+  if(seers.length>=2&&speechTopicCountToday("multiSeer")<2&&!observerMentionedRecently(observer,"multiSeer",null,1))
+    return {kind:"multiSeer",targetId:null,text:"占い師が複数いるので、白黒の出し方と霊媒結果との整合性を見たいです。"};
+  if(meds.length>=2&&speechTopicCountToday("multiMedium")<2&&!observerMentionedRecently(observer,"multiMedium",null,1))
+    return {kind:"multiMedium",targetId:null,text:"霊媒師が複数いるので、処刑結果が割れるかどうかを見たいです。"};
+  if(knights.length>=2&&speechTopicCountToday("multiKnight")<2&&!observerMentionedRecently(observer,"multiKnight",null,1))
+    return {kind:"multiKnight",targetId:null,text:"騎士COが複数いるので、護衛先と平和の出方を見比べたいです。"};
 
   const res=publicInfo.players.find(p=>p.alive&&p.claimed==="resonator");
   if(res)return {kind:"trustResonator",targetId:res.id,text:`${res.name}さんは共鳴者COで相方確認もあるので、今は村寄りで見ています。`};
@@ -1767,6 +1899,9 @@ function load(){
     state=JSON.parse(r);
     state.selectionMode=null;state.selectionTitle=null;state._selectionAllowed=null;state._selectionCallback=null;
     if(state.logPersonFilterId===undefined)state.logPersonFilterId=null;
+    if(!state.uiSettings)state.uiSettings={showConfirmedBadges:true,showBrokenBadges:true};
+    if(state.uiSettings.showConfirmedBadges===undefined)state.uiSettings.showConfirmedBadges=true;
+    if(state.uiSettings.showBrokenBadges===undefined)state.uiSettings.showBrokenBadges=true;
     ensurePublicRecords();
     (state.players||[]).forEach(p=>{
       if(p.coCheckedNone===undefined)p.coCheckedNone=false;

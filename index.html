@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.1.4</title>
+<title>個人用人狼アプリ v2.1.6</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -116,7 +116,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.1.4</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.1.6</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -280,7 +280,7 @@ function newPlayer(id,name,role,isSelf=false){
     forcedSeerTarget:null,forcedGuardTarget:null,fakeClaimRole:null,
     lastReportedSeerCount:0,lastReportedMediumCount:0,
     guardHistory:[], resonancePartners:[], villagerClaim:null,
-    lastSpeechDay:0,lastSpeechText:"",speechHistory:[],lastSuspectId:null,coCheckedNone:false,deathDay:null,deathPhase:null
+    lastSpeechDay:0,lastSpeechText:"",speechHistory:[],lastSuspectId:null,coCheckedNone:false,deathDay:null,deathPhase:null,coHistory:[],villagerAnswerLocked:false
   };
 }
 
@@ -301,9 +301,9 @@ function startGame(){
   for(let i=1;i<n;i++)ps.push(newPlayer(i,names[i-1]??`P${i+1}`,roles[i-1],false));
 
   state={
-    version:"2.1.3",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
+    version:"2.1.6",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
     publicRoleCounts:{...c},
-    publicRecords:{seerResults:[],mediumResults:[],guards:[],executions:[],deaths:[],catChains:[],resonatorClaims:[],fullCoRequests:[],confirmedProofs:[]},
+    publicRecords:{seerResults:[],mediumResults:[],guards:[],executions:[],deaths:[],catChains:[],resonatorClaims:[],fullCoRequests:[],confirmedProofs:[],coEvents:[]},
     uiSettings:{
       showConfirmedBadges:!!$("#showConfirmedBadges")?.checked,
       showBrokenBadges:!!$("#showBrokenBadges")?.checked
@@ -337,7 +337,7 @@ function assignFakeClaims(){
   // 狂人：占い騙りが中心。低確率で猫又騙りも選ぶ。
   state.players.filter(p=>p.role==="madman").forEach(m=>{
     const r=Math.random();
-    m.fakeClaimRole=r<0.58?"seer":r<0.76?"medium":r<0.84?"cat":null;
+    m.fakeClaimRole=r<0.56?"seer":r<0.73?"medium":r<0.81?"cat":r<0.88?"knight":null;
   });
 
   // 人狼：一定確率で1匹が騙り役。占い中心、霊媒、低確率で猫又。
@@ -345,13 +345,13 @@ function assignFakeClaims(){
   if(wolves.length&&Math.random()<0.65){
     const liar=randomChoice(wolves);
     const r=Math.random();
-    liar.fakeClaimRole=r<0.65?"seer":r<0.86?"medium":"cat";
+    liar.fakeClaimRole=r<0.62?"seer":r<0.80?"medium":r<0.91?"cat":"knight";
   }
 
   // 妖狐：騙り自体は控えめ。猫又騙りも低確率で残す。
   state.players.filter(p=>p.role==="fox").forEach(f=>{
     const r=Math.random();
-    f.fakeClaimRole=r<0.16?"seer":r<0.24?"medium":r<0.32?"cat":null;
+    f.fakeClaimRole=r<0.16?"seer":r<0.24?"medium":r<0.30?"cat":r<0.34?"knight":null;
   });
 }
 
@@ -365,7 +365,7 @@ function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":
 function ensurePublicRecords(){
   if(!state.publicRecords)state.publicRecords={};
   const r=state.publicRecords;
-  for(const k of ["seerResults","mediumResults","guards","executions","deaths","catChains","resonatorClaims","fullCoRequests","confirmedProofs"]){
+  for(const k of ["seerResults","mediumResults","guards","executions","deaths","catChains","resonatorClaims","fullCoRequests","confirmedProofs","coEvents"]){
     if(!Array.isArray(r[k]))r[k]=[];
   }
   if(!state.publicRoleCounts)state.publicRoleCounts=null;
@@ -514,7 +514,7 @@ function confirmedPremiseTopic(observer,publicInfo,confirmedMap){
   }
 
   // 共鳴・猫又などは「吊り候補から外す」前提として使う
-  const cv=confirmed.find(p=>["resonator","cat","knight"].includes(p.claimed));
+  const cv=confirmed.find(p=>["cat","knight"].includes(p.claimed));
   if(cv){
     return {kind:"confirmedPremise",targetId:cv.id,
       text:`${cv.name}さんは真${roleName(cv.claimed)}で確定しているので、今日はそこを疑うより未確定の人を見たいです。`};
@@ -537,6 +537,8 @@ function renderClaimBoard(){
     if(role==="seer"||role==="medium"){const h=resultHistory(p);detail=h?`<div class="claim-results">${escapeHtml(h)}</div>`:""}
     else if(role==="knight"){const gh=(p.guardHistory||[]).map(r=>`${r.day}日 ${byId(r.target)?.name??"不明"}護衛`).join(" / ");detail=gh?`<div class="claim-results">${escapeHtml(gh)}</div>`:`<div class="claim-results muted">護衛記録なし</div>`}
     else if(role==="resonator"){const partners=(p.resonancePartners||[]).map(id=>byId(id)?.name).filter(Boolean).join("、");detail=partners?`<div class="claim-results">相方：${escapeHtml(partners)}</div>`:""}
+    const ch=(p.coHistory||[]).filter(e=>e.kind==="withdraw");
+    if(ch.length)detail+=`<div class="claim-results">CO変更履歴：${escapeHtml(ch.map(e=>`${e.day}日目 ${e.role==="villager"?"村人":roleName(e.role)}CO撤回`).join(" / "))}</div>`;
     const br=brokenReasonsFor(p.id);
     const cr=confirmedReasonsFor(p.id);
     const showBr=showBrokenAssist()&&br.length;
@@ -621,6 +623,7 @@ function makeRolePanel(){
 }
 
 function reportTrueSeer(p,first=false){
+  if(!p.alive)return; // 襲撃死した占い師は占いが成立しても報告不可
   if(first)log(`${p.name} が【占い師CO】しました。`,"claim");
   const unread=p.seerResults.slice(p.lastReportedSeerCount||0);
   if(!unread.length&&first){log(`${p.name}（占い師CO）：まだ占い結果はありません。`,"result");return}
@@ -631,6 +634,7 @@ function reportTrueSeer(p,first=false){
   p.lastReportedSeerCount=p.seerResults.length;
 }
 function reportFakeSeer(p,first=false){
+  if(!p.alive)return; // 死亡した騙り占い師も報告不可
   if(first)log(`${p.name} が【占い師CO】しました。`,"claim");
   const unread=p.fakeSeerResults.slice(p.lastReportedSeerCount||0);
   unread.forEach(r=>{
@@ -640,6 +644,7 @@ function reportFakeSeer(p,first=false){
   p.lastReportedSeerCount=p.fakeSeerResults.length;
 }
 function reportTrueMedium(p,first=false){
+  if(!p.alive)return;
   if(first)log(`${p.name} が【霊媒師CO】しました。`,"claim");
   const unread=p.mediumResults.slice(p.lastReportedMediumCount||0);
   if(!unread.length&&first){log(`${p.name}（霊媒師CO）：まだ霊媒結果はありません。`,"result");return}
@@ -650,6 +655,7 @@ function reportTrueMedium(p,first=false){
   p.lastReportedMediumCount=p.mediumResults.length;
 }
 function reportFakeMedium(p,first=false){
+  if(!p.alive)return;
   if(first)log(`${p.name} が【霊媒師CO】しました。`,"claim");
   const unread=p.fakeMediumResults.slice(p.lastReportedMediumCount||0);
   unread.forEach(r=>{
@@ -660,6 +666,7 @@ function reportFakeMedium(p,first=false){
 }
 
 function reportKnight(p,first=false){
+  if(!p.alive)return;
   if(first)log(`${p.name} が【騎士CO】しました。`,"claim");
   const hist=p.guardHistory||[];
   if(!hist.length&&first){
@@ -679,44 +686,120 @@ function ensureInitialFakeSeerResult(p){
   if(t)p.fakeSeerResults.push({day:1,target:t.id,black:chooseFakeBlack(p,t)});
 }
 
+// v2.1.6: CO判断は指示時点の公開盤面をスナップショットして行う。
+function hostile(p){return ["wolf","madman","fox"].includes(p.role)}
+function coSnapshot(){
+  return {day:state.day,aliveIds:living().map(x=>x.id),
+    claims:state.players.map(p=>({id:p.id,claimed:p.claimed,villagerClaim:p.villagerClaim,alive:p.alive})),
+    confirmations:new Set(getPublicConfirmations().keys()),
+    broken:new Set(getPublicBreakdowns().keys()),
+    results:[...(state.publicRecords?.seerResults||[])],
+    counts:{...(state.publicRoleCounts||{})}};
+}
+function recordCOEvent(p,kind,role=null){
+  ensurePublicRecords();
+  if(!Array.isArray(p.coHistory))p.coHistory=[];
+  const e={playerId:p.id,day:state.day,kind,role};
+  p.coHistory.push(e);
+  state.publicRecords.coEvents.push(e);
+}
+function recordRoleClaim(p,role){
+  if(p.claimed===role)return false;
+  if(p.claimed&&p.claimed!==role){
+    log(`${p.name} は【${roleName(p.claimed)}CO】を撤回しました。`,"claim");
+    recordCOEvent(p,"withdraw",p.claimed);
+  }
+  if(p.villagerClaim===true){
+    log(`${p.name} は【村人CO】を撤回しました。`,"claim");
+    recordCOEvent(p,"withdraw","villager");
+  }
+  p.claimed=role;p.coCheckedNone=false;p.villagerClaim=null;
+  if(hostile(p))p.fakeClaimRole=role;
+  recordCOEvent(p,"claim",role);
+  return true;
+}
+function recordVillagerClaim(p,value){
+  if(p.villagerClaim===value)return;
+  if(p.villagerClaim===true&&value===false)recordCOEvent(p,"withdraw","villager");
+  p.villagerClaim=value;
+  recordCOEvent(p,value?"claim":"deny","villager");
+}
+function roleClaimProbability(p,role,snap,mode="role"){
+  if(!hostile(p)||!p.alive||role==="resonator")return 0;
+  const prior=snap.claims.find(x=>x.id===p.id);
+  if(prior?.claimed===role)return 1;
+  // 一度役職COした人外は、基本的に自分の発言を維持する。変更は切迫時のみ。
+  const otherRole=!!prior?.claimed&&prior.claimed!==role;
+  const otherClaimants=snap.claims.filter(x=>x.alive&&x.claimed===role&&x.id!==p.id).length;
+  const gray=snap.claims.filter(x=>x.alive&&!x.claimed&&x.villagerClaim!==true);
+  const confirmedOthers=snap.claims.filter(x=>x.alive&&x.id!==p.id&&snap.confirmations.has(x.id));
+  const nearlyExposed=gray.length<=1 || (snap.aliveIds.length<=4&&confirmedOthers.length>=snap.aliveIds.length-2);
+  const prefs={wolf:{seer:.50,medium:.31,knight:.15,cat:.22},madman:{seer:.64,medium:.43,knight:.23,cat:.26},fox:{seer:.22,medium:.13,knight:.15,cat:.18}};
+  let chance=prefs[p.role]?.[role]||0;
+  if(p.fakeClaimRole===role)chance+=.19;
+  if(otherClaimants>0)chance+=role==="cat"?.14:.07;
+  if(nearlyExposed){
+    chance+=role==="cat"?.72:role==="knight"?.43:.27;
+  }
+  if(role==="cat"&&snap.counts.cat===0)chance=0;
+  if(role==="knight"&&snap.counts.knight===0)chance=0;
+  if(role==="seer"&&snap.counts.seer===0)chance=0;
+  if(role==="medium"&&snap.counts.medium===0)chance=0;
+  if(otherRole)chance=nearlyExposed?chance*.21:0;
+  if(prior?.villagerClaim===true)chance*=nearlyExposed?.85:.3;
+  if(mode==="individual")chance*=.84;
+  return Math.max(0,Math.min(.98,chance));
+}
+function chooseDynamicFakeRole(p,snap){
+  const prior=snap.claims.find(x=>x.id===p.id);
+  if(prior?.claimed)return prior.claimed;
+  const roles=["seer","medium","knight","cat"];
+  const ranked=roles.map(role=>({role,score:roleClaimProbability(p,role,snap,"individual")* (.85+Math.random()*.3)}));
+  ranked.sort((a,b)=>b.score-a.score);
+  const best=ranked[0];
+  return best&&Math.random()<best.score?best.role:null;
+}
+function announceRole(p,role,first=true){
+  const changed=recordRoleClaim(p,role);
+  if(!changed&&!first)return;
+  if(role==="seer"){
+    if(p.role==="seer")reportTrueSeer(p,changed);
+    else {ensureInitialFakeSeerResult(p);reportFakeSeer(p,changed)}
+  }else if(role==="medium"){
+    if(p.role==="medium")reportTrueMedium(p,changed);
+    else reportFakeMedium(p,changed);
+  }else if(role==="knight"){
+    if(p.role==="knight")reportKnight(p,changed);
+    else if(changed)log(`${p.name} が【騎士CO】しました。`,"claim");
+  }else if(role==="cat"&&changed){
+    log(`${p.name} が【猫又CO】しました。`,"claim");
+  }
+}
 function forceRoleCO(r){
   ensurePublicRecords();
+  // 全員同じ指示前の公開盤面を参照し、人外の意思決定を先に完了する。
+  const snap=coSnapshot();
+  const real=roleLiving(r);
+  const fakes=living().filter(p=>hostile(p)&&!real.includes(p)&&
+    (p.claimed===r||Math.random()<roleClaimProbability(p,r,snap)));
   pushPublicRecord("fullCoRequests",{role:r,day:state.day,
     aliveIds:living().map(p=>p.id),
     priorDeadIds:state.players.filter(p=>!p.alive).map(p=>p.id)},["role"]);
-  const real=roleLiving(r);
-  const fake=living().filter(p=>p.fakeClaimRole===r);
-  const all=[...real,...fake.filter(p=>!real.includes(p))];
-  if(!all.length){
+  if(!real.length&&!fakes.length){
     log(`【${roleName(r)}CO指示】CO指示を出しました。`,"system");
-    save();renderAll();return;
+    commitPublicTruthProofs();save();renderAll();return;
   }
-
-  all.forEach(p=>{p.claimed=r;p.villagerClaim=null});
-  if(r==="seer"){
-    real.forEach(p=>reportTrueSeer(p,true));
-    fake.forEach(p=>{ensureInitialFakeSeerResult(p);reportFakeSeer(p,true)});
-  }else if(r==="medium"){
-    real.forEach(p=>reportTrueMedium(p,true));
-    fake.forEach(p=>reportFakeMedium(p,true));
-  }else if(r==="knight"){
-    real.forEach(p=>reportKnight(p,true));
-    fake.forEach(p=>log(`${p.name} が【騎士CO】しました。`,"claim"));
-  }else if(r==="resonator"){
+  if(r==="resonator"){
     const livingResonators=roleLiving("resonator");
-    livingResonators.forEach(p=>p.claimed="resonator");
+    livingResonators.forEach(p=>recordRoleClaim(p,"resonator"));
     livingResonators.forEach(p=>{
       log(`${p.name} が【共鳴者CO】しました。`,"claim");
-      const partnerObjs=livingResonators.filter(x=>x.id!==p.id);
-      const partners=partnerObjs.map(x=>x.name);
-      publishedResonatorClaim(p,partnerObjs.map(x=>x.id));
-      if(partners.length)log(`${p.name}：「相方は ${partners.join("、")} です」`,"result");
+      const partners=livingResonators.filter(x=>x.id!==p.id);
+      publishedResonatorClaim(p,partners.map(x=>x.id));
+      if(partners.length)log(`${p.name}：「相方は ${partners.map(x=>x.name).join("、")} です」`,"result");
     });
-  }else if(r==="cat"){
-    real.forEach(p=>log(`${p.name} が【猫又CO】しました。`,"claim"));
-    fake.forEach(p=>log(`${p.name} が【猫又CO】しました。`,"claim"));
   }else{
-    all.forEach(p=>log(`${p.name} が【${roleName(r)}CO】しました。`,"claim"));
+    [...real,...fakes].forEach(p=>announceRole(p,r));
   }
   commitPublicTruthProofs();save();renderAll();
 }
@@ -726,7 +809,7 @@ function blackSeerCO(){
   const fake=living().filter(p=>p.fakeClaimRole==="seer"&&p.fakeSeerResults.some(r=>r.black));
   const all=[...real,...fake.filter(p=>!real.includes(p))];
   if(!all.length){log("【黒出し占い師CO】指示を出しました。","system");return}
-  all.forEach(p=>{p.claimed="seer";p.coCheckedNone=false;p.villagerClaim=null});
+  all.forEach(p=>recordRoleClaim(p,"seer"));
   real.forEach(p=>reportTrueSeer(p,true));
   fake.forEach(p=>reportFakeSeer(p,true));
   commitPublicTruthProofs();save();renderAll();
@@ -737,7 +820,7 @@ function blackMediumCO(){
   const fake=living().filter(p=>p.fakeClaimRole==="medium"&&p.fakeMediumResults.some(r=>r.black));
   const all=[...real,...fake.filter(p=>!real.includes(p))];
   if(!all.length){log("【黒出し霊媒師CO】指示を出しました。","system");return}
-  all.forEach(p=>{p.claimed="medium";p.coCheckedNone=false;p.villagerClaim=null});
+  all.forEach(p=>recordRoleClaim(p,"medium"));
   real.forEach(p=>reportTrueMedium(p,true));
   fake.forEach(p=>reportFakeMedium(p,true));
   commitPublicTruthProofs();save();renderAll();
@@ -747,49 +830,27 @@ function blackMediumCO(){
 function individualCoCheck(){
   makeTargetPanel("COを確認する人物",living(),id=>{
     const p=byId(id);
-
     if(p.claimed){
       log(`【個別CO確認】${p.name}：「${roleName(p.claimed)}COしています」`,"claim");
       return;
     }
-
-    // 村陣営の役職持ちは正直にCO
-    if(["seer","knight","medium","resonator","cat"].includes(p.role)){
-      p.claimed=p.role;
-      p.coCheckedNone=false;
-      p.villagerClaim=null;
-      if(p.role==="seer")reportTrueSeer(p,true);
-      else if(p.role==="medium")reportTrueMedium(p,true);
-      else if(p.role==="knight")reportKnight(p,true);
-      else if(p.role==="resonator"){
-        const livingResonators=roleLiving("resonator");
-        livingResonators.forEach(x=>x.claimed="resonator");
-        livingResonators.forEach(x=>{
-          log(`${x.name} が【共鳴者CO】しました。`,"claim");
-          const partnerObjs=livingResonators.filter(y=>y.id!==x.id);
-          const partners=partnerObjs.map(y=>y.name);
-          publishedResonatorClaim(x,partnerObjs.map(y=>y.id));
-          if(partners.length)log(`${x.name}：「相方は ${partners.join("、")} です」`,"result");
-        });
-      }else if(p.role==="cat"){
-        log(`${p.name} が【猫又CO】しました。`,"claim");
-      }
-    }
-    // 人外は騙り予定があればその役職をCO
-    else if(["madman","wolf","fox"].includes(p.role)&&p.fakeClaimRole){
-      p.claimed=p.fakeClaimRole;
-      p.coCheckedNone=false;
-      p.villagerClaim=null;
-      if(p.fakeClaimRole==="seer"){
-        ensureInitialFakeSeerResult(p);
-        reportFakeSeer(p,true);
-      }else if(p.fakeClaimRole==="medium"){
-        reportFakeMedium(p,true);
-      }else if(p.fakeClaimRole==="cat"){
-        log(`${p.name} が【猫又CO】しました。`,"claim");
-      }
-    }else{
+    const snap=coSnapshot();
+    let role=null;
+    if(["seer","knight","medium","resonator","cat"].includes(p.role))role=p.role;
+    else if(hostile(p))role=chooseDynamicFakeRole(p,snap);
+    if(role==="resonator"){
+      const partners=roleLiving("resonator");
+      partners.forEach(x=>recordRoleClaim(x,"resonator"));
+      partners.forEach(x=>{
+        log(`${x.name} が【共鳴者CO】しました。`,"claim");
+        const others=partners.filter(y=>y.id!==x.id);
+        publishedResonatorClaim(x,others.map(y=>y.id));
+        if(others.length)log(`${x.name}：「相方は ${others.map(y=>y.name).join("、")} です」`,"result");
+      });
+    }else if(role){announceRole(p,role)}
+    else{
       p.coCheckedNone=true;
+      recordCOEvent(p,"no-co");
       log(`【個別CO確認】${p.name}：「COはありません」`,"system");
     }
     commitPublicTruthProofs();save();renderAll();
@@ -800,30 +861,26 @@ function individualCoCheck(){
 function villagerCheck(){
   makeTargetPanel("「村人ですか？」と確認する人物",living(),id=>{
     const p=byId(id);
-
-    // 既に役職CO済みならそのCOを維持
     if(p.claimed){
-      p.villagerClaim=false;
+      if(p.villagerClaim===true)recordVillagerClaim(p,false);
       log(`【個別村人CO】${p.name}：「村人ではありません。${roleName(p.claimed)}COです」`,"claim");
       save();renderAll();return;
     }
-
-    let saysVillager=false;
-    if(p.role==="villager"){
-      saysVillager=true;
-    }else if(["seer","knight","medium","resonator","cat"].includes(p.role)){
-      saysVillager=false;
-    }else if(p.role==="madman"){
-      saysVillager=Math.random()<0.78;
-    }else if(p.role==="wolf"){
-      saysVillager=Math.random()<0.88;
-    }else if(p.role==="fox"){
-      saysVillager=Math.random()<0.84;
+    let saysVillager;
+    if(p.villagerAnswerLocked){
+      saysVillager=p.villagerClaim===true;
+    }else{
+      if(p.role==="villager")saysVillager=true;
+      else if(["seer","knight","medium","resonator","cat"].includes(p.role))saysVillager=false;
+      else if(p.role==="madman")saysVillager=Math.random()<.78;
+      else if(p.role==="wolf")saysVillager=Math.random()<.88;
+      else if(p.role==="fox")saysVillager=Math.random()<.84;
+      else saysVillager=false;
+      recordVillagerClaim(p,saysVillager);
+      p.villagerAnswerLocked=true;
     }
-
-    p.villagerClaim=saysVillager;
     log(`【個別村人CO】${p.name}：「${saysVillager?"村人です":"村人ではありません"}」`,saysVillager?"claim":"system");
-    save();renderAll();
+    commitPublicTruthProofs();save();renderAll();
   });
 }
 
@@ -1253,6 +1310,7 @@ function buildPublicInfo(){
     seerResults:(ensurePublicRecords(),state.publicRecords.seerResults.map(r=>({...r,seerName:byId(r.seerId)?.name||"不明",targetName:byId(r.targetId)?.name||"不明"}))),
     mediumResults:state.publicRecords.mediumResults.map(r=>({...r,mediumName:byId(r.mediumId)?.name||"不明",targetName:byId(r.targetId)?.name||"不明"})),
     guardHints:state.publicRecords.guards.map(r=>({...r,knightName:byId(r.knightId)?.name||"不明",targetName:byId(r.targetId)?.name||"不明"})),
+    coEvents:[...(state.publicRecords?.coEvents||[])],
     lastExecutedId:state.lastExecuted,
     peace:lastNightWasPeace()
   };
@@ -1773,12 +1831,19 @@ function chooseSpeechTopic(observer){
     return {kind:"broken",targetId:brokenTarget.id,text:`${brokenTarget.name}さんは破綻しています。${reason}。`};
   }
 
+  const changedCo=(publicInfo.coEvents||[]).find(e=>e.day===state.day&&e.kind==="withdraw"&&
+    candidates.some(p=>p.id===e.playerId)&&speechTopicCountToday("coChange",e.playerId)<2);
+  if(changedCo){
+    const p=publicInfo.players.find(x=>x.id===changedCo.playerId);
+    return {kind:"coChange",targetId:p.id,text:`${p.name}さんはCOを撤回しています。以前の発言と今のCOがどうつながるのか確認したいです。`};
+  }
+
   const confirmedMap=getPublicConfirmations();
 
   // 真確定は「全員が毎日復唱する情報」ではなく、原則として推理の前提に使う。
   // まだ誰もその確定に触れていない場合だけ、当日は最大2人まで直接言及。
   const newlyMentionable=candidates.find(p=>
-    confirmedMap.has(p.id) &&
+    confirmedMap.has(p.id) && p.claimed!=="resonator" &&
     truthFirstMentionDay("confirmed",p.id)===null &&
     speechTopicCountToday("confirmed",p.id)<2
   );
@@ -1857,7 +1922,8 @@ function chooseSpeechTopic(observer){
     return {kind:"multiKnight",targetId:null,text:"騎士COが複数いるので、護衛先と平和の出方を見比べたいです。"};
 
   const res=publicInfo.players.find(p=>p.alive&&p.claimed==="resonator");
-  if(res)return {kind:"trustResonator",targetId:res.id,text:`${res.name}さんは共鳴者COで相方確認もあるので、今は村寄りで見ています。`};
+  if(res && speechTopicCountToday("trustResonator")<1 && Math.random()<0.12)
+    return {kind:"trustResonator",targetId:res.id,text:`共鳴者の指定や推理を手がかりに、まだ情報の少ない灰を見たいです。`};
 
   // 白結果が重なっている人物への軽い信用
   const whiteCounts=new Map();
@@ -1923,9 +1989,9 @@ function resolveNight(){
   if(wolves.length)attacked=chooseWolfAttackTarget();
 
   // 3. 占い結果を生成
-  //    ただし、その夜に襲撃死する占い師は結果を残せない
+  //    襲撃死する占い師も占いは実行するが、翌朝の結果報告は不可
   const seersBefore=roleLiving("seer").slice();
-  const fakeSeersBefore=living().filter(p=>p.fakeClaimRole==="seer").slice();
+  const fakeSeersBefore=living().filter(p=>hostile(p)&&p.claimed==="seer").slice();
 
   // 先に襲撃死する人物を特定（護衛成功なら死なない）
   const attackedDies = attacked && attacked.alive && !guardTargets.includes(attacked.id);
@@ -2004,7 +2070,7 @@ function resolveNight(){
         const already=(m.mediumResults||[]).some(r=>r.day===state.day+1&&r.target===executed.id);
         if(!already)m.mediumResults.push({day:state.day+1,target:executed.id,black:executed.role==="wolf"});
       });
-      living().filter(x=>x.fakeClaimRole==="medium").forEach(m=>{
+      living().filter(x=>hostile(x)&&x.claimed==="medium").forEach(m=>{
         const already=(m.fakeMediumResults||[]).some(r=>r.day===state.day+1&&r.target===executed.id);
         if(!already)m.fakeMediumResults.push({day:state.day+1,target:executed.id,black:chooseFakeMediumBlack(m,executed)});
       });
@@ -2075,6 +2141,8 @@ function load(){
     ensurePublicRecords();
     (state.players||[]).forEach(p=>{
       if(p.coCheckedNone===undefined)p.coCheckedNone=false;
+      if(!Array.isArray(p.coHistory))p.coHistory=[];
+      if(p.villagerAnswerLocked===undefined)p.villagerAnswerLocked=p.villagerClaim!==null;
       if(!Array.isArray(p.speechHistory))p.speechHistory=[];
       if(p.deathDay===undefined)p.deathDay=null;
       if(p.deathPhase===undefined)p.deathPhase=null;

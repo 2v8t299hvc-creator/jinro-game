@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.2.1</title>
+<title>個人用人狼アプリ v2.3.0</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -116,7 +116,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.2.1</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.3.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -301,7 +301,7 @@ function startGame(){
   for(let i=1;i<n;i++)ps.push(newPlayer(i,names[i-1]??`P${i+1}`,roles[i-1],false));
 
   state={
-    version:"2.2.1",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
+    version:"2.3.0",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
     publicRoleCounts:{...c},
     publicRecords:{seerResults:[],mediumResults:[],guards:[],executions:[],deaths:[],catChains:[],resonatorClaims:[],fullCoRequests:[],confirmedProofs:[],coEvents:[]},
     uiSettings:{
@@ -699,7 +699,7 @@ function ensureInitialFakeSeerResult(p){
   if(t)p.fakeSeerResults.push({day:1,target:t.id,black:chooseFakeBlack(p,t)});
 }
 
-// v2.2.1: CO判断は指示時点の公開盤面をスナップショットして行う。
+// v2.3.0: CO判断は指示時点の公開盤面をスナップショットして行う。
 function hostile(p){return ["wolf","madman","fox"].includes(p.role)}
 function coSnapshot(){
   return {day:state.day,aliveIds:living().map(x=>x.id),
@@ -1293,6 +1293,8 @@ function buildPublicInfo(){
     seerResults:(ensurePublicRecords(),state.publicRecords.seerResults.map(r=>({...r,seerName:byId(r.seerId)?.name||"不明",targetName:byId(r.targetId)?.name||"不明"}))),
     mediumResults:state.publicRecords.mediumResults.map(r=>({...r,mediumName:byId(r.mediumId)?.name||"不明",targetName:byId(r.targetId)?.name||"不明"})),
     guardHints:state.publicRecords.guards.map(r=>({...r,knightName:byId(r.knightId)?.name||"不明",targetName:byId(r.targetId)?.name||"不明"})),
+    resonatorClaims:state.publicRecords.resonatorClaims.map(r=>({...r,partnerIds:[...(r.partnerIds||[])]})),
+    roleCounts:{...(state.publicRoleCounts||{})},
     coEvents:[...(state.publicRecords?.coEvents||[])],
     lastExecutedId:state.lastExecuted,
     peace:lastNightWasPeace()
@@ -1322,6 +1324,45 @@ function seerVsMediumConflict(publicInfo,seerId){
   return null;
 }
 
+function latestResonatorClaims(records){
+  const latest=new Map();
+  for(const claim of records||[])latest.set(claim.playerId,claim);
+  return latest;
+}
+function resonatorLineMembers(latest){
+  const involved=new Set();
+  for(const [id,claim] of latest){
+    involved.add(id);
+    (claim.partnerIds||[]).forEach(x=>involved.add(x));
+  }
+  return involved;
+}
+function matchingResonatorPartners(claim,members,id){
+  const expected=[...members].filter(x=>x!==id).sort((a,b)=>a-b);
+  const actual=[...(claim.partnerIds||[])].sort((a,b)=>a-b);
+  return expected.length===actual.length&&expected.every((x,i)=>x===actual[i]);
+}
+
+// 信用評価用の相方確認。真確定の証明とは別で、公開された宣言だけを使う。
+function hasPublicResonatorSupport(publicInfo,targetId){
+  const count=publicInfo.roleCounts?.resonator;
+  if(count==null||count<2)return false;
+  const latest=latestResonatorClaims(publicInfo.resonatorClaims);
+  const involved=resonatorLineMembers(latest);
+  if(involved.size>count)return false; // 対抗ラインがある場合は相方確認の信用加点を保留。
+  const targetClaim=latest.get(targetId);
+  if(!targetClaim)return false;
+  const members=[targetId,...(targetClaim.partnerIds||[])];
+  if(members.length!==count||new Set(members).size!==count)return false;
+  for(const id of members){
+    if(publicInfo.players.find(p=>p.id===id)?.claimed!=="resonator")return false;
+    const claim=latest.get(id);
+    if(!claim)return false;
+    if(!matchingResonatorPartners(claim,members,id))return false;
+  }
+  return true;
+}
+
 function estimatePublicSuspicion(publicInfo,observerId,targetId){
   const target=publicInfo.players.find(p=>p.id===targetId);
   if(!target||!target.alive||target.id===observerId)return {score:-999,reasons:[]};
@@ -1347,7 +1388,7 @@ function estimatePublicSuspicion(publicInfo,observerId,targetId){
     reasons.unshift("占い結果が白黒に割れています");
   }
 
-  if(target.claimed==="resonator"){
+  if(target.claimed==="resonator"&&hasPublicResonatorSupport(publicInfo,targetId)){
     score-=5;
     reasons.push("共鳴者COで相方確認があります");
   }
@@ -1473,8 +1514,7 @@ function getBasePublicBreakdowns(){
   }
 
   // F. 共鳴者：相方宣言の不一致 / 配役人数超過
-  const latestRes=new Map();
-  for(const c of r.resonatorClaims)latestRes.set(c.playerId,c);
+  const latestRes=latestResonatorClaims(r.resonatorClaims);
   for(const [id,c] of latestRes){
     for(const partnerId of c.partnerIds||[]){
       const back=latestRes.get(partnerId);
@@ -1486,11 +1526,7 @@ function getBasePublicBreakdowns(){
   }
   const resCount=publicRoleCount("resonator");
   if(resCount!=null){
-    const involved=new Set();
-    for(const [id,c] of latestRes){
-      involved.add(id);
-      (c.partnerIds||[]).forEach(x=>involved.add(x));
-    }
+    const involved=resonatorLineMembers(latestRes);
     if(involved.size>resCount){
       for(const id of involved)add(id,`共鳴者の公開ラインが配役数${resCount}人を超えている`);
     }
@@ -1528,36 +1564,31 @@ function getBasePublicBreakdowns(){
 }
 
 
-function solvePublicTruth(){
-  ensurePublicRecords();
+// 公開情報の推理・真確定判定を役割ごとに分割。公開記録と推理結果を扱い、画面は操作しない。
+function addTruthReason(map,id,reason){
+  if(id==null)return false;
+  if(!map.has(id))map.set(id,[]);
+  if(map.get(id).includes(reason))return false;
+  map.get(id).push(reason);
+  return true;
+}
 
-  const cloneMap=m=>{
-    const out=new Map();
-    for(const [k,v] of m)out.set(k,[...v]);
-    return out;
-  };
-  const broken=cloneMap(getBasePublicBreakdowns());
+function createPublicTruthContext(){
+  const broken=new Map([...getBasePublicBreakdowns()].map(([id,reasons])=>[id,[...reasons]]));
   const confirmed=new Map();
-  for(const proof of (state.publicRecords.confirmedProofs||[])){
+  // 保存証明の読み込みは従来と同じ順序で行う。
+  for(const proof of state.publicRecords.confirmedProofs||[]){
     if(!confirmed.has(proof.id))confirmed.set(proof.id,[]);
     confirmed.get(proof.id).push(proof.reason);
   }
-
-  const addBroken=(id,reason)=>{
-    if(id==null)return false;
-    if(!broken.has(id))broken.set(id,[]);
-    if(broken.get(id).includes(reason))return false;
-    broken.get(id).push(reason);
-    return true;
+  return {
+    broken,confirmed,
+    addBroken:(id,reason)=>addTruthReason(broken,id,reason),
+    addConfirmed:(id,reason)=>id!=null&&!broken.has(id)?addTruthReason(confirmed,id,reason):false
   };
-  const addConfirmed=(id,reason)=>{
-    if(id==null||broken.has(id))return false;
-    if(!confirmed.has(id))confirmed.set(id,[]);
-    if(confirmed.get(id).includes(reason))return false;
-    confirmed.get(id).push(reason);
-    return true;
-  };
+}
 
+function applyPublicJusatsuBreakdowns({addBroken}){
   // 公開情報から証明できる呪殺だけを扱う。死体原因を隠し役職から読むことは禁止。
   // 猫又なし・2死体以上・初日の無死者時点で全占いCO済みという限定条件。
   // 真占いが襲撃死して結果を残せない夜は断定を保留する。
@@ -1586,139 +1617,141 @@ function solvePublicTruth(){
     }
   }
 
-  const fullCoRoles=new Set((state.publicRecords.fullCoRequests||[]).map(x=>x.role));
-  const roleCount=role=>publicRoleCount(role);
+}
 
-  // 猫又の処刑専用道連れは、その猫又本人を公開上100%証明する。
-  for(const c of state.publicRecords.catChains||[]){
-    addConfirmed(c.catId,"処刑時に猫又専用の道連れが発生した");
+function confirmPublicResonators({confirmed,broken,addConfirmed}){
+  const request=(state.publicRecords.fullCoRequests||[]).find(x=>x.role==="resonator");
+  const count=publicRoleCount("resonator");
+  if(!request||count==null||count<2)return false;
+  const latest=latestResonatorClaims(state.publicRecords.resonatorClaims);
+  const involved=resonatorLineMembers(latest);
+  if(involved.size!==count)return false;
+  for(const id of involved){
+    const player=byId(id),claim=latest.get(id);
+    if(!player||player.claimed!=="resonator"||broken.has(id)||!claim)return false;
+    if(!matchingResonatorPartners(claim,involved,id))return false;
+  }
+  // 指示時点の死亡者を最優先。旧保存形式は死亡日から保守的に復元する。
+  const priorDeadIds=Array.isArray(request.priorDeadIds)
+    ? request.priorDeadIds
+    : state.players.filter(p=>!p.alive&&(!(state.publicRecords.deaths||[]).some(d=>d.playerId===p.id)||
+        (state.publicRecords.deaths||[]).some(d=>d.playerId===p.id&&d.day<=request.day))).map(p=>p.id);
+  for(const id of priorDeadIds){
+    // 相互宣言済みの死者は潜伏不明枠ではない。ただし死亡後の宣言は証拠に使えない。
+    const claim=latest.get(id);
+    const death=(state.publicRecords.deaths||[]).find(d=>d.playerId===id);
+    if(involved.has(id)&&claim&&death&&claim.day<death.day)continue;
+    const certainOther=confirmed.has(id)&&byId(id)?.claimed&&byId(id).claimed!=="resonator";
+    const certainlyWolf=(state.publicRecords.mediumResults||[]).some(r=>r.targetId===id&&r.black&&
+      confirmed.has(r.mediumId)&&byId(r.mediumId)?.claimed==="medium");
+    if(!certainOther&&!certainlyWolf)return false;
+  }
+  let changed=false;
+  for(const id of involved){
+    if(addConfirmed(id,`共鳴者の全員CO後、${count}人の相方関係が相互一致し、死亡潜伏真の可能性を排除した`))changed=true;
+  }
+  return changed;
+}
+
+function confirmFullCoRoles({confirmed,broken,addConfirmed},fullCoRoles){
+  let changed=false;
+  // 全員CO指示済みの単独役職。
+  // 「配役人数ぶんだけ非破綻COが残った」なら、その全員が真。
+  for(const role of ["seer","medium","knight","cat"]){
+    if(!fullCoRoles.has(role))continue;
+    const count=publicRoleCount(role);
+    if(count==null||count<=0)continue;
+
+    const claimants=state.players.filter(p=>p.claimed===role);
+    const viable=claimants.filter(p=>!broken.has(p.id));
+
+    // 生存者への全員COだけでは、未CO死亡者の潜伏真を排除できない。
+    // 役職が公開確定した死者や、CO指示前に別役職として確定した死者のみ除外する。
+    const request=(state.publicRecords.fullCoRequests||[]).find(x=>x.role===role);
+    const unexcludedDeaths=state.players.filter(p=>{
+      if(p.alive)return false;
+      const death=(state.publicRecords.deaths||[]).find(d=>d.playerId===p.id);
+      if(!death || !request || death.day>request.day)return false;
+      if(p.claimed===role)return false; // この役職のCO歴があれば潜伏不明枠ではない
+      const certainOther=confirmed.has(p.id)&&p.claimed&&p.claimed!==role;
+      const certainlyEnemy=(state.publicRecords.mediumResults||[]).some(x=>x.targetId===p.id&&x.black&&[...confirmed.keys()].some(id=>id===x.mediumId&&byId(id)?.claimed==="medium"));
+      return !certainOther&&!certainlyEnemy;
+    });
+    if(viable.length===count&&unexcludedDeaths.length===0){
+      for(const p of viable){
+        if(addConfirmed(p.id,
+          claimants.length===count
+            ? `${roleName(role)}の全員CO後、CO者数が配役数${count}人と一致した`
+            : `${roleName(role)}の対抗が全員破綻し、配役数${count}人ぶんだけ残った`
+        ))changed=true;
+      }
+    }
   }
 
-  // 共鳴者も他役職と同じ収束処理で評価する。内部役職・騙りAIの制限は使わない。
-  const confirmResonators=()=>{
-    const request=(state.publicRecords.fullCoRequests||[]).find(x=>x.role==="resonator");
-    const count=roleCount("resonator");
-    if(!request||count==null||count<2)return false;
-    const latest=new Map();
-    for(const c of state.publicRecords.resonatorClaims||[])latest.set(c.playerId,c);
-    const involved=new Set();
-    for(const [id,c] of latest){
-      involved.add(id);
-      (c.partnerIds||[]).forEach(x=>involved.add(x));
-    }
-    if(involved.size!==count)return false;
-    for(const id of involved){
-      const player=byId(id),claim=latest.get(id);
-      if(!player||player.claimed!=="resonator"||broken.has(id)||!claim)return false;
-      const expected=[...involved].filter(x=>x!==id).sort((a,b)=>a-b);
-      const actual=[...(claim.partnerIds||[])].sort((a,b)=>a-b);
-      if(expected.length!==actual.length||expected.some((x,i)=>x!==actual[i]))return false;
-    }
-    // 指示時点の死亡者を最優先。旧保存形式は死亡日から保守的に復元する。
-    const priorDeadIds=Array.isArray(request.priorDeadIds)
-      ? request.priorDeadIds
-      : state.players.filter(p=>!p.alive&&(!(state.publicRecords.deaths||[]).some(d=>d.playerId===p.id)||
-          (state.publicRecords.deaths||[]).some(d=>d.playerId===p.id&&d.day<=request.day))).map(p=>p.id);
-    for(const id of priorDeadIds){
-      // 相互宣言済みの死者は潜伏不明枠ではない。ただし死亡後の宣言は証拠に使えない。
-      const claim=latest.get(id);
-      const death=(state.publicRecords.deaths||[]).find(d=>d.playerId===id);
-      if(involved.has(id)&&claim&&death&&claim.day<death.day)continue;
-      const certainOther=confirmed.has(id)&&byId(id)?.claimed&&byId(id).claimed!=="resonator";
-      const certainlyWolf=(state.publicRecords.mediumResults||[]).some(r=>r.targetId===id&&r.black&&
-        confirmed.has(r.mediumId)&&byId(r.mediumId)?.claimed==="medium");
-      if(!certainOther&&!certainlyWolf)return false;
-    }
-    let changed=false;
-    for(const id of involved){
-      if(addConfirmed(id,`共鳴者の全員CO後、${count}人の相方関係が相互一致し、死亡潜伏真の可能性を排除した`))changed=true;
-    }
-    return changed;
-  };
+  return changed;
+}
 
-  // 破綻→真確定→新たな破綻、を数回回して収束させる。
+function applyConfirmedRoleBreakdowns({confirmed,addBroken}){
+  let changed=false;
+  // 配役枠が真確定者で埋まったら、他の同役職COは破綻。
+  for(const role of ["seer","medium","knight","cat","resonator"]){
+    const count=publicRoleCount(role);
+    if(count==null||count<=0)continue;
+    const confirmedOfRole=[...confirmed.keys()]
+      .filter(id=>(state.publicRecords.confirmedProofs||[]).some(x=>x.id===id&&x.role===role)||(!(state.publicRecords.confirmedProofs||[]).some(x=>x.id===id)&&byId(id)?.claimed===role));
+    if(confirmedOfRole.length>=count){
+      for(const p of state.players.filter(p=>p.claimed===role)){
+        if(!confirmed.has(p.id)){
+          if(addBroken(p.id,`${roleName(role)}の配役枠${count}人が真確定者で埋まっている`))changed=true;
+        }
+      }
+    }
+  }
+
+  // 真確定した村役職に黒を出した占い師は破綻。
+  for(const x of state.publicRecords.seerResults||[]){
+    if(!x.black)continue;
+    const target=byId(x.targetId);
+    if(!target||!confirmed.has(target.id))continue;
+    if(["seer","medium","knight","resonator","cat"].includes(target.claimed)){
+      if(addBroken(x.seerId,`${target.name}さんは${roleName(target.claimed)}として真確定しているのに黒を出している`))changed=true;
+    }
+  }
+
+  // 真確定霊媒と占い結果が食い違えば、占い師側が破綻。
+  const trueMediumIds=[...confirmed.keys()].filter(id=>(state.publicRecords.confirmedProofs||[]).some(p=>p.id===id&&p.role==="medium")||byId(id)?.claimed==="medium");
+  for(const mid of trueMediumIds){
+    const medResults=(state.publicRecords.mediumResults||[]).filter(r=>r.mediumId===mid);
+    for(const mr of medResults){
+      const seerResults=(state.publicRecords.seerResults||[]).filter(r=>r.targetId===mr.targetId);
+      for(const sr of seerResults){
+        if(sr.black!==mr.black){
+          const target=byId(mr.targetId);
+          if(addBroken(sr.seerId,`${target?.name||"処刑者"}さんの判定が真確定霊媒の結果と食い違っている`))changed=true;
+        }
+      }
+    }
+  }
+
+  return changed;
+}
+
+function solvePublicTruth(){
+  ensurePublicRecords();
+  const truth=createPublicTruthContext();
+  applyPublicJusatsuBreakdowns(truth);
+  const fullCoRoles=new Set((state.publicRecords.fullCoRequests||[]).map(x=>x.role));
+  for(const c of state.publicRecords.catChains||[]){
+    truth.addConfirmed(c.catId,"処刑時に猫又専用の道連れが発生した");
+  }
+  // 各段階を必ず順番に実行する。短絡評価で後続の判定を省略しない。
   for(let pass=0;pass<8;pass++){
-    let changed=false;
-
-    // 全員CO指示済みの単独役職。
-    // 「配役人数ぶんだけ非破綻COが残った」なら、その全員が真。
-    for(const role of ["seer","medium","knight","cat"]){
-      if(!fullCoRoles.has(role))continue;
-      const count=roleCount(role);
-      if(count==null||count<=0)continue;
-
-      const claimants=state.players.filter(p=>p.claimed===role);
-      const viable=claimants.filter(p=>!broken.has(p.id));
-
-      // 生存者への全員COだけでは、未CO死亡者の潜伏真を排除できない。
-      // 役職が公開確定した死者や、CO指示前に別役職として確定した死者のみ除外する。
-      const request=(state.publicRecords.fullCoRequests||[]).find(x=>x.role===role);
-      const unexcludedDeaths=state.players.filter(p=>{
-        if(p.alive)return false;
-        const death=(state.publicRecords.deaths||[]).find(d=>d.playerId===p.id);
-        if(!death || !request || death.day>request.day)return false;
-        if(p.claimed===role)return false; // この役職のCO歴があれば潜伏不明枠ではない
-        const certainOther=confirmed.has(p.id)&&p.claimed&&p.claimed!==role;
-        const certainlyEnemy=(state.publicRecords.mediumResults||[]).some(x=>x.targetId===p.id&&x.black&&[...confirmed.keys()].some(id=>id===x.mediumId&&byId(id)?.claimed==="medium"));
-        return !certainOther&&!certainlyEnemy;
-      });
-      if(viable.length===count&&unexcludedDeaths.length===0){
-        for(const p of viable){
-          if(addConfirmed(p.id,
-            claimants.length===count
-              ? `${roleName(role)}の全員CO後、CO者数が配役数${count}人と一致した`
-              : `${roleName(role)}の対抗が全員破綻し、配役数${count}人ぶんだけ残った`
-          ))changed=true;
-        }
-      }
-    }
-
-    if(confirmResonators())changed=true;
-
-    // 配役枠が真確定者で埋まったら、他の同役職COは破綻。
-    for(const role of ["seer","medium","knight","cat","resonator"]){
-      const count=roleCount(role);
-      if(count==null||count<=0)continue;
-      const confirmedOfRole=[...confirmed.keys()]
-        .filter(id=>(state.publicRecords.confirmedProofs||[]).some(x=>x.id===id&&x.role===role)||(!(state.publicRecords.confirmedProofs||[]).some(x=>x.id===id)&&byId(id)?.claimed===role));
-      if(confirmedOfRole.length>=count){
-        for(const p of state.players.filter(p=>p.claimed===role)){
-          if(!confirmed.has(p.id)){
-            if(addBroken(p.id,`${roleName(role)}の配役枠${count}人が真確定者で埋まっている`))changed=true;
-          }
-        }
-      }
-    }
-
-    // 真確定した村役職に黒を出した占い師は破綻。
-    for(const x of state.publicRecords.seerResults||[]){
-      if(!x.black)continue;
-      const target=byId(x.targetId);
-      if(!target||!confirmed.has(target.id))continue;
-      if(["seer","medium","knight","resonator","cat"].includes(target.claimed)){
-        if(addBroken(x.seerId,`${target.name}さんは${roleName(target.claimed)}として真確定しているのに黒を出している`))changed=true;
-      }
-    }
-
-    // 真確定霊媒と占い結果が食い違えば、占い師側が破綻。
-    const trueMediumIds=[...confirmed.keys()].filter(id=>(state.publicRecords.confirmedProofs||[]).some(p=>p.id===id&&p.role==="medium")||byId(id)?.claimed==="medium");
-    for(const mid of trueMediumIds){
-      const medResults=(state.publicRecords.mediumResults||[]).filter(r=>r.mediumId===mid);
-      for(const mr of medResults){
-        const seerResults=(state.publicRecords.seerResults||[]).filter(r=>r.targetId===mr.targetId);
-        for(const sr of seerResults){
-          if(sr.black!==mr.black){
-            const target=byId(mr.targetId);
-            if(addBroken(sr.seerId,`${target?.name||"処刑者"}さんの判定が真確定霊媒の結果と食い違っている`))changed=true;
-          }
-        }
-      }
-    }
-
+    let changed=confirmFullCoRoles(truth,fullCoRoles);
+    if(confirmPublicResonators(truth))changed=true;
+    if(applyConfirmedRoleBreakdowns(truth))changed=true;
     if(!changed)break;
   }
-
-  return {broken,confirmed};
+  return {broken:truth.broken,confirmed:truth.confirmed};
 }
 
 function getPublicBreakdowns(){
@@ -1953,7 +1986,9 @@ function resolveNight(){
   // 1. 騎士の護衛先を確定
   const guardTargets=[];
   roleLiving("knight").forEach(k=>{
+    // 本人指示も無効な指示と同様に扱い、個別の通知なしで通常の自動護衛へ。
     let t=k.forcedGuardTarget!=null&&byId(k.forcedGuardTarget)?.alive?byId(k.forcedGuardTarget):null;
+    if(t?.id===k.id)t=null;
     if(!t)t=randomChoice(living().filter(p=>p.id!==k.id));
     if(t){
       guardTargets.push(t.id);
@@ -2128,7 +2163,7 @@ function load(){
       if(p.deathPhase===undefined)p.deathPhase=null;
     });
     commitPublicTruthProofs();
-    state.version="2.2.1";
+    state.version="2.3.0";
     showGame();
   }catch(e){alert("保存データを読み込めませんでした")}
 }

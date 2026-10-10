@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.6.2</title>
+<title>個人用人狼アプリ v2.8.0</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -116,7 +116,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.6.2</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.8.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -1018,7 +1018,7 @@ function startGame(){
   for(let i=1;i<n;i++)ps.push(createCharacterPlayer(i,characters[i-1],roles[i-1]));
 
   state={
-    version:"2.6.2",characterRosterVersion:CHARACTER_ROSTER_VERSION,day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
+    version:"2.8.0",characterRosterVersion:CHARACTER_ROSTER_VERSION,day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
     publicRoleCounts:{...c},
     publicRecords:{seerResults:[],mediumResults:[],guards:[],executions:[],deaths:[],catChains:[],resonatorClaims:[],fullCoRequests:[],confirmedProofs:[],coEvents:[]},
     uiSettings:{
@@ -1035,6 +1035,7 @@ function startGame(){
   });
 
   assignFakeClaims();
+  ensureWolfSeerPlan();
 
   // 潜伏人外には結果ではなく、その日に選べる対象だけを記録する。
   state.players.filter(hostile).forEach(p=>ensureFakeSeerTimeline(p));
@@ -1206,9 +1207,9 @@ function selectConfirmedPremiseTopic(observer,publicInfo,confirmedMap){
       const t=byId(r.targetId);
       if(t&&t.alive&&t.id!==observer.id){
         if(r.black){
-          return {kind:"confirmedPremise",targetId:t.id,variant:"confirmedSeerBlack",details:{seerName:cs.name,targetName:t.name}};
+          return {kind:"confirmedPremise",targetId:t.id,variant:"confirmedSeerBlack",details:{seerId:cs.id,seerName:cs.name,targetName:t.name}};
         }
-        return {kind:"confirmedPremise",targetId:t.id,variant:"confirmedSeerWhite",details:{seerName:cs.name,targetName:t.name}};
+        return {kind:"confirmedPremise",targetId:t.id,variant:"confirmedSeerWhite",details:{seerId:cs.id,seerName:cs.name,targetName:t.name}};
       }
     }
   }
@@ -1220,7 +1221,7 @@ function selectConfirmedPremiseTopic(observer,publicInfo,confirmedMap){
     if(r){
       const t=byId(r.targetId);
       if(t){
-        return {kind:"confirmedPremise",targetId:t.id,variant:"confirmedMediumResult",details:{mediumName:cm.name,targetName:t.name}};
+        return {kind:"confirmedPremise",targetId:t.id,variant:"confirmedMediumResult",details:{mediumId:cm.id,mediumName:cm.name,targetName:t.name}};
       }
     }
   }
@@ -1542,6 +1543,45 @@ function prepareFakeSeerReports(liar){
 
 // v2.4.1: CO判断は指示時点の公開盤面をスナップショットして行う。
 function hostile(p){return ["wolf","madman","fox"].includes(p.role)}
+function migrateLegacyFullCoResponses(){
+  // 旧版の同日内順序は復元しない。同日COや既存COは応答側として保守的に残す。
+  if(!/^2\.[456]\./.test(state.version||""))return;
+  const events=state.publicRecords.coEvents;
+  const completeClaims=state.players.every(p=>!p.claimed||events.some(e=>
+    e.playerId===p.id&&e.kind==="claim"&&e.role===p.claimed));
+  if(!completeClaims)return;
+  for(const request of state.publicRecords.fullCoRequests){
+    if(Array.isArray(request.respondentIds)||!Array.isArray(request.aliveIds))continue;
+    if(!events.some(e=>e.kind==="claim"&&e.role===request.role&&e.day<=request.day))continue;
+    request.respondentIds=request.aliveIds.filter(id=>byId(id)?.claimed===request.role||
+      events.some(e=>e.playerId===id&&e.kind==="claim"&&e.role===request.role&&e.day<=request.day));
+    request.inferredFromPublicHistory=true;
+  }
+}
+function wasFullRoleCoDeclined(p,role){
+  return (state.publicRecords?.fullCoRequests||[]).some(r=>r.role===role&&
+    Array.isArray(r.respondentIds)&&r.aliveIds.includes(p.id)&&!r.respondentIds.includes(p.id));
+}
+function ensureWolfSeerPlan(){
+  if(state.wolfSeerPlan?.version===1)return;
+  // 既に公表した騙りは保存。未COの新規担当は開始時の狼の予定から決める。
+  const wolves=state.players.filter(p=>p.role==="wolf");
+  const declared=wolves.filter(p=>p.claimed==="seer");
+  const planned=wolves.filter(p=>p.alive&&p.fakeClaimRole==="seer"&&!p.claimed&&
+    !wasFullRoleCoDeclined(p,"seer"));
+  const candidates=declared.length?declared:planned;
+  const candidate=candidates.length===1?candidates[0]:candidates.length?randomChoice(candidates):null;
+  state.wolfSeerPlan={version:1,candidateId:candidate?.id??null};
+}
+function canOfferFakeRole(p,role,snap){
+  if(p.claimed===role)return true; // 公表済みのCOは撤回・削除しない。
+  if(wasFullRoleCoDeclined(p,role))return false;
+  if(p.role==="wolf"&&role==="seer"){
+    ensureWolfSeerPlan();
+    return state.wolfSeerPlan.candidateId===p.id&&!p.claimed;
+  }
+  return true;
+}
 function coSnapshot(){
   return {day:state.day,aliveIds:living().map(x=>x.id),
     claims:state.players.map(p=>({id:p.id,claimed:p.claimed,villagerClaim:p.villagerClaim,alive:p.alive})),
@@ -1578,10 +1618,18 @@ function recordVillagerClaim(p,value){
   p.villagerClaim=value;
   recordCOEvent(p,value?"claim":"deny","villager");
 }
+// 生存している公開占いCO者の数。真偽や仲間の正体は参照しない。
+const SEER_ENTRY_CROWDING_FACTORS=[1,.85,.45,.18,.06];
+function seerEntryCrowdingFactor(publicSeerCount){
+  return SEER_ENTRY_CROWDING_FACTORS[Math.min(Math.max(publicSeerCount,0),4)];
+}
 function roleClaimProbability(p,role,snap,mode="role"){
   if(!hostile(p)||!p.alive||role==="resonator")return 0;
   const prior=snap.claims.find(x=>x.id===p.id);
   if(prior?.claimed===role)return 1;
+  if(!canOfferFakeRole(p,role,snap))return 0;
+  // 狼の占い担当は再抽選しない。開始時に決めた担当が応答する。
+  if(p.role==="wolf"&&role==="seer")return snap.counts.seer===0?0:1;
   // 一度役職COした人外は、基本的に自分の発言を維持する。変更は切迫時のみ。
   const otherRole=!!prior?.claimed&&prior.claimed!==role;
   const otherClaimants=snap.claims.filter(x=>x.alive&&x.claimed===role&&x.id!==p.id).length;
@@ -1591,7 +1639,8 @@ function roleClaimProbability(p,role,snap,mode="role"){
   const prefs={wolf:{seer:.50,medium:.31,knight:.15,cat:.22},madman:{seer:.64,medium:.43,knight:.23,cat:.26},fox:{seer:.22,medium:.13,knight:.15,cat:.18}};
   let chance=prefs[p.role]?.[role]||0;
   if(p.fakeClaimRole===role)chance+=.19;
-  if(otherClaimants>0)chance+=role==="cat"?.14:.07;
+  const usesSeerCrowding=role==="seer"&&["madman","fox"].includes(p.role);
+  if(otherClaimants>0&&!usesSeerCrowding)chance+=role==="cat"?.14:.07;
   if(nearlyExposed){
     chance+=role==="cat"?.72:role==="knight"?.43:.27;
   }
@@ -1602,11 +1651,13 @@ function roleClaimProbability(p,role,snap,mode="role"){
   if(otherRole)chance=nearlyExposed?chance*.21:0;
   if(prior?.villagerClaim===true)chance*=nearlyExposed?.85:.3;
   if(mode==="individual")chance*=.84;
+  if(usesSeerCrowding)chance*=seerEntryCrowdingFactor(otherClaimants);
   return Math.max(0,Math.min(.98,chance));
 }
 function chooseDynamicFakeRole(p,snap){
   const prior=snap.claims.find(x=>x.id===p.id);
   if(prior?.claimed)return prior.claimed;
+  if(p.role==="wolf"&&canOfferFakeRole(p,"seer",snap)&&snap.counts.seer!==0)return "seer";
   const roles=["seer","medium","knight","cat"];
   const ranked=roles.map(role=>({role,score:roleClaimProbability(p,role,snap,"individual")* (.85+Math.random()*.3)}));
   ranked.sort((a,b)=>b.score-a.score);
@@ -1636,15 +1687,19 @@ function announceRole(p,role,first=true,preparedFakeSeerReports=null){
 function prepareRoleCoResponses(role,snap){
   const real=roleLiving(role);
   const fakes=living().filter(p=>hostile(p)&&!real.includes(p)&&
-    (p.claimed===role||Math.random()<roleClaimProbability(p,role,snap)));
+    (p.claimed===role||canOfferFakeRole(p,role,snap)&&Math.random()<roleClaimProbability(p,role,snap)));
   if(role==="medium")fakes.forEach(ensureFakeMediumResults);
   const preparedFakeReports=new Map(role==="seer"?fakes.map(p=>[p.id,prepareFakeSeerReports(p)]):[]);
   return {real,fakes,preparedFakeReports};
 }
-function recordFullRoleCoRequest(role){
-  pushPublicRecord("fullCoRequests",{role,day:state.day,
-    aliveIds:living().map(p=>p.id),
-    priorDeadIds:state.players.filter(p=>!p.alive).map(p=>p.id)},["role"]);
+function recordFullRoleCoRequest(role,response){
+  const records=state.publicRecords.fullCoRequests;
+  // 最初の明示的な応答を保存し、再指示で抽選し直さない。
+  if(records.some(r=>r.role===role&&Array.isArray(r.respondentIds)))return;
+  const respondents=role==="resonator"?roleLiving(role):[...response.real,...response.fakes];
+  records.push({role,day:state.day,aliveIds:living().map(p=>p.id),
+    priorDeadIds:state.players.filter(p=>!p.alive).map(p=>p.id),
+    respondentIds:respondents.map(p=>p.id),order:nextPublicationOrder()});
 }
 function publishResonatorCoGroup(){
   const partners=roleLiving("resonator");
@@ -1669,7 +1724,7 @@ function forceRoleCO(role){
   // 人外の応答は指示前の同じ盤面で先に確定する。
   const snap=coSnapshot();
   const response=prepareRoleCoResponses(role,snap);
-  recordFullRoleCoRequest(role);
+  recordFullRoleCoRequest(role,response);
   if(!response.real.length&&!response.fakes.length){
     log(`【${roleName(role)}CO指示】CO指示を出しました。`,"system");
     completeCoInstruction();return;
@@ -1682,6 +1737,7 @@ function prepareBlackSeerCoResponses(snap){
   const real=roleLiving("seer").filter(p=>p.seerResults.some(r=>r.black));
   const preparedFakeReports=new Map(),fakes=[];
   for(const p of living().filter(hostile)){
+    if(!canOfferFakeRole(p,"seer",snap))continue;
     ensureFakeSeerTimeline(p);
     const alreadyBlack=p.fakeSeerResults.some(r=>r.black&&r.day<=state.day);
     if(alreadyBlack){fakes.push(p);preparedFakeReports.set(p.id,prepareFakeSeerReports(p));continue;}
@@ -1707,7 +1763,8 @@ function blackSeerCO(){
 }
 function prepareBlackMediumCoResponses(){
   const real=roleLiving("medium").filter(p=>p.mediumResults.some(r=>r.black));
-  const candidates=living().filter(p=>hostile(p)&&p.fakeClaimRole==="medium");
+  const candidates=living().filter(p=>hostile(p)&&p.fakeClaimRole==="medium"&&
+    (p.claimed==="medium"||!wasFullRoleCoDeclined(p,"medium")));
   candidates.forEach(ensureFakeMediumResults);
   const fakes=candidates.filter(p=>p.fakeMediumResults.some(r=>r.black));
   return {real,fakes,responders:[...real,...fakes.filter(p=>!real.includes(p))]};
@@ -2873,9 +2930,69 @@ function selectFirstDaySpeechTopic(top,evals){
   return {kind:"wait",targetId:null,variant:"wait",details:{}};
 }
 
+// 発言記録の第1段階。判断・文面・乱数には使わず、公開情報だけを参照する。
+// intentは文章から心理を推測せず、明示的な情報整理/質問だけを記録する。
+const COM_SPEECH_SCHEMA_VERSION=1;
+function describeComSpeech(observer,topic){
+  const id=topic.targetId??null, d=topic.details||{}, v=topic.variant;
+  const evaluation=new Set(["confirmedSeerWhite","confirmedRolePremise","confirmed","firstDayConcern","firstDayUnknown","trustSeer","changedSuspect","suspect","trustWhite","grayConcern"]);
+  const pointing=new Set(["broken","split","seerMediumConflict","peaceWithGuard","peaceWithoutGuard","multiSeer","multiMedium","multiKnight","confirmedMediumResult"]);
+  const proposals=new Set(["confirmedSeerBlack","avoidCat","trustResonator","wait"]);
+  const claim=evaluation.has(v)?"evaluation":pointing.has(v)?"pointing":proposals.has(v)?"proposal":v==="coChange"?"question":null;
+  // 村全体への発言は今回の対象範囲外。nullを自分に置き換えない。
+  const target=id==null?null:{type:id===observer.id?"self":"individual",playerId:id};
+  const relatedPlayerIds=[d.seerId,d.mediumId,d.knightId,d.previousId].filter(x=>Number.isInteger(x)&&x!==id);
+  const evidence=[];
+  // 公開記録だけを保存。後の旧形式移行でも参照時点の事実を失わない。
+  const publicSnapshot=r=>Object.fromEntries(["id","seerId","mediumId","knightId","targetId","playerId","black","day","order","role","kind"].filter(k=>r[k]!==undefined).map(k=>[k,r[k]]));
+  const addRecords=(collection,predicate)=>{
+    (state.publicRecords?.[collection]||[]).forEach((r,index)=>{
+      if(predicate(r))evidence.push({type:"publicRole",source:{collection,index,day:r.day??null,order:r.order??null},snapshot:publicSnapshot(r),status:"reported"});
+    });
+  };
+  const addClaim=()=>{
+    const p=byId(id);
+    if(p?.claimed)evidence.push({type:"coSituation",source:{playerId:id,claimed:p.claimed,observedDay:state.day},status:"reported"});
+  };
+  if(v==="split"||v==="trustWhite")addRecords("seerResults",r=>r.targetId===id&&(v!=="trustWhite"||!r.black));
+  if(v==="coChange"){
+    (state.publicRecords?.coEvents||[]).forEach((r,index)=>{
+      if(r.playerId===id&&r.day===state.day&&r.kind==="withdraw")evidence.push({type:"coSituation",source:{collection:"coEvents",index,day:r.day,order:r.order??null},snapshot:publicSnapshot(r),status:"reported"});
+    });
+  }
+  if(v==="avoidCat"||v==="confirmedRolePremise")addClaim();
+  if(v==="confirmedSeerBlack"||v==="confirmedSeerWhite"){
+    const r=latestPublicSeerResultFor(d.seerId);
+    if(r)addRecords("seerResults",x=>x===r);
+  }
+  if(v==="confirmedMediumResult"){
+    const r=latestPublicMediumResultFor(d.mediumId);
+    if(r)addRecords("mediumResults",x=>x===r);
+  }
+  if(v==="peaceWithGuard"){
+    const r=(state.publicRecords?.guards||[]).find(x=>x.day===state.day);
+    if(r)addRecords("guards",x=>x===r);
+  }
+  // 証明済みかどうかは報告された結果とは別項目。解決器の再実行はしない。
+  const confirmedId=["confirmedSeerBlack","confirmedSeerWhite"].includes(v)?d.seerId:v==="confirmedMediumResult"?d.mediumId:["confirmed","confirmedRolePremise"].includes(v)?id:null;
+  if(confirmedId!=null){
+    (state.publicRecords?.confirmedProofs||[]).forEach((r,index)=>{
+      if(r.id===confirmedId)evidence.push({type:"publicRole",source:{collection:"confirmedProofs",index,day:r.day??null,order:null},snapshot:publicSnapshot(r),status:"confirmed"});
+    });
+  }
+  return {schemaVersion:COM_SPEECH_SCHEMA_VERSION,variant:v,target,relatedPlayerIds:[...new Set(relatedPlayerIds)],
+    claim:claim?{type:claim,certainty:null,strength:null}:null,
+    evidence,evidenceCoverage:evidence.length?"partial":"unresolved",
+    intent:v==="coChange"?"informationGathering":pointing.has(v)?"informationSharing":null,
+    replyTo:null,influence:null};
+}
+
 function recordComSpeech(observer,speech){
   if(!Array.isArray(observer.speechHistory))observer.speechHistory=[];
-  observer.speechHistory.push({day:state.day,kind:speech.kind,targetId:speech.targetId,text:speech.text});
+  const historyIndex=observer.speechHistory.length;
+  observer.speechHistory.push({day:state.day,kind:speech.kind,targetId:speech.targetId,text:speech.text,
+    recordId:{speakerId:observer.id,historyIndex},
+    semantics:speech.semantics?JSON.parse(JSON.stringify(speech.semantics)):null});
   if(speech.targetId!=null&&["suspect","gray","seerMediumConflict","broken"].includes(speech.kind))observer.lastSuspectId=speech.targetId;
   observer.lastSpeechDay=state.day;
   observer.lastSpeechText=speech.fullText;
@@ -2916,7 +3033,7 @@ function selectSpeechTopic(observer){
     const reason=top.reasons[0]||"公開情報を見るとかなり気になります";
     if(observer.lastSuspectId!=null&&observer.lastSuspectId!==top.target.id){
       const prev=publicInfo.players.find(p=>p.id===observer.lastSuspectId);
-      if(prev)return {kind:"suspect",targetId:top.target.id,variant:"changedSuspect",details:{previousName:prev.name,targetName:top.target.name,reason:reason}};
+      if(prev)return {kind:"suspect",targetId:top.target.id,variant:"changedSuspect",details:{previousId:prev.id,previousName:prev.name,targetName:top.target.name,reason:reason}};
     }
     return {kind:"suspect",targetId:top.target.id,variant:"suspect",details:{targetName:top.target.name,reason:reason}};
   }
@@ -2931,7 +3048,7 @@ function selectSpeechTopic(observer){
 
   if(publicInfo.peace){
     const g=publicInfo.guardHints.find(x=>x.day===publicInfo.day);
-    if(g)return {kind:"peace",targetId:g.targetId,variant:"peaceWithGuard",details:{knightName:g.knightName,targetName:g.targetName}};
+    if(g)return {kind:"peace",targetId:g.targetId,variant:"peaceWithGuard",details:{knightId:g.knightId,knightName:g.knightName,targetName:g.targetName}};
     return {kind:"peace",targetId:null,variant:"peaceWithoutGuard",details:{}};
   }
 
@@ -2972,8 +3089,9 @@ function selectSpeechTopic(observer){
 }
 
 function generateComSpeech(observer){
-  const topic=chooseSpeechTopic(observer);
-  return {...topic,fullText:`${observer.name}：「${topic.text}」`};
+  const selected=selectSpeechTopic(observer);
+  const topic=formatSpeechTopic(selected);
+  return {...topic,fullText:`${observer.name}：「${topic.text}」`,semantics:describeComSpeech(observer,selected)};
 }
 function runDaySpeeches(){
   if(state.phase!=="day"||state.winner)return;
@@ -3182,8 +3300,10 @@ function load(){
     ensureCharacterMetadata();
     if(!hasGuardInstructions)state.players.filter(hostile).forEach(p=>p.forcedGuardTarget=null);
     state.players.filter(hostile).forEach(ensureFakeSeerTimeline);
+    migrateLegacyFullCoResponses();
+    ensureWolfSeerPlan();
     commitPublicTruthProofs();
-    state.version="2.6.2";
+    state.version="2.8.0";
     showGame();
   }catch(e){state=previousState;alert("保存データを読み込めませんでした")}
 }

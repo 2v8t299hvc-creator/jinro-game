@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.6.0</title>
+<title>個人用人狼アプリ v2.6.2</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -116,7 +116,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.6.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.6.2</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -1018,7 +1018,7 @@ function startGame(){
   for(let i=1;i<n;i++)ps.push(createCharacterPlayer(i,characters[i-1],roles[i-1]));
 
   state={
-    version:"2.6.0",characterRosterVersion:CHARACTER_ROSTER_VERSION,day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
+    version:"2.6.2",characterRosterVersion:CHARACTER_ROSTER_VERSION,day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
     publicRoleCounts:{...c},
     publicRecords:{seerResults:[],mediumResults:[],guards:[],executions:[],deaths:[],catChains:[],resonatorClaims:[],fullCoRequests:[],confirmedProofs:[],coEvents:[]},
     uiSettings:{
@@ -1076,7 +1076,7 @@ function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":
 function ensurePublicRecords(){
   if(!state.publicRecords)state.publicRecords={};
   const r=state.publicRecords;
-  for(const k of ["seerResults","mediumResults","guards","executions","deaths","catChains","resonatorClaims","fullCoRequests","confirmedProofs","coEvents","blackSeerCoRequests"]){
+  for(const k of ["seerResults","mediumResults","guards","executions","deaths","catChains","resonatorClaims","fullCoRequests","confirmedProofs","coEvents","blackSeerCoRequests","guardInstructions"]){
     if(!Array.isArray(r[k]))r[k]=[];
   }
   // 旧判定で保存された証明には共鳴者の誤確定からの派生証明も含まれ得る。
@@ -1351,7 +1351,16 @@ function reportFakeSeer(p,first=false,prepared=null){
   for(const r of pending){
     // 発表直前にも制約を確認。公開後の結果を書き換えることはない。
     if(state.publicRecords.seerResults.some(x=>x.seerId===p.id&&x.day===r.day))continue;
-    const result={...r,black:fakeSeerMustReportWhite(p,r.target,r.day)?false:r.black};
+    if(r.target===p.id)continue;
+    const black=consistentFakeSeerBlack(p,r.target,r.day,r.black,p.fakeSeerResults,!!r.jusatsuResponse);
+    if(black===null){
+      if(!Array.isArray(p.fakeSeerWithheldReports))p.fakeSeerWithheldReports=[];
+      if(p.fakeSeerWithheldReports.some(h=>h.day===r.day))continue;
+      p.fakeSeerWithheldReports.push({day:r.day,target:r.target});
+      log(`${p.name}（占い師CO）：${r.day}日目の判定は以前の結果と確定情報が両立せず、公表できません。`,"result");
+      continue;
+    }
+    const result={...r,black};
     p.fakeSeerResults.push(result);
     log(`${p.name}（占い師CO）：${byId(result.target).name} → ${result.black?"人狼":"人狼ではない"}`,"result");
     publishedSeerRecord(p,result.target,result.black,result.day);
@@ -1373,18 +1382,51 @@ function publishUnreadMediumResults(p,results,first,reportEmpty){
 function reportTrueMedium(p,first=false){
   publishUnreadMediumResults(p,p.mediumResults,first,true);
 }
+function ensureFakeMediumResults(p){
+  if(!p.alive||!hostile(p))return;
+  ensurePublicRecords();
+  if(!Array.isArray(p.fakeMediumResults))p.fakeMediumResults=[];
+  // 潜伏中は白黒を固定せず、CO時点の公開盤面で過去の処刑結果を補う。
+  const executions=[...state.publicRecords.executions].sort((a,b)=>a.day-b.day);
+  for(const execution of executions){
+    const day=execution.day+1,target=byId(execution.playerId);
+    if(!target||day>state.day||target.id===p.id)continue;
+    const published=state.publicRecords.mediumResults.some(r=>r.mediumId===p.id&&r.targetId===target.id&&r.day===day);
+    if(published)continue; // 公表済みの判定を再生成・上書きしない。
+    appendMorningMediumResult(p,p.fakeMediumResults,target,day,createFakeMediumResult);
+  }
+}
 function reportFakeMedium(p,first=false){
+  ensureFakeMediumResults(p);
   publishUnreadMediumResults(p,p.fakeMediumResults,first,false);
 }
 
+function recordGuardInstruction(kind,targetId,recipients){
+  ensurePublicRecords();
+  state.publicRecords.guardInstructions.push({kind,day:state.day,resultDay:state.day+1,
+    targetId,recipientIds:recipients.map(p=>p.id),order:nextPublicationOrder()});
+}
+function guardInstructionForDay(p,day){
+  return (state.publicRecords?.guardInstructions||[])
+    .filter(r=>r.resultDay===day&&r.recipientIds.includes(p.id))
+    .reduce((latest,r)=>!latest||r.order>latest.order?r:latest,null);
+}
+function fakeGuardCandidates(p,day){
+  return state.players.filter(x=>x.id!==p.id&&!(state.publicRecords?.deaths||[])
+    .some(d=>d.playerId===x.id&&d.day<day));
+}
 function ensureFakeGuardHistory(p){
   if(!Array.isArray(p.fakeGuardHistory))p.fakeGuardHistory=[];
-  const published=state.publicRecords?.guards||[];
+  const published=(state.publicRecords?.guards||[]).filter(r=>r.knightId===p.id);
+  // 公表済み日記は保存配列が欠けても復元するだけで、再抽選しない。
+  for(const r of published)if(!p.fakeGuardHistory.some(h=>h.day===r.day))
+    p.fakeGuardHistory.push({day:r.day,target:r.targetId});
   const reportedDays=new Set(p.fakeGuardHistory.map(r=>r.day));
   for(let day=2;day<=state.day;day++){
     if(reportedDays.has(day))continue;
-    const possible=state.players.filter(x=>x.id!==p.id && !(state.publicRecords?.deaths||[]).some(d=>d.playerId===x.id&&d.day<day));
-    const target=randomChoice(possible);
+    const possible=fakeGuardCandidates(p,day),instruction=guardInstructionForDay(p,day);
+    const directed=instruction?possible.find(x=>x.id===instruction.targetId):null;
+    const target=directed||randomChoice(possible);
     if(target){p.fakeGuardHistory.push({day,target:target.id});reportedDays.add(day);}
   }
 }
@@ -1447,10 +1489,20 @@ function fakeSeerMustReportWhite(liar,targetId,day){
   return !!target&&["seer","medium","knight","resonator","cat"].includes(target.claimed)&&
     getPublicConfirmations().has(targetId);
 }
+function consistentFakeSeerBlack(liar,targetId,day,proposed,previousResults=[],forceWhite=false){
+  const publicPrior=(state.publicRecords?.seerResults||[]).find(r=>r.seerId===liar.id&&r.targetId===targetId);
+  const prior=publicPrior||previousResults.find(r=>(r.target??r.targetId)===targetId);
+  const mustWhite=forceWhite||fakeSeerMustReportWhite(liar,targetId,day);
+  if(prior){
+    if(prior.black&&mustWhite)return null;
+    return !!prior.black;
+  }
+  return mustWhite?false:!!proposed;
+}
 function createFakeSeerResult(liar,opportunity,previousResults){
   const {day,lockedTarget}=opportunity;
-  const candidates=opportunity.allowedTargetIds.map(byId).filter(Boolean);
-  let target=opportunity.forcedTarget!=null?byId(opportunity.forcedTarget):null;
+  const candidates=opportunity.allowedTargetIds.map(byId).filter(p=>p&&p.id!==liar.id);
+  let target=candidates.find(p=>p.id===opportunity.forcedTarget)||null;
   let plan=null,jusatsuResponse=false;
   // 呪殺対応に使えるのは公開死体だけ。狐の内部役職や死亡原因は読まない。
   const corpses=(state.publicRecords.deaths||[]).filter(d=>d.phase==="night"&&d.day===day)
@@ -1468,8 +1520,9 @@ function createFakeSeerResult(liar,opportunity,previousResults){
     target=randomChoice(unvisited.length?unvisited:candidates);
   }
   if(!target)return null;
-  const black=fakeSeerMustReportWhite(liar,target.id,day)||jusatsuResponse?false:
-    plan&&plan.target.id===target.id?plan.black:chooseFakeBlack(liar,target);
+  const prior=previousResults.find(r=>r.target===target.id);
+  const proposed=prior?prior.black:plan&&plan.target.id===target.id?plan.black:chooseFakeBlack(liar,target);
+  const black=consistentFakeSeerBlack(liar,target.id,day,proposed,previousResults,jusatsuResponse);
   const result={day,target:target.id,black,lockedTarget};
   if(jusatsuResponse)result.jusatsuResponse=true;
   return result;
@@ -1477,7 +1530,7 @@ function createFakeSeerResult(liar,opportunity,previousResults){
 function prepareFakeSeerReports(liar){
   ensureFakeSeerTimeline(liar);
   const previous=[...liar.fakeSeerResults],pending=[];
-  const publishedDays=new Set(previous.map(r=>r.day));
+  const publishedDays=new Set([...previous,...(liar.fakeSeerWithheldReports||[])].map(r=>r.day));
   const opportunities=[...liar.fakeSeerOpportunities].sort((a,b)=>a.day-b.day);
   for(const opportunity of opportunities){
     if(opportunity.day>state.day||publishedDays.has(opportunity.day))continue;
@@ -1584,6 +1637,7 @@ function prepareRoleCoResponses(role,snap){
   const real=roleLiving(role);
   const fakes=living().filter(p=>hostile(p)&&!real.includes(p)&&
     (p.claimed===role||Math.random()<roleClaimProbability(p,role,snap)));
+  if(role==="medium")fakes.forEach(ensureFakeMediumResults);
   const preparedFakeReports=new Map(role==="seer"?fakes.map(p=>[p.id,prepareFakeSeerReports(p)]):[]);
   return {real,fakes,preparedFakeReports};
 }
@@ -1653,7 +1707,9 @@ function blackSeerCO(){
 }
 function prepareBlackMediumCoResponses(){
   const real=roleLiving("medium").filter(p=>p.mediumResults.some(r=>r.black));
-  const fakes=living().filter(p=>p.fakeClaimRole==="medium"&&p.fakeMediumResults.some(r=>r.black));
+  const candidates=living().filter(p=>hostile(p)&&p.fakeClaimRole==="medium");
+  candidates.forEach(ensureFakeMediumResults);
+  const fakes=candidates.filter(p=>p.fakeMediumResults.some(r=>r.black));
   return {real,fakes,responders:[...real,...fakes.filter(p=>!real.includes(p))]};
 }
 function blackMediumCO(){
@@ -1732,7 +1788,9 @@ function hiddenSeerInstruction(){
 }
 function hiddenGuardInstruction(){
   makeTargetPanel("潜伏騎士への護衛先指示",living(),id=>{
-    roleLiving("knight").filter(p=>p.claimed!=="knight").forEach(p=>p.forcedGuardTarget=id);
+    const recipients=living().filter(p=>p.claimed!=="knight");
+    recordGuardInstruction("hidden",id,recipients);
+    recipients.forEach(p=>p.forcedGuardTarget=id);
     log(`【潜伏護衛指示】次回護衛先を ${byId(id).name} に指定しました。`,"system");
     save();renderAll();
   });
@@ -1795,6 +1853,7 @@ function publicGuardInstruction(){
     state._selectionCallback=(targetId)=>{
       const target=byId(targetId);
       if(!target||!target.alive)return;
+      recordGuardInstruction("public",targetId,[knight]);
       knight.forcedGuardTarget=targetId;
       log(`【公開護衛指示】${knight.name} の次回護衛先を ${target.name} に指定しました。`,"system");
       save();
@@ -1832,9 +1891,11 @@ function getTonightInstructionSummary(){
     if(t)items.push(`${p.name}の占い：${t.name}`);
   });
 
-  const hiddenKnights=roleLiving("knight").filter(p=>p.claimed!=="knight" && p.forcedGuardTarget!=null);
-  if(hiddenKnights.length){
-    const t=byId(hiddenKnights[0].forcedGuardTarget);
+  const hiddenInstruction=[...(state.publicRecords?.guardInstructions||[])].reverse()
+    .find(r=>r.kind==="hidden"&&r.resultDay===state.day+1);
+  const hiddenKnights=roleLiving("knight").filter(p=>p.claimed!=="knight"&&p.forcedGuardTarget!=null);
+  if(hiddenInstruction||hiddenKnights.length){
+    const t=byId(hiddenInstruction?.targetId??hiddenKnights[0].forcedGuardTarget);
     if(t)items.push(`潜伏護衛：${t.name}`);
   }
 
@@ -2940,9 +3001,9 @@ function chooseNightGuardTargets(){
       if(!k.guardHistory)k.guardHistory=[];
       k.guardHistory.push({day:state.day+1,target:t.id});
     }
-    k.forcedGuardTarget=null;
   });
-
+  // 騙りの指示もこの夜で消費。日記は日付付きの履歴を参照する。
+  state.players.forEach(p=>p.forcedGuardTarget=null);
   return guardTargets;
 }
 
@@ -2954,6 +3015,7 @@ function resolveNightDivinations(){
   seersBefore.forEach(s=>{
     // 襲撃死予定でも占い能力は成立。死亡した本人だけ結果を報告できない。
     let t=s.forcedSeerTarget!=null&&byId(s.forcedSeerTarget)?.alive?byId(s.forcedSeerTarget):null;
+    if(t?.id===s.id)t=null;
     if(!t)t=autoSeerTarget(s,s.seerResults);
     if(t){
       s.seerResults.push({day:state.day+1,target:t.id,black:t.role==="wolf"});
@@ -3086,11 +3148,23 @@ function checkWin(){
 }
 function finish(w){clearSelection();state.winner=w;state.phase="end";log(`ゲーム終了：${w}`,"system");save();renderAll()}
 function save(){localStorage.setItem("jinro_v04_state",JSON.stringify(state))}
+function isValidSavedGame(value){
+  return !!value&&Number.isInteger(value.day)&&value.day>=1&&
+    ["day","night","end"].includes(value.phase)&&Array.isArray(value.logs)&&
+    Array.isArray(value.players)&&value.players.length>0&&
+    new Set(value.players.map(p=>p?.id)).size===value.players.length&&
+    value.players.every(p=>p&&Number.isInteger(p.id)&&typeof p.name==="string"&&
+      typeof p.alive==="boolean"&&ROLES.some(([role])=>role===p.role));
+}
 function load(){
+  const previousState=state;
   try{
     const r=localStorage.getItem("jinro_v04_state");
     if(!r){alert("保存データがありません");return}
-    state=JSON.parse(r);
+    const candidate=JSON.parse(r);
+    if(!isValidSavedGame(candidate))throw new Error("Invalid saved game");
+    const hasGuardInstructions=Array.isArray(candidate.publicRecords?.guardInstructions);
+    state=candidate;
     state.selectionMode=null;state.selectionTitle=null;state._selectionAllowed=null;state._selectionCallback=null;
     if(state.logPersonFilterId===undefined)state.logPersonFilterId=null;
     if(!state.uiSettings)state.uiSettings={showConfirmedBadges:true,showBrokenBadges:true};
@@ -3106,11 +3180,12 @@ function load(){
       if(p.deathPhase===undefined)p.deathPhase=null;
     });
     ensureCharacterMetadata();
+    if(!hasGuardInstructions)state.players.filter(hostile).forEach(p=>p.forcedGuardTarget=null);
     state.players.filter(hostile).forEach(ensureFakeSeerTimeline);
     commitPublicTruthProofs();
-    state.version="2.6.0";
+    state.version="2.6.2";
     showGame();
-  }catch(e){alert("保存データを読み込めませんでした")}
+  }catch(e){state=previousState;alert("保存データを読み込めませんでした")}
 }
 function reset(){
   if(confirm("現在のゲームを終了して設定画面に戻りますか？")){

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.5.0</title>
+<title>個人用人狼アプリ v2.6.0</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -116,7 +116,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.5.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.6.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -273,6 +273,721 @@ function updateSum(){
   $("#startBtn").disabled=!ok;
 }
 
+// COM19人の設定。第1段階では選出・名前・保存のみで、戦略や口調には使わない。
+const CHARACTER_ROSTER_VERSION=1;
+const CHARACTER_AXIS_KEYS=["deception", "observation", "emotionality", "logic", "assertiveness", "willingnessToCut", "coordination"];
+const CHARACTER_ROSTER=[
+  {
+    "id": "joshua",
+    "name": "ジョシュア",
+    "summary": "誠実で親しみやすい好青年。全員の基準となる標準型。",
+    "stats": {
+      "deception": 3,
+      "observation": 3,
+      "emotionality": 3,
+      "logic": 3,
+      "assertiveness": 3,
+      "willingnessToCut": 3,
+      "coordination": 3
+    },
+    "voice": {
+      "firstPerson": "僕",
+      "register": "柔らかい常体。必要に応じて丁寧語も使う",
+      "expressionLevel": 3,
+      "habits": [
+        "相手の意見を一度受け止める",
+        "断定前に根拠を添える"
+      ],
+      "sample": "なるほどね。僕は、昨日の結果と合わせて考えてみたいな。"
+    },
+    "reasoningStyle": "balanced",
+    "behavior": {
+      "strength": "意見を聞きながら、根拠が増えれば適度に更新する",
+      "weakness": "強い専門性や押しの強さはなく、判断に迷うことがある",
+      "asVillage": "整理・質問・同意・反論を偏りすぎず使う",
+      "asHostile": "普通の推理を交え、状況に応じて庇いと切断を選ぶ"
+    },
+    "relationships": [],
+    "rationale": "全項目3。今後のキャラ差とパラメータ効果を比べる基準。"
+  },
+  {
+    "id": "geode",
+    "name": "ジオード",
+    "summary": "軽薄そうに振る舞うおじさん。冗談の裏で状況と損得をよく見ている。",
+    "stats": {
+      "deception": 4,
+      "observation": 3,
+      "emotionality": 2,
+      "logic": 4,
+      "assertiveness": 4,
+      "willingnessToCut": 4,
+      "coordination": 2
+    },
+    "voice": {
+      "firstPerson": "俺",
+      "register": "くだけた常体。軽い冗談を時々挟む",
+      "expressionLevel": 4,
+      "habits": [
+        "柔らかく切り込む",
+        "軽口の後に具体的な論点を出す"
+      ],
+      "sample": "いやあ、耳が痛いねえ。でも、その話だと昨日の結果はどうなる？"
+    },
+    "reasoningStyle": "pragmatic",
+    "behavior": {
+      "strength": "空気を読んで論点を動かし、切り替えが速い",
+      "weakness": "軽い態度や早い方針転換で、信用しづらいと思われることがある",
+      "asVillage": "人柄より根拠と損得で判断し、以前の支持にも固執しない",
+      "asHostile": "説明や誘導が上手く、無理な庇いより距離を置く判断を選びやすい"
+    },
+    "relationships": [],
+    "rationale": "嘘4・論理4で見た目より切れる。見抜きは3で万能にしない。身内切り4・連携2は身軽さを表す。"
+  },
+  {
+    "id": "albert",
+    "name": "アルバート",
+    "summary": "クールな美青年。情より根拠を重視し、落ち着いて整合性を確認する。",
+    "stats": {
+      "deception": 3,
+      "observation": 4,
+      "emotionality": 1,
+      "logic": 5,
+      "assertiveness": 3,
+      "willingnessToCut": 5,
+      "coordination": 2
+    },
+    "voice": {
+      "firstPerson": "俺",
+      "register": "簡潔で落ち着いた常体",
+      "expressionLevel": 1,
+      "habits": [
+        "結論と理由を短く述べる",
+        "相手の人格ではなく主張を検討する"
+      ],
+      "sample": "その説明には納得できる。ただ、前日の判定とは整合しない。そこを確認したい。"
+    },
+    "reasoningStyle": "analytic",
+    "behavior": {
+      "strength": "矛盾を整理し、判断を根拠に沿って更新する",
+      "weakness": "感情的な訴えへの応答が淡泊で、周囲を納得させきれないことがある",
+      "asVillage": "支持していた人物でも、反証があれば疑いを表明する",
+      "asHostile": "仲間でも必要なら切る。冷静さと嘘の巧さは別なので、騙り能力は標準"
+    },
+    "relationships": [],
+    "rationale": "感情1・論理5。論理性から嘘の巧さまで自動的に高くしない。身内切り5は情に流されにくい姿勢で、毎回切る意味ではない。"
+  },
+  {
+    "id": "momiji",
+    "name": "モミジ",
+    "summary": "快活で人情深い少年。理詰めは苦手だが、雰囲気の変化や違和感には敏感。カエデと仲良し。",
+    "stats": {
+      "deception": 1,
+      "observation": 4,
+      "emotionality": 5,
+      "logic": 2,
+      "assertiveness": 4,
+      "willingnessToCut": 1,
+      "coordination": 5
+    },
+    "voice": {
+      "firstPerson": "俺",
+      "register": "明るく素直な常体。発言は直接的",
+      "expressionLevel": 5,
+      "habits": [
+        "疑問や違和感を率直に言う",
+        "根拠が弱ければそのことも認める"
+      ],
+      "sample": "うーん、うまく説明できないけど、その言い方はちょっと引っかかる。"
+    },
+    "reasoningStyle": "intuitive",
+    "behavior": {
+      "strength": "他人の言い方や態度の変化に気づき、会話を動かす",
+      "weakness": "直感の裏づけが弱く、共感や印象に引っ張られやすい",
+      "asVillage": "信頼した相手を支えやすいが、勘が外れることもある",
+      "asHostile": "複雑な騙りより自然な同意や庇いを選びやすく、仲間を切るのはためらう"
+    },
+    "relationships": [
+      {
+        "targetId": "kaede",
+        "kind": "close_friend",
+        "affinity": 4,
+        "description": "話しかけたり、言いづらそうな意見を引き出したりする。正体や正しさは保証しない。"
+      }
+    ],
+    "rationale": "見抜き4は違和感への感度を表し、役職正解率を保証しない。論理2・嘘1でも文法や基本ルールを意図的に壊さない。"
+  },
+  {
+    "id": "kaede",
+    "name": "カエデ",
+    "summary": "寡黙で頭の良い少年。考えは深いが、自分の主張を前へ出すのが苦手。モミジと仲良し。",
+    "stats": {
+      "deception": 2,
+      "observation": 4,
+      "emotionality": 3,
+      "logic": 5,
+      "assertiveness": 1,
+      "willingnessToCut": 2,
+      "coordination": 4
+    },
+    "voice": {
+      "firstPerson": "僕",
+      "register": "短く控えめな常体",
+      "expressionLevel": 1,
+      "habits": [
+        "尋ねられたら具体的な根拠を返す",
+        "意味のある保留を使い、毎回ためらいの記号は付けない"
+      ],
+      "sample": "僕もそこは気になった。理由は、昨日と今日で説明が変わっているから。"
+    },
+    "reasoningStyle": "reflective",
+    "behavior": {
+      "strength": "結果や発言を丁寧に照合し、静かに矛盾を見つける",
+      "weakness": "気づいても主張が遅れ、周囲に届きにくい。即興の演技は苦手",
+      "asVillage": "独自に考えつつ、他人の論点を補う形で発言しやすい",
+      "asHostile": "単独で議論を引っ張るより、他人の主張を補強し整合性を支える"
+    },
+    "relationships": [
+      {
+        "targetId": "momiji",
+        "kind": "close_friend",
+        "affinity": 4,
+        "description": "安心して話せる相手。ただし強い反証があれば同意し続ける必要はない。"
+      }
+    ],
+    "rationale": "論理5でも積極1、嘘2。感情3・表出1にして、寡黙さと冷淡さを区別する。低い切断傾向は疑いを表明するためらいで、論理的更新の禁止ではない。"
+  },
+  {
+    "id": "francois",
+    "name": "フランソワ",
+    "summary": "胡散臭い貴族の男。疑い深く、他者を簡単には信用せず、都合が悪くなると支持を切る。頭はそこそこ良い。",
+    "stats": {
+      "deception": 4,
+      "observation": 3,
+      "emotionality": 2,
+      "logic": 4,
+      "assertiveness": 4,
+      "willingnessToCut": 5,
+      "coordination": 1
+    },
+    "voice": {
+      "firstPerson": "私",
+      "register": "貴族風の丁寧語。皮肉や含みを時々混ぜる",
+      "expressionLevel": 3,
+      "habits": [
+        "信用する前に説明を要求する",
+        "逃げ道を残して主張する"
+      ],
+      "sample": "なるほど。ですが、その説明だけで信用せよとは、随分と都合がよろしい。"
+    },
+    "reasoningStyle": "skeptical",
+    "behavior": {
+      "strength": "説明の弱い箇所を突き、状況が悪ければ素早く距離を置く",
+      "weakness": "疑いすぎて誤った相手を追い、協力を得にくいことがある",
+      "asVillage": "支持した人物にも疑いを向け、少しの違和感で追及しやすい",
+      "asHostile": "庇いを続けるより仲間や仮の連携先を切り、自分の信用を残そうとする"
+    },
+    "relationships": [],
+    "rationale": "疑い深さは見抜きの正確さとは別なので、見抜きは標準3。嘘4・論理4、切断5・連携1で、自立と裏切りの軽さを表す。"
+  },
+  {
+    "id": "melbon",
+    "name": "メルボン",
+    "summary": "慇懃無礼な商人の男。柔らかく優しい物腰の裏に、損得を測る計算高さがある。",
+    "stats": {
+      "deception": 4,
+      "observation": 3,
+      "emotionality": 3,
+      "logic": 4,
+      "assertiveness": 3,
+      "willingnessToCut": 3,
+      "coordination": 4
+    },
+    "voice": {
+      "firstPerson": "私",
+      "register": "丁寧語。にこやかに少し上から助言するが、露骨な罵倒はしない",
+      "expressionLevel": 3,
+      "habits": [
+        "一度相手を立ててから条件や疑問を添える",
+        "提案の利益と負担を比較する"
+      ],
+      "sample": "実に思い切りのよいご判断ですね。念のため、根拠をもう一つ伺っても？"
+    },
+    "reasoningStyle": "negotiating",
+    "behavior": {
+      "strength": "相手を刺激しすぎず、交換条件や提案で議論を動かす",
+      "weakness": "誰にでも丁寧なので、本音や支持の強さが伝わりにくい",
+      "asVillage": "協力を保ちながら、根拠を確認し双方が受け入れやすい案を出す",
+      "asHostile": "自然な同意や穏やかな誘導で味方を支え、必要なら距離も取る"
+    },
+    "relationships": [],
+    "rationale": "計算高さを論理4・嘘4へ反映し、優しさを冷酷さに置き換えない。切断3・連携4で、関係を維持しながら利益を考える。"
+  },
+  {
+    "id": "milk",
+    "name": "ミルク",
+    "summary": "幼い性格の獣人少年。複雑な推理は苦手で、好き嫌いやその場の感情で判断が動きやすい。",
+    "stats": {
+      "deception": 1,
+      "observation": 1,
+      "emotionality": 5,
+      "logic": 1,
+      "assertiveness": 4,
+      "willingnessToCut": 4,
+      "coordination": 2
+    },
+    "voice": {
+      "firstPerson": "ぼく",
+      "register": "幼く率直な常体。短い言葉で印象を伝える",
+      "expressionLevel": 5,
+      "habits": [
+        "好き嫌いや納得できない気持ちを隠さない",
+        "複雑な説明より具体的な一言に反応する"
+      ],
+      "sample": "ぼく、あの言い方やだ。なんか、こっちの話を聞いてくれてないもん。"
+    },
+    "reasoningStyle": "affective",
+    "behavior": {
+      "strength": "空気に遠慮せず、率直な疑問や反発を口にする",
+      "weakness": "人の態度と正しさを混同し、気分で支持先が変わりやすい",
+      "asVillage": "親切な相手を信じやすく、冷たい相手を疑いやすい。どちらも外れる場合がある",
+      "asHostile": "緻密な計画は苦手。仲間でも嫌な思いをすると反発し、逆に好きな相手を庇う"
+    },
+    "relationships": [],
+    "rationale": "切断4は計算された身内切りの巧さではなく、感情で支持を切る起こりやすさ。好きな相手まで毎回切る意味ではない。嘘・見抜き・論理1でも文法や基本ルールを壊さない。"
+  },
+  {
+    "id": "max",
+    "name": "マックス",
+    "summary": "プライドの高い貴族の少年。鼻につく物言いをするが、内心では人を見捨てきれない。コルテスに仕えられている。",
+    "stats": {
+      "deception": 2,
+      "observation": 3,
+      "emotionality": 4,
+      "logic": 3,
+      "assertiveness": 5,
+      "willingnessToCut": 2,
+      "coordination": 2
+    },
+    "voice": {
+      "firstPerson": "僕",
+      "register": "上から目線の常体。強く言うが、過剰な侮辱や固定の罵倒は避ける",
+      "expressionLevel": 4,
+      "habits": [
+        "自分の案を自信ありげに出す",
+        "心配を直接言わず、確認や反対の形で示す"
+      ],
+      "sample": "そんな曖昧な理由で決めるつもり？ せめて、本人の説明くらい聞いてからにしなよ。"
+    },
+    "reasoningStyle": "proud",
+    "behavior": {
+      "strength": "場を動かす主張ができ、不十分な理由で誰かを切ることに抵抗する",
+      "weakness": "言い方が強く反感を買い、誤りを素直に認めにくい",
+      "asVillage": "意見は押し出すが、疑われた人物の説明を聞こうとする情もある",
+      "asHostile": "仲間を簡単には見捨てない一方、露骨な同調も嫌う。虚勢は張るが演技は上手くない"
+    },
+    "relationships": [
+      {
+        "targetId": "cortes",
+        "kind": "served_by",
+        "affinity": 4,
+        "description": "信頼する老執事。助言を求められる相手だが、役職や正しさを保証しない。"
+      }
+    ],
+    "rationale": "積極5・連携2は主張の強さと独立志向。感情4・切断2で人情を表し、偉そうな態度を冷酷さや低知能と同一視しない。"
+  },
+  {
+    "id": "cortes",
+    "name": "コルテス",
+    "summary": "マックスに仕える老執事。柔和な人柄で控えめに話すが、他人の企みや論点のずれには鋭い。",
+    "stats": {
+      "deception": 3,
+      "observation": 5,
+      "emotionality": 2,
+      "logic": 5,
+      "assertiveness": 2,
+      "willingnessToCut": 1,
+      "coordination": 4
+    },
+    "voice": {
+      "firstPerson": "私",
+      "register": "落ち着いた丁寧語。マックスへは「坊ちゃま」だが、毎回呼びかけない",
+      "expressionLevel": 2,
+      "habits": [
+        "相手を責める前に論点を整理する",
+        "必要なときには穏やかにはっきり指摘する"
+      ],
+      "sample": "お言葉はもっともです。ただ、今のお話には、まだ説明されていない点がございます。"
+    },
+    "reasoningStyle": "discerning",
+    "behavior": {
+      "strength": "誘導や根拠の弱さを丁寧に見つけ、落ち着いた補足で支える",
+      "weakness": "自ら強く議論を主導しにくく、信頼する相手と距離を置く決断には慎重",
+      "asVillage": "公開された発言と結果を照合し、支持する相手にも穏やかに誤りを指摘する",
+      "asHostile": "仲間や仮の連携先の説明を支えやすいが、見抜く力は万能ではなく正体を直接知れない"
+    },
+    "relationships": [
+      {
+        "targetId": "max",
+        "kind": "serves",
+        "affinity": 5,
+        "description": "大切にする主人。気にかけて助言するが、同陣営保証・固定庇い・勝利条件変更はしない。"
+      }
+    ],
+    "rationale": "見抜き5・論理5で熟練を表す。柔和さと冷静な判断を両立させ、嘘は標準3に留める。切断1・連携4でも、強い証拠があれば主人と異なる判断ができる。"
+  },
+  {
+    "id": "zaemon",
+    "name": "ザエモン",
+    "summary": "偉そうで実際に身分も高い殿様。他者をうっすら見下すが、人情もある。追い込まれると巧みに命乞いする。",
+    "stats": {
+      "deception": 4,
+      "observation": 3,
+      "emotionality": 3,
+      "logic": 3,
+      "assertiveness": 5,
+      "willingnessToCut": 4,
+      "coordination": 2
+    },
+    "voice": {
+      "firstPerson": "余",
+      "register": "尊大な殿様風の常体。危機には説得や懇願へ切り替える",
+      "expressionLevel": 4,
+      "habits": [
+        "普段は自分の案に従わせようとする",
+        "処刑候補として疑われた際にだけ説明・猶予要求が増える"
+      ],
+      "sample": "待て待て、余を疑うのは早計であろう。話を聞いてからでも遅くはあるまい。"
+    },
+    "reasoningStyle": "self_preserving",
+    "behavior": {
+      "strength": "存在感と説得で自分の意見を通し、危機には生存のため柔軟に言い分を組み立てる",
+      "weakness": "普段の上から目線で反感を買い、切迫すると自己弁護が強くなる",
+      "asVillage": "自分の案を押し出すが、疑われれば根拠や確認の猶予を求める",
+      "asHostile": "自分の信用と生存を優先し、庇いが危険なら連携先を切ることもある",
+      "underPressure": "処刑の危険が高まると、普段の尊大さを崩して懇願・譲歩・確認要求を組み合わせる。全陣営で共通の反応"
+    },
+    "relationships": [
+      {
+        "targetId": "yamato",
+        "kind": "served_by",
+        "affinity": 3,
+        "description": "職務を果たす家臣として頼る。立場は会話表現のみで、特別な指示権や相互白保証は持たない。"
+      }
+    ],
+    "rationale": "身分の高さを能力の高さへ直結させず、見抜き・論理は標準。嘘4に危機対応の説明力を含めるが、命乞いは嘘に限らず独立した反応の癖として持つ。情もあるため感情3。"
+  },
+  {
+    "id": "yamato",
+    "name": "ヤマト",
+    "summary": "ザエモンに仕える侍。主個人への忠誠は薄いが、任された職務や手順には忠実。",
+    "stats": {
+      "deception": 3,
+      "observation": 3,
+      "emotionality": 2,
+      "logic": 4,
+      "assertiveness": 3,
+      "willingnessToCut": 4,
+      "coordination": 3
+    },
+    "voice": {
+      "firstPerson": "拙者",
+      "register": "簡潔で実務的な侍の丁寧語。過度な古語や常時のござる口調は避ける",
+      "expressionLevel": 2,
+      "habits": [
+        "好き嫌いより確認事項や役目を重視する",
+        "主の意見にも必要なら異議を述べる"
+      ],
+      "sample": "殿、そこは判定と話が食い違っております。確認が必要かと。"
+    },
+    "reasoningStyle": "dutiful",
+    "behavior": {
+      "strength": "手順と整合性を重視し、面子や個人的な好みで判断を曲げにくい",
+      "weakness": "感情への配慮は薄く、柔らかい説得より筋を通す説明になりやすい",
+      "asVillage": "支持した相手や主でも、根拠が崩れれば疑いを表明する",
+      "asHostile": "所属陣営の目的は守るが、個々の仲間への情より必要な切断や戦術を優先する"
+    },
+    "relationships": [
+      {
+        "targetId": "zaemon",
+        "kind": "serves",
+        "affinity": 2,
+        "description": "仕える主。ただし敬語と職務上の補佐は親愛や同陣営を意味せず、不合理な判断には異議を述べられる。"
+      }
+    ],
+    "rationale": "論理4・感情2で実務重視。切断4は主や仲間への個人的な忠誠が薄い傾向で、無目的な裏切りや自陣営の勝利放棄ではない。コルテスとの補佐役の違いを明確にする。"
+  },
+  {
+    "id": "henry",
+    "name": "ヘンリー",
+    "summary": "病弱で気弱な青年。ひどく弱々しく存在感は薄いが、思考や観察の能力は人並み。",
+    "stats": {
+      "deception": 3,
+      "observation": 3,
+      "emotionality": 3,
+      "logic": 3,
+      "assertiveness": 1,
+      "willingnessToCut": 3,
+      "coordination": 3
+    },
+    "voice": {
+      "firstPerson": "僕",
+      "register": "控えめで弱々しい常体。短い発言でも意味は明確にする",
+      "expressionLevel": 1,
+      "habits": [
+        "必要なところで控えめに補足する",
+        "気弱さの間や言い淀みは時々だけ使い、毎回の口癖にしない"
+      ],
+      "sample": "僕も……そこは確認しておいた方がいいと思う。"
+    },
+    "reasoningStyle": "cautious_balanced",
+    "behavior": {
+      "strength": "目立たなくても、人並みに根拠を見て考えられる",
+      "weakness": "発言を始めるのが遅く、考えている内容が周囲に伝わりにくい",
+      "asVillage": "意見を求められれば普通に推理し、根拠があれば同意も反論もできる",
+      "asHostile": "目立たない態度は役職によらず共通。騙りや誘導の能力まで特別に低くしない"
+    },
+    "relationships": [],
+    "rationale": "積極性だけ1で、他はすべて標準3。体の弱さ・気弱さ・薄い存在感を、知能や見抜く力の低さと混同しない。病弱は人物表現で、追加の死亡・寿命ルールは作らない。"
+  },
+  {
+    "id": "dominic",
+    "name": "ドミニク",
+    "summary": "筋肉質で快活な青年。タフで存在感が強く、じっくり分析するより勢いで場を動かす。",
+    "stats": {
+      "deception": 2,
+      "observation": 2,
+      "emotionality": 3,
+      "logic": 2,
+      "assertiveness": 5,
+      "willingnessToCut": 2,
+      "coordination": 4
+    },
+    "voice": {
+      "firstPerson": "俺",
+      "register": "明るく力強い常体。短い提案や呼びかけが多い",
+      "expressionLevel": 5,
+      "habits": [
+        "まず動こうとする",
+        "一度賛成した案を勢いよく推しやすい"
+      ],
+      "sample": "よし、まずそこを確認しようぜ！ 話はそれからだ！"
+    },
+    "reasoningStyle": "action_oriented",
+    "behavior": {
+      "strength": "場の停滞を破り、ためらう相手にも発言を促せる",
+      "weakness": "根拠を十分に比較する前に案を推し、細かい矛盾を見落としやすい",
+      "asVillage": "頼もしさで支持を集めるが、勢いよく間違った案を押すこともある",
+      "asHostile": "複雑な騙りより、自然な賛同や強い提案で議論を動かす。切断より支持を続けやすい"
+    },
+    "relationships": [],
+    "rationale": "積極5・連携4に存在感と巻き込みを反映。論理・見抜き・嘘2で勢い先行を表す。タフさを推理や防御・生存の特別な能力にはしない。"
+  },
+  {
+    "id": "pattino",
+    "name": "パッティーノ",
+    "summary": "チャラ男。深く考えるよりその場の雰囲気を読み、雰囲気に合ったことを軽く話す。",
+    "stats": {
+      "deception": 3,
+      "observation": 2,
+      "emotionality": 3,
+      "logic": 1,
+      "assertiveness": 4,
+      "willingnessToCut": 4,
+      "coordination": 5
+    },
+    "voice": {
+      "firstPerson": "俺",
+      "register": "軽くくだけた常体。適度な相づちや口語を使う",
+      "expressionLevel": 4,
+      "habits": [
+        "場で受け入れられそうな意見へ自然に乗る",
+        "支持先が変わっても重く考えず切り替える"
+      ],
+      "sample": "その話、なんかしっくり来るわ。とりあえずそこから見てみない？"
+    },
+    "reasoningStyle": "social_flow",
+    "behavior": {
+      "strength": "気軽に会話へ入り、他人の意見を拾って場を繋げる",
+      "weakness": "根拠が曖昧で、空気が変わると支持や主張も変わりやすい",
+      "asVillage": "皆が納得している意見に乗りやすいが、多数派が間違えば流される",
+      "asHostile": "自然な会話で馴染めるが、緻密な計画や根拠の比較は苦手。空気次第で仲間とも距離を置く"
+    },
+    "relationships": [],
+    "rationale": "論理1・連携5で雰囲気重視。嘘3は会話で自然に取り繕える標準的な巧さで、綿密な騙りの計画力ではない。切断4は流れへの乗り換えやすさで、積極的な策略とは限らない。ジオードの計算された軽さと区別する。"
+  },
+  {
+    "id": "makimura",
+    "name": "マキムラ",
+    "summary": "優しく面倒見のよい男性の酪農家。頭はそこそこ切れるが情に流されやすく、仲間思い。疑いを向けるのが苦手で信頼されやすい。",
+    "stats": {
+      "deception": 3,
+      "observation": 3,
+      "emotionality": 5,
+      "logic": 4,
+      "assertiveness": 3,
+      "willingnessToCut": 1,
+      "coordination": 5
+    },
+    "voice": {
+      "firstPerson": "俺",
+      "register": "落ち着いた親しみやすい常体。相手を急かさず話を聞く",
+      "expressionLevel": 3,
+      "habits": [
+        "疑いを断定する前に相手の事情や説明を聞く",
+        "対立している相手にも穏やかに声をかける"
+      ],
+      "sample": "まあ、もう少し話を聞いてやろうよ。まだ決めつけるのは早いって。"
+    },
+    "reasoningStyle": "charitable",
+    "behavior": {
+      "strength": "筋道を考えながら人の話を聞き、対立を和らげて協力を作る",
+      "weakness": "違和感に気づいても好意的に解釈し、疑いの表明が遅れる",
+      "asVillage": "根拠は確認するが、信頼した相手の説明を受け入れやすく切り捨てに慎重",
+      "asHostile": "普段の誠実な態度を保ち、仲間を支える説明を考えやすい。自分の生存だけのために切るのは苦手",
+      "publicImpression": "親切で落ち着いた印象から信頼を得やすい。ただし発言内容の正しさや白を保証しない"
+    },
+    "relationships": [],
+    "rationale": "疑うのが苦手でも観察力まで低いとは限らないため見抜き3。論理4と感情5を併存させ、発見した疑点を情で好意的に解釈する。切断1・連携5で仲間思いを表す。"
+  },
+  {
+    "id": "rixis",
+    "name": "リクシス",
+    "summary": "綿密な男性の盗賊。嘘をつくことも見抜くことも得意で、論理的に準備するが追い込まれると弱い。",
+    "stats": {
+      "deception": 5,
+      "observation": 5,
+      "emotionality": 3,
+      "logic": 5,
+      "assertiveness": 2,
+      "willingnessToCut": 4,
+      "coordination": 2
+    },
+    "voice": {
+      "firstPerson": "俺",
+      "register": "慎重で簡潔な常体。平常時は説明を整え、危機には言い直しが増える",
+      "expressionLevel": 2,
+      "habits": [
+        "発言や結果の順序を確かめる",
+        "答える前に論点を整える。平常時から毎回おどおどしない"
+      ],
+      "sample": "先に順番を確かめよう。誰が、いつ、その結果を出した？"
+    },
+    "reasoningStyle": "prepared",
+    "behavior": {
+      "strength": "情報を丁寧に整理し、整合性のある主張や相手の矛盾を見つける",
+      "weakness": "想定外の追及や処刑の危険で余裕を失い、十分に検討せず方針を変えがち",
+      "asVillage": "平常時の分析は鋭いが、強く疑われると自己弁護へ偏り判断を急ぐことがある",
+      "asHostile": "事前の騙りや誘導は巧いが、追及が重なると説明の整理や連携判断が雑になる",
+      "underPressure": "公開の追及・処刑候補化などを契機に、早合点・説明の言い直し・方針変更が増える。非公開役職や真の敵を知って判定せず、村人でも同じ弱さを持つ"
+    },
+    "relationships": [],
+    "rationale": "嘘・見抜き・論理5は平常時の能力。危機への弱さは別の状況依存の特徴として記述する。積極2で準備を優先し、切断4・連携2で自己保全へ切り替えやすい。"
+  },
+  {
+    "id": "wanunu_iii",
+    "name": "ワヌヌ3世",
+    "summary": "喋れる雄犬。実は頭が良いが、語彙が乏しく単純な喋り方のため賢く見られず信用されにくい。",
+    "stats": {
+      "deception": 3,
+      "observation": 4,
+      "emotionality": 3,
+      "logic": 5,
+      "assertiveness": 4,
+      "willingnessToCut": 3,
+      "coordination": 3
+    },
+    "voice": {
+      "firstPerson": "おれ",
+      "register": "短い単語と簡単な文で話す。内容は意味が通るように保つ",
+      "expressionLevel": 4,
+      "habits": [
+        "難しい表現を使わず、比べた事実を直接述べる",
+        "犬らしい相づちは時々だけ入れ、推理を鳴き声だけに置き換えない"
+      ],
+      "sample": "同じやつ、きのう白。今日、黒。へんだぞ。"
+    },
+    "reasoningStyle": "plain_analytic",
+    "behavior": {
+      "strength": "簡単な言葉でも結果や発言の整合性をきちんと検討する",
+      "weakness": "重要な指摘が軽く受け取られ、説明の説得力が伝わりにくい",
+      "asVillage": "語彙は乏しくても具体的な違いを指摘でき、筋道のある判断をする",
+      "asHostile": "同じ素朴な口調のまま、標準的な騙りや誘導を行う。役職で突然流暢にならない",
+      "publicImpression": "喋り方から信用を得にくいが、公開された正しい根拠まで機械的に無視される設定にはしない"
+    },
+    "relationships": [],
+    "rationale": "論理5・見抜き4と語彙の乏しさを分離。語彙は口調の設定であって低知能の数値ではない。嘘3を保ち、村人と人外で文章の自然さや賢そうな表現を変えない。"
+  },
+  {
+    "id": "naminami",
+    "name": "ナミナミ",
+    "summary": "おっちょこちょいな男性の宇宙人。基本能力は高いが、怪しい見た目で信用されにくく、時々ドジを踏む。",
+    "stats": {
+      "deception": 4,
+      "observation": 4,
+      "emotionality": 3,
+      "logic": 4,
+      "assertiveness": 3,
+      "willingnessToCut": 3,
+      "coordination": 3
+    },
+    "voice": {
+      "firstPerson": "ワタシ",
+      "register": "基本は明瞭な丁寧語。少し独特な言葉選びで異星人らしさを出す",
+      "expressionLevel": 3,
+      "habits": [
+        "通常は筋道のある説明をする",
+        "時々呼び名や言い方を取り違えて言い直す。毎回失敗しない"
+      ],
+      "sample": "その二つの説明は一致していません。ええと、名前を逆に呼びました。失礼。"
+    },
+    "reasoningStyle": "capable_with_lapses",
+    "behavior": {
+      "strength": "通常は論点を整理し、違和感の発見や説明も上手い",
+      "weakness": "たまに注意が抜け、重要度の低い根拠を選んだり、主張の伝え方を取り違えたりする",
+      "asVillage": "高い能力で推理するが、時々の見落としと外見の先入観で信用を失うことがある",
+      "asHostile": "騙りや誘導も基本的に得意。ただし役職を問わず同じ注意の抜けが起こり得る",
+      "occasionalSlip": "低頻度の言い間違い・根拠選択の見落とし・慌てた訂正として表現する候補。公式結果やログを破壊せず、公開真確定への黒禁止などの安全な整合性制約は常に維持する",
+      "publicImpression": "異星人らしい外見への先入観で信用されにくい。内部役職を読む印ではなく全役職共通の見た目の特徴"
+    },
+    "relationships": [],
+    "rationale": "嘘・見抜き・論理4に基礎能力の高さを反映し、ドジを平均能力の低さに置き換えない。ドジの頻度や影響は後の実装で別途調整し、現時点では確率を固定しない。"
+  }
+];
+function copyCharacterProfile(profile){
+  return JSON.parse(JSON.stringify(profile));
+}
+function chooseVillageCharacters(count){
+  // 元の一覧を変更せず、役職抽選とは別のシャッフルで重複なしに選ぶ。
+  return shuffle([...CHARACTER_ROSTER]).slice(0,count);
+}
+function createCharacterPlayer(id,profile,role){
+  const player=newPlayer(id,profile.name,role,false);
+  player.characterId=profile.id;
+  player.characterProfile=copyCharacterProfile(profile);
+  return player;
+}
+function hasValidCharacterProfile(profile,id){
+  return !!profile&&profile.id===id&&profile.stats&&
+    CHARACTER_AXIS_KEYS.every(key=>Number.isInteger(profile.stats[key])&&profile.stats[key]>=1&&profile.stats[key]<=5);
+}
+function ensureCharacterMetadata(){
+  for(const player of state.players||[]){
+    if(player.isSelf){player.characterId=null;player.characterProfile=null;continue;}
+    if(player.characterId===undefined)player.characterId=null;
+    if(player.characterId===null){
+      // 旧村は名前・席順・役職をそのまま残す。再抽選やキャラへの置換はしない。
+      if(player.characterProfile===undefined)player.characterProfile=null;
+      continue;
+    }
+    if(!hasValidCharacterProfile(player.characterProfile,player.characterId)){
+      const profile=CHARACTER_ROSTER.find(character=>character.id===player.characterId);
+      player.characterProfile=profile?copyCharacterProfile(profile):null;
+    }
+  }
+  if(state.characterRosterVersion===undefined)
+    state.characterRosterVersion=state.players.some(player=>player.characterId)?CHARACTER_ROSTER_VERSION:0;
+}
+
 function newPlayer(id,name,role,isSelf=false){
   return {
     id,name,role,alive:true,isSelf,claimed:null,
@@ -296,12 +1011,14 @@ function startGame(){
   for(const[r]of ROLES)for(let i=0;i<assign[r];i++)roles.push(r);
   shuffle(roles);
 
-  const names=["アキラ","ユウト","ハルキ","レンジ","ミサキ","ナオト","ソウマ","リクヤ","カイト","ヒナタ","レイジ","シオン","アオイ","トウマ","マコト","ユキト","セナト","リンカ","ケンタ"];
-  const ps=[newPlayer(0,$("#selfName").value.trim()||"あなた","villager",true)];
-  for(let i=1;i<n;i++)ps.push(newPlayer(i,names[i-1]??`P${i+1}`,roles[i-1],false));
+  const characters=chooseVillageCharacters(n-1);
+  const self=newPlayer(0,$("#selfName").value.trim()||"あなた","villager",true);
+  self.characterId=null;self.characterProfile=null;
+  const ps=[self];
+  for(let i=1;i<n;i++)ps.push(createCharacterPlayer(i,characters[i-1],roles[i-1]));
 
   state={
-    version:"2.4.1",day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
+    version:"2.6.0",characterRosterVersion:CHARACTER_ROSTER_VERSION,day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
     publicRoleCounts:{...c},
     publicRecords:{seerResults:[],mediumResults:[],guards:[],executions:[],deaths:[],catChains:[],resonatorClaims:[],fullCoRequests:[],confirmedProofs:[],coEvents:[]},
     uiSettings:{
@@ -634,7 +1351,7 @@ function reportFakeSeer(p,first=false,prepared=null){
   for(const r of pending){
     // 発表直前にも制約を確認。公開後の結果を書き換えることはない。
     if(state.publicRecords.seerResults.some(x=>x.seerId===p.id&&x.day===r.day))continue;
-    const result={...r,black:r.day<=fakeSeerWhiteThrough(p)?false:r.black};
+    const result={...r,black:fakeSeerMustReportWhite(p,r.target,r.day)?false:r.black};
     p.fakeSeerResults.push(result);
     log(`${p.name}（占い師CO）：${byId(result.target).name} → ${result.black?"人狼":"人狼ではない"}`,"result");
     publishedSeerRecord(p,result.target,result.black,result.day);
@@ -723,6 +1440,13 @@ function fakeSeerWhiteThrough(liar){
   return (state.publicRecords.blackSeerCoRequests||[]).reduce((day,r)=>
     r.aliveIds.includes(liar.id)&&!r.respondentIds.includes(liar.id)?Math.max(day,r.day):day,0);
 }
+function fakeSeerMustReportWhite(liar,targetId,day){
+  if(day<=fakeSeerWhiteThrough(liar))return true;
+  const target=byId(targetId);
+  // 本当の役職ではなく、公開の真確定判定だけを使う。
+  return !!target&&["seer","medium","knight","resonator","cat"].includes(target.claimed)&&
+    getPublicConfirmations().has(targetId);
+}
 function createFakeSeerResult(liar,opportunity,previousResults){
   const {day,lockedTarget}=opportunity;
   const candidates=opportunity.allowedTargetIds.map(byId).filter(Boolean);
@@ -744,7 +1468,7 @@ function createFakeSeerResult(liar,opportunity,previousResults){
     target=randomChoice(unvisited.length?unvisited:candidates);
   }
   if(!target)return null;
-  const black=day<=fakeSeerWhiteThrough(liar)||jusatsuResponse?false:
+  const black=fakeSeerMustReportWhite(liar,target.id,day)||jusatsuResponse?false:
     plan&&plan.target.id===target.id?plan.black:chooseFakeBlack(liar,target);
   const result={day,target:target.id,black,lockedTarget};
   if(jusatsuResponse)result.jusatsuResponse=true;
@@ -836,9 +1560,7 @@ function chooseDynamicFakeRole(p,snap){
   const best=ranked[0];
   return best&&Math.random()<best.score?best.role:null;
 }
-function announceRole(p,role,first=true,preparedFakeSeerReports=null){
-  const changed=recordRoleClaim(p,role);
-  if(!changed&&!first)return;
+function publishRoleClaimResults(p,role,changed,preparedFakeSeerReports){
   if(role==="seer"){
     if(p.role==="seer")reportTrueSeer(p,changed);
     else reportFakeSeer(p,changed,preparedFakeSeerReports);
@@ -846,102 +1568,131 @@ function announceRole(p,role,first=true,preparedFakeSeerReports=null){
     if(p.role==="medium")reportTrueMedium(p,changed);
     else reportFakeMedium(p,changed);
   }else if(role==="knight"){
-    if(p.role==="knight")reportKnight(p,changed);
-    else reportKnight(p,changed);
+    reportKnight(p,changed);
   }else if(role==="cat"&&changed){
     log(`${p.name} が【猫又CO】しました。`,"claim");
   }
 }
-function forceRoleCO(r){
-  ensurePublicRecords();
-  // 全員同じ指示前の公開盤面を参照し、人外の意思決定を先に完了する。
-  const snap=coSnapshot();
-  const real=roleLiving(r);
-  const fakes=living().filter(p=>hostile(p)&&!real.includes(p)&&
-    (p.claimed===r||Math.random()<roleClaimProbability(p,r,snap)));
-  const preparedFakeReports=new Map(r==="seer"?fakes.map(p=>[p.id,prepareFakeSeerReports(p)]):[]);
-  pushPublicRecord("fullCoRequests",{role:r,day:state.day,
-    aliveIds:living().map(p=>p.id),
-    priorDeadIds:state.players.filter(p=>!p.alive).map(p=>p.id)},["role"]);
-  if(!real.length&&!fakes.length){
-    log(`【${roleName(r)}CO指示】CO指示を出しました。`,"system");
-    commitPublicTruthProofs();save();renderAll();return;
-  }
-  if(r==="resonator"){
-    const livingResonators=roleLiving("resonator");
-    livingResonators.forEach(p=>recordRoleClaim(p,"resonator"));
-    livingResonators.forEach(p=>{
-      log(`${p.name} が【共鳴者CO】しました。`,"claim");
-      const partners=state.players.filter(x=>x.role==="resonator"&&x.id!==p.id);
-      publishedResonatorClaim(p,partners.map(x=>x.id));
-      if(partners.length)log(`${p.name}：「相方は ${partners.map(x=>x.name+(x.alive?"":"（死亡）")).join("、")} です」`,"result");
-    });
-  }else{
-    [...real,...fakes].forEach(p=>announceRole(p,r,true,preparedFakeReports.get(p.id)??null));
-  }
-  commitPublicTruthProofs();save();renderAll();
+function announceRole(p,role,first=true,preparedFakeSeerReports=null){
+  const changed=recordRoleClaim(p,role);
+  if(!changed&&!first)return;
+  publishRoleClaimResults(p,role,changed,preparedFakeSeerReports);
 }
 
-function blackSeerCO(){
+// CO指示は応答・未公開結果の準備→指示記録→公表の順で進める。
+function prepareRoleCoResponses(role,snap){
+  const real=roleLiving(role);
+  const fakes=living().filter(p=>hostile(p)&&!real.includes(p)&&
+    (p.claimed===role||Math.random()<roleClaimProbability(p,role,snap)));
+  const preparedFakeReports=new Map(role==="seer"?fakes.map(p=>[p.id,prepareFakeSeerReports(p)]):[]);
+  return {real,fakes,preparedFakeReports};
+}
+function recordFullRoleCoRequest(role){
+  pushPublicRecord("fullCoRequests",{role,day:state.day,
+    aliveIds:living().map(p=>p.id),
+    priorDeadIds:state.players.filter(p=>!p.alive).map(p=>p.id)},["role"]);
+}
+function publishResonatorCoGroup(){
+  const partners=roleLiving("resonator");
+  // 全員の役職宣言を記録してから、各人の相方と文章を公表する。
+  partners.forEach(p=>recordRoleClaim(p,"resonator"));
+  partners.forEach(p=>{
+    log(`${p.name} が【共鳴者CO】しました。`,"claim");
+    const others=state.players.filter(x=>x.role==="resonator"&&x.id!==p.id);
+    publishedResonatorClaim(p,others.map(x=>x.id));
+    if(others.length)log(`${p.name}：「相方は ${others.map(x=>x.name+(x.alive?"":"（死亡）")).join("、")} です」`,"result");
+  });
+}
+function publishRoleCoResponses(role,{real,fakes,preparedFakeReports}){
+  if(role==="resonator")publishResonatorCoGroup();
+  else [...real,...fakes].forEach(p=>announceRole(p,role,true,preparedFakeReports.get(p.id)??null));
+}
+function completeCoInstruction(){
+  commitPublicTruthProofs();save();renderAll();
+}
+function forceRoleCO(role){
+  ensurePublicRecords();
+  // 人外の応答は指示前の同じ盤面で先に確定する。
   const snap=coSnapshot();
+  const response=prepareRoleCoResponses(role,snap);
+  recordFullRoleCoRequest(role);
+  if(!response.real.length&&!response.fakes.length){
+    log(`【${roleName(role)}CO指示】CO指示を出しました。`,"system");
+    completeCoInstruction();return;
+  }
+  publishRoleCoResponses(role,response);
+  completeCoInstruction();
+}
+
+function prepareBlackSeerCoResponses(snap){
   const real=roleLiving("seer").filter(p=>p.seerResults.some(r=>r.black));
-  // 全員の応答と未公開結果を、発表前の同じ盤面で先に決める。
-  const proposals=new Map(),fake=[];
+  const preparedFakeReports=new Map(),fakes=[];
   for(const p of living().filter(hostile)){
     ensureFakeSeerTimeline(p);
     const alreadyBlack=p.fakeSeerResults.some(r=>r.black&&r.day<=state.day);
-    if(alreadyBlack){fake.push(p);proposals.set(p.id,prepareFakeSeerReports(p));continue;}
+    if(alreadyBlack){fakes.push(p);preparedFakeReports.set(p.id,prepareFakeSeerReports(p));continue;}
     if(p.claimed!=="seer"&&Math.random()>=roleClaimProbability(p,"seer",snap))continue;
     const reports=prepareFakeSeerReports(p);
-    if(reports.some(r=>r.black)){fake.push(p);proposals.set(p.id,reports);}
+    if(reports.some(r=>r.black)){fakes.push(p);preparedFakeReports.set(p.id,reports);}
   }
-  const all=[...real,...fake];
+  return {responders:[...real,...fakes],preparedFakeReports};
+}
+function recordBlackSeerCoRequest(responders){
   state.publicRecords.blackSeerCoRequests.push({day:state.day,aliveIds:living().map(p=>p.id),
-    respondentIds:all.map(p=>p.id),order:nextPublicationOrder()});
-  if(!all.length){log("【黒出し占い師CO】指示を出しました。","system");save();renderAll();return;}
-  all.forEach(p=>announceRole(p,"seer",true,proposals.get(p.id)??null));
-  commitPublicTruthProofs();save();renderAll();
+    respondentIds:responders.map(p=>p.id),order:nextPublicationOrder()});
+}
+function blackSeerCO(){
+  const snap=coSnapshot();
+  const {responders,preparedFakeReports}=prepareBlackSeerCoResponses(snap);
+  recordBlackSeerCoRequest(responders);
+  if(!responders.length){
+    log("【黒出し占い師CO】指示を出しました。","system");save();renderAll();return;
+  }
+  responders.forEach(p=>announceRole(p,"seer",true,preparedFakeReports.get(p.id)??null));
+  completeCoInstruction();
+}
+function prepareBlackMediumCoResponses(){
+  const real=roleLiving("medium").filter(p=>p.mediumResults.some(r=>r.black));
+  const fakes=living().filter(p=>p.fakeClaimRole==="medium"&&p.fakeMediumResults.some(r=>r.black));
+  return {real,fakes,responders:[...real,...fakes.filter(p=>!real.includes(p))]};
 }
 function blackMediumCO(){
-  const real=roleLiving("medium").filter(p=>p.mediumResults.some(r=>r.black));
-  const fake=living().filter(p=>p.fakeClaimRole==="medium"&&p.fakeMediumResults.some(r=>r.black));
-  const all=[...real,...fake.filter(p=>!real.includes(p))];
-  if(!all.length){log("【黒出し霊媒師CO】指示を出しました。","system");return}
-  all.forEach(p=>recordRoleClaim(p,"medium"));
+  const {real,fakes,responders}=prepareBlackMediumCoResponses();
+  if(!responders.length){log("【黒出し霊媒師CO】指示を出しました。","system");return}
+  responders.forEach(p=>recordRoleClaim(p,"medium"));
   real.forEach(p=>reportTrueMedium(p,true));
-  fake.forEach(p=>reportFakeMedium(p,true));
-  commitPublicTruthProofs();save();renderAll();
+  fakes.forEach(p=>reportFakeMedium(p,true));
+  completeCoInstruction();
 }
 
-/* 個別CO確認 */
+/* 個別CO確認。既にCO済みの場合の早期終了は従来どおり。 */
+function chooseIndividualCoRole(p,snap){
+  if(["seer","knight","medium","resonator","cat"].includes(p.role))return p.role;
+  if(hostile(p))return chooseDynamicFakeRole(p,snap);
+  return null;
+}
+function publishIndividualCoResponse(p,role){
+  if(role==="resonator")publishResonatorCoGroup();
+  else if(role)announceRole(p,role);
+  else{
+    p.coCheckedNone=true;
+    recordCOEvent(p,"no-co");
+    log(`【個別CO確認】${p.name}：「COはありません」`,"system");
+  }
+}
+function resolveIndividualCoCheck(id){
+  const p=byId(id);
+  if(p.claimed){
+    log(`【個別CO確認】${p.name}：「${roleName(p.claimed)}COしています」`,"claim");
+    return;
+  }
+  const snap=coSnapshot();
+  const role=chooseIndividualCoRole(p,snap);
+  publishIndividualCoResponse(p,role);
+  completeCoInstruction();
+}
 function individualCoCheck(){
-  makeTargetPanel("COを確認する人物",living(),id=>{
-    const p=byId(id);
-    if(p.claimed){
-      log(`【個別CO確認】${p.name}：「${roleName(p.claimed)}COしています」`,"claim");
-      return;
-    }
-    const snap=coSnapshot();
-    let role=null;
-    if(["seer","knight","medium","resonator","cat"].includes(p.role))role=p.role;
-    else if(hostile(p))role=chooseDynamicFakeRole(p,snap);
-    if(role==="resonator"){
-      const partners=roleLiving("resonator");
-      partners.forEach(x=>recordRoleClaim(x,"resonator"));
-      partners.forEach(x=>{
-        log(`${x.name} が【共鳴者CO】しました。`,"claim");
-        const others=state.players.filter(y=>y.role==="resonator"&&y.id!==x.id);
-        publishedResonatorClaim(x,others.map(y=>y.id));
-        if(others.length)log(`${x.name}：「相方は ${others.map(y=>y.name+(y.alive?"":"（死亡）")).join("、")} です」`,"result");
-      });
-    }else if(role){announceRole(p,role)}
-    else{
-      p.coCheckedNone=true;
-      recordCOEvent(p,"no-co");
-      log(`【個別CO確認】${p.name}：「COはありません」`,"system");
-    }
-    commitPublicTruthProofs();save();renderAll();
-  });
+  makeTargetPanel("COを確認する人物",living(),resolveIndividualCoCheck);
 }
 
 /* 個別村人CO */
@@ -2354,9 +3105,10 @@ function load(){
       if(p.deathDay===undefined)p.deathDay=null;
       if(p.deathPhase===undefined)p.deathPhase=null;
     });
+    ensureCharacterMetadata();
     state.players.filter(hostile).forEach(ensureFakeSeerTimeline);
     commitPublicTruthProofs();
-    state.version="2.4.1";
+    state.version="2.6.0";
     showGame();
   }catch(e){alert("保存データを読み込めませんでした")}
 }

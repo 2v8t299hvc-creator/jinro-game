@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.8.0</title>
+<title>個人用人狼アプリ v2.9.0</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -116,7 +116,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.8.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.9.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -990,7 +990,7 @@ function ensureCharacterMetadata(){
 
 function newPlayer(id,name,role,isSelf=false){
   return {
-    id,name,role,alive:true,isSelf,claimed:null,
+    id,name,role,alive:true,isSelf,claimed:null,roleTrust:null,
     seerResults:[],mediumResults:[],fakeSeerResults:[],fakeMediumResults:[],
     forcedSeerTarget:null,forcedGuardTarget:null,fakeClaimRole:null,
     lastReportedSeerCount:0,lastReportedMediumCount:0,
@@ -1018,7 +1018,7 @@ function startGame(){
   for(let i=1;i<n;i++)ps.push(createCharacterPlayer(i,characters[i-1],roles[i-1]));
 
   state={
-    version:"2.8.0",characterRosterVersion:CHARACTER_ROSTER_VERSION,day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
+    version:"2.9.0",characterRosterVersion:CHARACTER_ROSTER_VERSION,day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
     publicRoleCounts:{...c},
     publicRecords:{seerResults:[],mediumResults:[],guards:[],executions:[],deaths:[],catChains:[],resonatorClaims:[],fullCoRequests:[],confirmedProofs:[],coEvents:[]},
     uiSettings:{
@@ -1030,7 +1030,7 @@ function startGame(){
 
   // 初日占い
   roleLiving("seer").forEach(s=>{
-    const target=randomChoice(state.players.filter(p=>p.id!==s.id));
+    const target=autoSeerTarget(s,[]);
     if(target)s.seerResults.push({day:1,target:target.id,black:target.role==="wolf"});
   });
 
@@ -1486,9 +1486,8 @@ function fakeSeerWhiteThrough(liar){
 function fakeSeerMustReportWhite(liar,targetId,day){
   if(day<=fakeSeerWhiteThrough(liar))return true;
   const target=byId(targetId);
-  // 本当の役職ではなく、公開の真確定判定だけを使う。
-  return !!target&&["seer","medium","knight","resonator","cat"].includes(target.claimed)&&
-    getPublicConfirmations().has(targetId);
+  // 主人公は配役規則で村人固定。他の人物は公開確定だけを見る。
+  return !!target&&isKnownVillageSeerTarget(target,getPublicConfirmations());
 }
 function consistentFakeSeerBlack(liar,targetId,day,proposed,previousResults=[],forceWhite=false){
   const publicPrior=(state.publicRecords?.seerResults||[]).find(r=>r.seerId===liar.id&&r.targetId===targetId);
@@ -1502,8 +1501,11 @@ function consistentFakeSeerBlack(liar,targetId,day,proposed,previousResults=[],f
 }
 function createFakeSeerResult(liar,opportunity,previousResults){
   const {day,lockedTarget}=opportunity;
-  const candidates=opportunity.allowedTargetIds.map(byId).filter(p=>p&&p.id!==liar.id);
-  let target=candidates.find(p=>p.id===opportunity.forcedTarget)||null;
+  const allowed=opportunity.allowedTargetIds.map(byId).filter(p=>p&&p.id!==liar.id);
+  let target=allowed.find(p=>p.id===opportunity.forcedTarget)||null;
+  const confirmed=getPublicConfirmations();
+  const candidates=allowed.filter(p=>!isKnownVillageSeerTarget(p,confirmed));
+  const autoTargetIds=candidates.map(p=>p.id);
   let plan=null,jusatsuResponse=false;
   // 呪殺対応に使えるのは公開死体だけ。狐の内部役職や死亡原因は読まない。
   const corpses=(state.publicRecords.deaths||[]).filter(d=>d.phase==="night"&&d.day===day)
@@ -1512,7 +1514,7 @@ function createFakeSeerResult(liar,opportunity,previousResults){
     target=randomChoice(corpses);jusatsuResponse=true;
   }
   if(!target){
-    plan=chooseWolfFakeSeerAction(liar,previousResults,opportunity.allowedTargetIds);
+    plan=chooseWolfFakeSeerAction(liar,previousResults,autoTargetIds);
     if(plan)target=plan.target;
   }
   if(!target){
@@ -2119,16 +2121,18 @@ function chooseFakeMediumBlack(liar,executed){
   return chooseFakeMediumDecision(liar,executed).black;
 }
 
-/* 指定なしの場合、未占いの相手を優先 */
+// 主人公は開始時に村人固定という公開ルール。内部roleは判定に読まない。
+function isKnownVillageSeerTarget(target,confirmed){
+  return target.isSelf===true||confirmed.has(target.id);
+}
+/* 自動選択は確定者を除外してから未占いを優先。明示指示は呼び出し側が扱う。 */
 function autoSeerTarget(p,results){
+  const confirmed=getPublicConfirmations();
+  const useful=living().filter(x=>x.id!==p.id&&!isKnownVillageSeerTarget(x,confirmed));
   const seen=new Set(results.map(r=>r.target));
-  let candidates=living().filter(x=>x.id!==p.id && !seen.has(x.id));
-  if(p.role==="seer"){const unknown=candidates.filter(x=>!isPubliclyConfirmedTrue(x.id));if(unknown.length)candidates=unknown;}
-  if(!candidates.length){
-    // 全員一度は占っていたら、生存者から再選択
-    candidates=living().filter(x=>x.id!==p.id);
-  }
-  return randomChoice(candidates);
+  const unvisited=useful.filter(x=>!seen.has(x.id));
+  // 未確定者が全員占い済みなら再占い。全員確定なら無理に選ばない。
+  return randomChoice(unvisited.length?unvisited:useful);
 }
 
 
@@ -2320,6 +2324,102 @@ function buildPrivateInfo(observer){
     info.knownWolfAllies=state.players.filter(p=>p.role==="wolf"&&p.id!==observer.id).map(p=>p.id);
   }
   return info;
+}
+
+// 役職信用の第1段階。保存する見立てのみで発言・投票・騙りにはまだ使わない。
+const ROLE_TRUST_SCHEMA_VERSION=1;
+const ROLE_TRUST_WEIGHTS={publicMatch:12,privateMatch:8,knownNonWolfWhite:3,knownWolfBlack:3};
+function roleTrustPublicContext(){
+  // 解決器の旧記録補完が保存前の実状態を書き換えないよう、公開記録のコピーで評価。
+  const original=state;
+  let truth,records;
+  try{
+    state={...original,publicRecords:JSON.parse(JSON.stringify(original.publicRecords||{}))};
+    truth=solvePublicTruth();records=state.publicRecords;
+  }finally{state=original;}
+  const rows=collection=>(records[collection]||[]).map((r,index)=>({record:r,source:{
+    collection,index,day:r.day??null,order:r.order??null,
+    snapshot:{...r}}}));
+  return {confirmed:truth.confirmed,broken:truth.broken,
+    counts:{...(state.publicRoleCounts||{})},
+    knownVillageIds:new Set([...truth.confirmed.keys(),...state.players.filter(p=>p.isSelf).map(p=>p.id)]),
+    claimants:state.players.filter(p=>["seer","medium"].includes(p.claimed))
+      .map(p=>({id:p.id,role:p.claimed})),
+    seerRows:rows("seerResults"),mediumRows:rows("mediumResults")};
+}
+function computeObserverRoleTrust(observer,context){
+  const privateInfo=buildPrivateInfo(observer);
+  const knownWolves=new Set(privateInfo.knownWolfAllies);
+  if(privateInfo.selfRole==="wolf")knownWolves.add(observer.id);
+  const roles={seer:{},medium:{}};
+  for(const candidate of context.claimants){
+    const evidence=new Map();
+    const add=(key,type,delta,visibility,sources=[],verdict=null)=>{
+      if(!evidence.has(key))evidence.set(key,{key,type,delta,visibility,sources,verdict});
+    };
+    const id=candidate.id,role=candidate.role;
+    if(context.confirmed.has(id))add("publicConfirmed","publicConfirmed",0,"public",[],"true");
+    if(context.broken.has(id))add("publicBroken","publicBroken",0,"public",[],"false");
+    // 本人は自分の役職を知る。配役が同役職1人なら対抗の偽も知る。
+    if(id===observer.id)add("ownRole","ownRole",0,"private",[],privateInfo.selfRole===role?"true":"false");
+    else if(privateInfo.selfRole===role&&context.counts[role]===1)
+      add("onlyRoleHolder","onlyRoleHolder",0,"private",[],"false");
+    if(knownWolves.has(id))add("knownWolfClaimant","knownWolfClaimant",0,"private",[],"false");
+    const ownRows=(role==="seer"?context.seerRows:context.mediumRows)
+      .filter(x=>x.record[role==="seer"?"seerId":"mediumId"]===id);
+    const otherRows=role==="seer"?context.mediumRows:context.seerRows;
+    for(const row of ownRows){
+      const r=row.record;
+      if(r.black&&context.knownVillageIds.has(r.targetId))
+        add(`knownVillageBlack:${r.targetId}`,"knownVillageBlack",0,"public",[row.source],"false");
+      // 真確定している反対側の役職との一致だけを加点。未確定同士のラインは加点しない。
+      const partnerKey=role==="seer"?"mediumId":"seerId";
+      const matches=otherRows.filter(x=>x.record.targetId===r.targetId&&context.confirmed.has(x.record[partnerKey]));
+      for(const other of matches){
+        if(!!r.black!==!!other.record.black)
+          add(`publicConflict:${r.targetId}`,"confirmedResultConflict",0,"public",[row.source,other.source],"false");
+        else add(`match:${r.targetId}`,"confirmedResultMatch",ROLE_TRUST_WEIGHTS.publicMatch,"public",[row.source,other.source]);
+      }
+      if(role==="seer"){
+        if(r.targetId===observer.id&&!knownWolves.has(observer.id)){
+          if(r.black)add("selfBlack","selfBlack",0,"private",[row.source],"false");
+          else add(`match:${r.targetId}`,"selfWhite",ROLE_TRUST_WEIGHTS.knownNonWolfWhite,"private",[row.source]);
+        }
+        if(knownWolves.has(r.targetId)){
+          if(!r.black)add(`wolfWhite:${r.targetId}`,"knownWolfWhite",0,"private",[row.source],"false");
+          else add(`match:${r.targetId}`,"knownWolfBlack",ROLE_TRUST_WEIGHTS.knownWolfBlack,"private",[row.source]);
+        }
+      }else if(knownWolves.has(r.targetId)){
+        if(!r.black)add(`wolfWhite:${r.targetId}`,"knownWolfWhite",0,"private",[row.source],"false");
+        else add(`match:${r.targetId}`,"knownWolfBlack",ROLE_TRUST_WEIGHTS.knownWolfBlack,"private",[row.source]);
+      }
+      // 真役職本人の未公表結果は、その本人の見立てにだけ利用。
+      const privateResults=role==="seer"&&privateInfo.selfRole==="medium"?observer.mediumResults:
+        role==="medium"&&privateInfo.selfRole==="seer"?observer.seerResults:[];
+      for(const own of privateResults||[]){
+        if(own.target!==r.targetId)continue;
+        if(!!own.black!==!!r.black)
+          add(`privateConflict:${r.targetId}`,"ownResultConflict",0,"private",[row.source],"false");
+        else add(`match:${r.targetId}`,"ownResultMatch",ROLE_TRUST_WEIGHTS.privateMatch,"private",[row.source]);
+      }
+    }
+    const reasons=[...evidence.values()];
+    const hasTrue=reasons.some(x=>x.verdict==="true"),hasFalse=reasons.some(x=>x.verdict==="false");
+    const status=hasFalse?"false":hasTrue?"true":"unconfirmed";
+    const score=status==="true"?100:status==="false"?0:clamp(50+reasons.reduce((n,x)=>n+x.delta,0),1,99);
+    const confidence=status!=="unconfirmed"?100:Math.min(99,reasons.reduce((n,x)=>n+Math.abs(x.delta),0));
+    roles[role][id]={claimantId:id,role,score,confidence,status,
+      certaintyScope:status==="unconfirmed"?null:reasons.some(x=>x.verdict===status&&x.visibility==="public")?"public":"private",
+      conflictingCertainty:hasTrue&&hasFalse,evidence:reasons};
+  }
+  return {schemaVersion:ROLE_TRUST_SCHEMA_VERSION,updatedDay:state.day,
+    updatedOrder:state.publicRecords.publishClock||0,roles};
+}
+function refreshRoleTrust(){
+  if(!state)return;
+  const context=roleTrustPublicContext();
+  // 死亡後の見立ては更新しない。生存者は同じ公開盤面から独立して計算。
+  for(const observer of state.players.filter(p=>p.alive))observer.roleTrust=computeObserverRoleTrust(observer,context);
 }
 
 function targetResultConflict(publicInfo,targetId){
@@ -3265,7 +3365,7 @@ function checkWin(){
   return null;
 }
 function finish(w){clearSelection();state.winner=w;state.phase="end";log(`ゲーム終了：${w}`,"system");save();renderAll()}
-function save(){localStorage.setItem("jinro_v04_state",JSON.stringify(state))}
+function save(){refreshRoleTrust();localStorage.setItem("jinro_v04_state",JSON.stringify(state))}
 function isValidSavedGame(value){
   return !!value&&Number.isInteger(value.day)&&value.day>=1&&
     ["day","night","end"].includes(value.phase)&&Array.isArray(value.logs)&&
@@ -3303,7 +3403,8 @@ function load(){
     migrateLegacyFullCoResponses();
     ensureWolfSeerPlan();
     commitPublicTruthProofs();
-    state.version="2.8.0";
+    state.version="2.9.0";
+    refreshRoleTrust();
     showGame();
   }catch(e){state=previousState;alert("保存データを読み込めませんでした")}
 }

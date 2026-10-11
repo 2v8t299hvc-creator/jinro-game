@@ -215,7 +215,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </div>
 
 <script>
-const GAME_VERSION="2.9.4";
+const GAME_VERSION="2.9.9";
 const ROLES=[
   ["villager","村人"],["seer","占い師"],["knight","騎士"],["medium","霊媒師"],
   ["madman","狂人"],["wolf","人狼"],["fox","妖狐"],["resonator","共鳴者"],["cat","猫又"]
@@ -1354,7 +1354,11 @@ function reportFakeSeer(p,first=false,prepared=null){
     // 発表直前にも制約を確認。公開後の結果を書き換えることはない。
     if(state.publicRecords.seerResults.some(x=>x.seerId===p.id&&x.day===r.day))continue;
     if(r.target===p.id)continue;
-    const black=consistentFakeSeerBlack(p,r.target,r.day,r.black,p.fakeSeerResults,!!r.jusatsuResponse);
+    let black=consistentFakeSeerBlack(p,r.target,r.day,r.black,p.fakeSeerResults,!!r.jusatsuResponse);
+    if(hostile(p)&&black!==null){
+      const colors=fakeSeerAllowedColors(p,r.target,r.day,p.fakeSeerResults,!!r.jusatsuResponse);
+      if(!colors.includes(black))black=colors.length===1?colors[0]:null;
+    }
     if(black===null){
       if(!Array.isArray(p.fakeSeerWithheldReports))p.fakeSeerWithheldReports=[];
       if(p.fakeSeerWithheldReports.some(h=>h.day===r.day))continue;
@@ -1363,6 +1367,7 @@ function reportFakeSeer(p,first=false,prepared=null){
       continue;
     }
     const result={...r,black};
+    if(result.strategy)result.strategy={...JSON.parse(JSON.stringify(result.strategy)),publishedBlack:black,rechecked:true};
     p.fakeSeerResults.push(result);
     log(`${p.name}（占い師CO）：${byId(result.target).name} → ${result.black?"人狼":"人狼ではない"}`,"result");
     publishedSeerRecord(p,result.target,result.black,result.day);
@@ -1511,6 +1516,34 @@ function createFakeSeerResult(liar,opportunity,previousResults){
   // 呪殺対応に使えるのは公開死体だけ。狐の内部役職や死亡原因は読まない。
   const corpses=(state.publicRecords.deaths||[]).filter(d=>d.phase==="night"&&d.day===day)
     .map(d=>byId(d.playerId)).filter(p=>p&&candidates.some(c=>c.id===p.id));
+  if(liar.role==="wolf"){
+    const request={...opportunity,forcedTarget:target?.id??null,
+      jusatsuTargetIds:!target&&!lockedTarget&&corpses.length>=2?corpses.map(p=>p.id):[]};
+    plan=chooseWolfFakeSeerAction(liar,previousResults,autoTargetIds,request);
+    if(plan?.withheld)return null;
+    if(plan?.target){
+      const response=plan.plan==="corpseResponse";
+      const black=consistentFakeSeerBlack(liar,plan.target.id,day,plan.black,previousResults,response);
+      const result={day,target:plan.target.id,black,lockedTarget};
+      if(response)result.jusatsuResponse=true;
+      if(plan.strategy)result.strategy=plan.strategy;
+      return result;
+    }
+  }
+  if(["madman","fox"].includes(liar.role)){
+    const request={...opportunity,forcedTarget:target?.id??null,
+      jusatsuTargetIds:!target&&!lockedTarget&&corpses.length>=2?corpses.map(p=>p.id):[]};
+    plan=chooseNonWolfFakeSeerAction(liar,previousResults,autoTargetIds,request);
+    if(plan?.withheld)return null;
+    if(plan?.target){
+      const response=plan.plan==="corpseResponse";
+      const black=consistentFakeSeerBlack(liar,plan.target.id,day,plan.black,previousResults,response);
+      const result={day,target:plan.target.id,black,lockedTarget};
+      if(response)result.jusatsuResponse=true;
+      if(plan.strategy)result.strategy=plan.strategy;
+      return result;
+    }
+  }
   if(!target&&!lockedTarget&&liar.role==="wolf"&&corpses.length>=2){
     target=randomChoice(corpses);jusatsuResponse=true;
   }
@@ -2013,33 +2046,308 @@ function cancelExecution(){
   renderAll();
 }
 
-function chooseWolfFakeSeerAction(liar,results=liar.fakeSeerResults||[],allowedTargetIds=null){
+// 狼騙り占い：公開材料から合法な対象×判定を列挙してから戦略を比較する。
+const WOLF_FAKE_SEER_WEIGHTS={whiteBase:6,blackBase:3,whiteTrust:5,induce:14,
+  publicPressure:6,retaliation:8,blackThreat:0.10,whiteThreat:0.06,cover:10,
+  sacrificeCredit:12,sacrificePressure:8,allyLoss:12,lastAlliesLoss:24,
+  reverse:6,lineMatch:4,lineConflict:4,attackBlack:5,attackWhite:2,
+  repeat:5,corpseResponse:8,window:8,temperature:4};
+function wolfFakeSeerContext(liar){
+  const context=roleTrustPublicContext();
+  const publicRoles=computeObserverRoleTrust(null,context,true);
+  const publicPeople=computePublicPersonTrust(context,publicRoles);
+  const knownWolves=new Set([liar.id,...buildPrivateInfo(liar).knownWolfAllies]);
+  const personalRoles=computeObserverRoleTrust(liar,context);
+  const threat=computeWolfThreat(liar,context,publicRoles,personalRoles);
+  // 噛みの評価だけを使う。実襲撃先の抽選・護衛解決・未来の死亡は参照しない。
+  const attack=buildWolfAttackEvaluation();
+  const own=publicRoles.roles.seer[liar.id];
+  const selfCredit=context.broken.has(liar.id)?0:clamp((own?.score??50)/100,0,1);
+  const mediumOpportunity=Math.max(0,...context.people.filter(p=>p.alive&&p.claimed==="medium"&&
+    !context.broken.has(p.id)).map(p=>publicRoles.roles.medium[p.id]?.status==="true"?1:0.4));
+  return {context,publicRoles,publicPeople,knownWolves,threat,attack,selfCredit,mediumOpportunity,
+    livingWolfCount:context.people.filter(p=>p.alive&&knownWolves.has(p.id)).length};
+}
+function fakeSeerAllowedColors(liar,targetId,day,previousResults,forceWhite=false,context=null){
+  const c=context||roleTrustPublicContext();
+  const own=[...(state.publicRecords?.seerResults||[]).filter(r=>r.seerId===liar.id)
+    .map(r=>({target:r.targetId,black:r.black})),...previousResults];
+  const required=[];
+  // 過去の自分の判定は公表済み・同時準備中とも保持。矛盾済みなら新判定で隠さない。
+  own.filter(r=>(r.target??r.targetId)===targetId).forEach(r=>required.push(!!r.black));
+  if(forceWhite||day<=fakeSeerWhiteThrough(liar)||c.knownVillageIds.has(targetId))required.push(false);
+  const confirmedResult=row=>{
+    const id=row.record.seerId??row.record.mediumId;
+    const role=row.record.seerId!=null?"seer":"medium";
+    return c.confirmed.has(id)&&!c.broken.has(id)&&publiclyKnownRoleFor(id,c.confirmed)===role;
+  };
+  for(const row of [...c.seerRows,...c.mediumRows]){
+    if(row.record.targetId===targetId&&confirmedResult(row))required.push(!!row.record.black);
+  }
+  const distinct=[...new Set(required)];
+  if(distinct.length>1)return [];
+  let colors=distinct.length?distinct:[false,true];
+  const wolfCount=c.counts.wolf;
+  if(Number.isInteger(wolfCount)&&wolfCount>=0){
+    const blackTargets=new Set(own.filter(r=>r.black).map(r=>r.target??r.targetId));
+    for(const row of [...c.seerRows,...c.mediumRows])
+      if(row.record.black&&confirmedResult(row))blackTargets.add(row.record.targetId);
+    // 既存黒自体を直さず、配役を超える新しい黒だけを禁止。
+    if(!blackTargets.has(targetId)&&blackTargets.size>=wolfCount)colors=colors.filter(x=>!x);
+  }
+  return colors;
+}
+// 既存狼APIは共通の合法性判定へ委譲。
+function wolfFakeSeerColors(...args){return fakeSeerAllowedColors(...args);}
+function fakeSeerLineScore(liar,targetId,black,model){
+  const latest=new Map();
+  for(const row of [...model.context.seerRows,...model.context.mediumRows]){
+    const id=row.record.seerId??row.record.mediumId;
+    if(id===liar.id||row.record.targetId!==targetId||model.context.broken.has(id))continue;
+    const role=row.record.seerId!=null?"seer":"medium";
+    if(!model.publicRoles.roles[role][id])continue;
+    const key=role+":"+id,old=latest.get(key);
+    if(!old||row.record.day>old.record.day||row.record.day===old.record.day&&
+      (row.record.order??row.source.index)>=(old.record.order??old.source.index))latest.set(key,row);
+  }
+  const evidence=[];
+  for(const row of latest.values()){
+    const id=row.record.seerId??row.record.mediumId,role=row.record.seerId!=null?"seer":"medium";
+    const knownAlly=model.knownWolves?.has(id)===true;
+    const strength=model.lineStrengthFor?model.lineStrengthFor(id,role):
+      knownAlly?0.7:Math.max(0.2,publicRoleTrustStrength(model.publicRoles.roles[role][id]));
+    const connect=!!row.record.black===black;
+    const delta=connect?WOLF_FAKE_SEER_WEIGHTS.lineMatch*strength:
+      -WOLF_FAKE_SEER_WEIGHTS.lineConflict*strength*model.selfCredit;
+    evidence.push({type:connect?"connectLine":"cutLine",actorId:id,role,knownAlly,
+      day:row.record.day,order:row.record.order??null,delta});
+  }
+  // CO人数で同じ根拠を膨らませない。最も影響する1本だけを点数へ反映。
+  const strongest=[...evidence].sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta))[0];
+  return {score:strongest?.delta||0,evidence};
+}
+function wolfFakeSeerLineScore(...args){return fakeSeerLineScore(...args);}
+function fakeSeerCandidatePool(liar,results,allowedTargetIds,opportunity,context){
+  const day=opportunity?.day??state.day;
+  const allowed=new Set(opportunity?.allowedTargetIds??allowedTargetIds??living().map(p=>p.id));
+  const forced=opportunity?.forcedTarget;
+  const explicit=forced!=null&&forced!==liar.id&&allowed.has(forced)&&byId(forced);
+  const corpseIds=new Set(opportunity?.jusatsuTargetIds||[]);
+  let targets=context.people.filter(p=>p.id!==liar.id&&allowed.has(p.id)&&
+    !(state.publicRecords?.deaths||[]).some(d=>d.playerId===p.id&&d.day<day));
+  if(explicit)targets=targets.filter(p=>p.id===forced);
+  else targets=targets.filter(p=>(!allowedTargetIds||allowedTargetIds.includes(p.id))&&!context.knownVillageIds.has(p.id)&&
+    (p.alive||day<state.day||corpseIds.has(p.id))&&(!corpseIds.size||corpseIds.has(p.id)));
+  const own=[...results,...(state.publicRecords?.seerResults||[]).filter(r=>r.seerId===liar.id)
+    .map(r=>({target:r.targetId,black:r.black}))];
+  return {day,explicit,corpseIds,targets,own,seen:new Set(own.map(r=>r.target??r.targetId))};
+}
+function buildWolfFakeSeerEvaluation(liar,results=liar.fakeSeerResults||[],allowedTargetIds=null,opportunity=null){
   if(liar.role!=="wolf")return null;
-  const seen=new Set(results.map(r=>r.target));
-  const allies=living().filter(p=>p.role==="wolf"&&p.id!==liar.id&&!seen.has(p.id)&&(!allowedTargetIds||allowedTargetIds.includes(p.id)));
-  if(!allies.length)return null;
-  const info=buildPublicInfo();
-  const cracked=isPubliclyBroken(liar.id);
-  const trusted=publicSeerCredibility(info,liar.id).score>1;
-  const threatened=allies.filter(a=>{
-    const publiclyBlack=(state.publicRecords?.seerResults||[]).some(r=>r.targetId===a.id&&r.black);
-    return publiclyBlack||estimatePublicSuspicion(info,liar.id,a.id).score>=2;
-  });
-  const day=state.day;
-  // 逆囲い: 明確に信用が落ちていて、味方が複数残るときだけ低確率。
-  if(day>=3 && (cracked||!trusted) && threatened.length && roleLiving("wolf").length>=3 && Math.random()<0.16){
-    return {target:randomChoice(threatened),black:true,plan:"reverse"};
+  const model=wolfFakeSeerContext(liar);
+  const {day,explicit,corpseIds,targets,own,seen}=fakeSeerCandidatePool(liar,results,allowedTargetIds,opportunity,model.context);
+  const attackScores=model.attack.candidates.map(x=>x.score);
+  const low=Math.min(...attackScores),high=Math.max(...attackScores);
+  const candidates=[];
+  for(const target of targets){
+    const ally=model.knownWolves.has(target.id);
+    const roleEntry=model.publicRoles.roles[target.claimed]?.[target.id];
+    const personEntry=model.publicPeople.people[target.id];
+    const trust=model.context.knownVillageIds.has(target.id)?1:model.context.broken.has(target.id)?0:
+      clamp((roleEntry?.score??personEntry?.score??50)/100,0,1);
+    const entry=model.attack.candidates.find(x=>x.targetId===target.id);
+    const attackPreference=entry?(high>low?(entry.score-low)/(high-low):0.5):0;
+    const pressure=entry?.execution.score??wolfAttackExecutionRisk(target,
+      {context:model.context,publicRoles:model.publicRoles}).score;
+    const threat=model.threat.people[target.id]?.score||0;
+    const response=corpseIds.has(target.id)&&!explicit;
+    for(const black of wolfFakeSeerColors(liar,target.id,day,own,response,model.context)){
+      const evidence=[];
+      const add=(type,delta)=>{if(delta)evidence.push({type,delta});};
+      let plan=black?"induce":"credit";
+      add("base",black?WOLF_FAKE_SEER_WEIGHTS.blackBase:WOLF_FAKE_SEER_WEIGHTS.whiteBase);
+      if(black){
+        if(ally){
+          plan=target.alive?(model.selfCredit<0.45?"reverse":"sacrifice"):"knownWolfLine";
+          const loss=target.alive?(model.livingWolfCount<=2?WOLF_FAKE_SEER_WEIGHTS.lastAlliesLoss:
+            WOLF_FAKE_SEER_WEIGHTS.allyLoss):0;
+          add("allyLoss",-loss);
+          add("mediumCredit",WOLF_FAKE_SEER_WEIGHTS.sacrificeCredit*model.selfCredit*model.mediumOpportunity);
+          add("alreadyThreatenedAlly",WOLF_FAKE_SEER_WEIGHTS.sacrificePressure*pressure);
+          if(day>=3&&model.livingWolfCount>=3&&model.selfCredit<0.45)
+            add("reverseCover",WOLF_FAKE_SEER_WEIGHTS.reverse*(1-model.selfCredit)*pressure);
+        }else{
+          add("executionInducement",WOLF_FAKE_SEER_WEIGHTS.induce*model.selfCredit*(1-trust));
+          add("publicPressure",WOLF_FAKE_SEER_WEIGHTS.publicPressure*pressure);
+          add("threatRemoval",WOLF_FAKE_SEER_WEIGHTS.blackThreat*threat);
+          add("retaliationRisk",-WOLF_FAKE_SEER_WEIGHTS.retaliation*trust*(1-model.selfCredit));
+          add("preferAttackInstead",-WOLF_FAKE_SEER_WEIGHTS.attackBlack*attackPreference);
+        }
+      }else{
+        add("publicTrustAlignment",WOLF_FAKE_SEER_WEIGHTS.whiteTrust*trust);
+        if(ally){plan="cover";add("allyProtection",WOLF_FAKE_SEER_WEIGHTS.cover*
+          (0.4+0.6*model.selfCredit)*(1-pressure));}
+        else{
+          add("preservedThreat",-WOLF_FAKE_SEER_WEIGHTS.whiteThreat*threat);
+          add("attackOverlap",-WOLF_FAKE_SEER_WEIGHTS.attackWhite*attackPreference);
+        }
+      }
+      const line=wolfFakeSeerLineScore(liar,target.id,black,model);add("publicLine",line.score);
+      if(seen.has(target.id))add("repeatTarget",-WOLF_FAKE_SEER_WEIGHTS.repeat);
+      if(response){plan="corpseResponse";add("corpseResponse",WOLF_FAKE_SEER_WEIGHTS.corpseResponse);}
+      candidates.push({targetId:target.id,black,plan,knownAlly:ally,publicTrust:trust,
+        selfCredit:model.selfCredit,threat,executionPressure:pressure,attackPreference,
+        line,evidence,score:Math.round(evidence.reduce((sum,e)=>sum+e.delta,0)*100)/100});
+    }
   }
-  // 信用獲得型の身内切り: 霊媒とのラインを狙えるときだけ限定的。
-  const mediums=living().filter(p=>p.claimed==="medium");
-  if(day>=2 && mediums.length && roleLiving("wolf").length>=3 && Math.random()<0.06){
-    return {target:randomChoice(allies),black:true,plan:"sacrifice"};
+  // 合法な未占い先があれば先に使う。全員占い済みなら同じ判定で再占いできる。
+  const unvisited=candidates.filter(x=>!seen.has(x.targetId));
+  return {schemaVersion:1,basis:"wolfFakeSeer",visibility:"private",decisionDay:state.day,
+    updatedOrder:state.publicRecords?.publishClock||0,resultDay:day,explicitTarget:!!explicit,
+    candidates:explicit||!unvisited.length?candidates:unvisited};
+}
+function selectFakeSeerEvaluation(evaluation,weights){
+  if(!evaluation)return null;
+  if(!evaluation.candidates.length)return {target:null,withheld:true};
+  const best=Math.max(...evaluation.candidates.map(x=>x.score));
+  const close=evaluation.candidates.filter(x=>best-x.score<=weights.window);
+  const weighted=close.map(x=>({candidate:x,weight:Math.exp((x.score-best)/weights.temperature)}));
+  let draw=Math.random()*weighted.reduce((sum,x)=>sum+x.weight,0);
+  let chosen=weighted[weighted.length-1].candidate;
+  for(const x of weighted){draw-=x.weight;if(draw<=0){chosen=x.candidate;break;}}
+  const strategy={schemaVersion:evaluation.schemaVersion,basis:evaluation.basis,visibility:"private",
+    decisionDay:evaluation.decisionDay,updatedOrder:evaluation.updatedOrder,resultDay:evaluation.resultDay,
+    explicitTarget:evaluation.explicitTarget,selected:JSON.parse(JSON.stringify(chosen))};
+  return {target:byId(chosen.targetId),black:chosen.black,plan:chosen.plan,strategy};
+}
+function chooseWolfFakeSeerAction(liar,results=liar.fakeSeerResults||[],allowedTargetIds=null,opportunity=null){
+  return selectFakeSeerEvaluation(buildWolfFakeSeerEvaluation(liar,results,allowedTargetIds,opportunity),WOLF_FAKE_SEER_WEIGHTS);
+}
+
+const NONWOLF_FAKE_SEER_WEIGHTS={repeat:5,corpseResponse:8,window:8,temperature:4};
+const MADMAN_FAKE_SEER_WEIGHTS={whiteBase:6,blackBase:4,whiteTrust:3,protect:8,
+  induce:12,publicPressure:8,misfire:6,retaliation:8};
+// 狂人/狐の評価は公開盤面だけ。狼の個人情報/噛み評価は渡さない。
+function publicFakeSeerContext(liar){
+  const context=roleTrustPublicContext();
+  const publicRoles=computeObserverRoleTrust(null,context,true);
+  const publicPeople=computePublicPersonTrust(context,publicRoles);
+  const own=publicRoles.roles.seer[liar.id];
+  const selfCredit=context.broken.has(liar.id)?0:clamp((own?.score??50)/100,0,1);
+  const mediumOpportunity=Math.max(0,...context.people.filter(p=>p.alive&&p.claimed==="medium"&&
+    !context.broken.has(p.id)).map(p=>publicRoles.roles.medium[p.id]?.status==="true"?1:0.4));
+  return {context,publicRoles,publicPeople,selfCredit,mediumOpportunity};
+}
+function publicFakeSeerAssessment(model,target){
+  const {context,publicRoles,publicPeople}=model;
+  const roleEntry=publicRoles.roles[target.claimed]?.[target.id];
+  const personEntry=publicPeople.people[target.id];
+  const trust=context.knownVillageIds.has(target.id)?1:context.broken.has(target.id)?0:
+    clamp((roleEntry?.score??personEntry?.score??50)/100,0,1);
+  const verdicts=[];
+  if(context.knownVillageIds.has(target.id))verdicts.push(false);
+  for(const row of [...context.seerRows,...context.mediumRows]){
+    const r=row.record,id=r.seerId??r.mediumId,role=r.seerId!=null?"seer":"medium";
+    if(r.targetId===target.id&&context.confirmed.has(id)&&!context.broken.has(id)&&
+      publiclyKnownRoleFor(id,context.confirmed)===role)verdicts.push(!!r.black);
   }
-  // 白囲い: 自分の未占いの味方をランダムに選ぶ。
-  if(Math.random()<(day<=2?0.58:0.30)){
-    return {target:randomChoice(allies),black:false,plan:"cover"};
+  const distinct=[...new Set(verdicts)];
+  let wolfLikelihood=0.5,status="suspected",certaintyScope=null,confidence=0;
+  if(distinct.length===1){
+    wolfLikelihood=distinct[0]?1:0;status=distinct[0]?"wolf":"nonWolf";certaintyScope="public";confidence=100;
+  }else if(distinct.length>1){status="conflict";}
+  else{
+    // 信用の低さを狼確定にしない。白は非狼であり、村陣営確定とは限らない。
+    const material=clamp((personEntry?.confidence??roleEntry?.confidence??0)/100,0,1);
+    wolfLikelihood=clamp(0.5+(personEntry?(50-personEntry.score)/100*material:
+      roleEntry?(0.5-roleEntry.score/100)*0.20*material:0),0.15,0.85);
+    confidence=personEntry?.confidence??roleEntry?.confidence??0;
   }
-  return null;
+  const executionPressure=wolfAttackExecutionRisk(target,{context,publicRoles}).score;
+  return {publicTrust:trust,wolfLikelihood,wolfStatus:status,certaintyScope,confidence,executionPressure};
+}
+function scoreMadmanFakeSeerCandidate(black,assessment,model){
+  const w=MADMAN_FAKE_SEER_WEIGHTS,S=model.selfCredit,P=assessment.publicTrust,
+    L=assessment.wolfLikelihood,E=assessment.executionPressure;
+  const evidence=[];const add=(type,delta)=>{if(delta)evidence.push({type,delta});};
+  add("base",black?w.blackBase:w.whiteBase);
+  if(black){
+    add("villageInducement",w.induce*S*(1-L));
+    add("publicPressure",w.publicPressure*E);
+    add("suspectedWolfMisfire",-w.misfire*S*L);
+    add("retaliationRisk",-w.retaliation*P*(1-S));
+  }else{
+    add("publicTrustAlignment",w.whiteTrust*P);
+    add("suspectedWolfProtection",w.protect*S*L);
+  }
+  return {plan:black?"induce":"protectOrCredit",evidence};
+}
+const FOX_FAKE_SEER_WEIGHTS={whiteBase:7,blackBase:3,whiteTrust:7,avoidConflict:5,
+  induce:14,diversion:8,threatResponse:10,retaliation:10,whiteThreat:3,mediumExposure:6};
+function publicFoxTargetThreat(liar,target,model){
+  if(model.context.broken.has(target.id))return 0;
+  const role=target.claimed,entry=model.publicRoles.roles[role]?.[target.id];
+  let threat=role==="seer"?Math.max(0.25,publicRoleTrustStrength(entry)):
+    role==="medium"?0.35*Math.max(0.25,publicRoleTrustStrength(entry)):0;
+  const rows=model.context.seerRows.filter(x=>x.record.seerId===target.id&&x.record.targetId===liar.id);
+  const latest=rows.reduce((a,b)=>!a||b.record.day>a.record.day||b.record.day===a.record.day&&
+    (b.record.order??b.source.index)>=(a.record.order??a.source.index)?b:a,null);
+  // 自分への公開黒を出す相手は、真偽とは別に処刑の脅威。未知の占い先は予知しない。
+  if(latest?.record.black)threat=Math.max(threat,0.5+0.5*publicRoleTrustStrength(entry));
+  return threat;
+}
+function scoreFoxFakeSeerCandidate(black,assessment,model,targetThreat,targetAlive){
+  const w=FOX_FAKE_SEER_WEIGHTS,S=model.selfCredit,P=assessment.publicTrust,
+    L=assessment.wolfLikelihood,E=assessment.executionPressure;
+  const evidence=[];const add=(type,delta)=>{if(delta)evidence.push({type,delta});};
+  add("base",black?w.blackBase:w.whiteBase);
+  if(black){
+    add("executionInducement",w.induce*S*(1-P));
+    add("selfDefenseDiversion",w.diversion*model.selfPressure*(0.5+E));
+    add("publicThreatResponse",w.threatResponse*S*targetThreat);
+    add("retaliationRisk",-w.retaliation*P*(1-S));
+  }else{
+    add("publicTrustAlignment",w.whiteTrust*P);
+    add("avoidConflict",w.avoidConflict*(1-S)*P);
+    add("preservedPublicThreat",-w.whiteThreat*targetThreat);
+  }
+  // 将来の霊媒判定は不明。公開推測から逆判定の期待危険だけ見積もる。
+  if(targetAlive)add("mediumExposureRisk",-w.mediumExposure*model.mediumOpportunity*(black?1-L:L));
+  return {plan:black?"divertOrChallenge":"creditAndSurvive",evidence};
+}
+function buildPublicFakeSeerEvaluation(liar,results=liar.fakeSeerResults||[],allowedTargetIds=null,opportunity=null){
+  if(!["madman","fox"].includes(liar.role))return null;
+  const model=publicFakeSeerContext(liar);
+  if(liar.role==="fox")model.selfPressure=wolfAttackExecutionRisk(
+    model.context.people.find(p=>p.id===liar.id),model).score;
+  const {day,explicit,corpseIds,targets,own,seen}=fakeSeerCandidatePool(liar,results,allowedTargetIds,opportunity,model.context);
+  if(liar.role==="madman")model.lineStrengthFor=(id)=>{
+    const actor=model.context.people.find(p=>p.id===id);
+    return 0.2+0.6*publicFakeSeerAssessment(model,actor).wolfLikelihood;
+  };
+  const candidates=[];
+  for(const target of targets){
+    const assessment=publicFakeSeerAssessment(model,target),response=corpseIds.has(target.id)&&!explicit;
+    for(const black of fakeSeerAllowedColors(liar,target.id,day,own,response,model.context)){
+      const publicThreat=liar.role==="fox"?publicFoxTargetThreat(liar,target,model):0;
+      const score=liar.role==="madman"?scoreMadmanFakeSeerCandidate(black,assessment,model):
+        scoreFoxFakeSeerCandidate(black,assessment,model,publicThreat,target.alive);
+      const line=fakeSeerLineScore(liar,target.id,black,model);
+      if(line.score)score.evidence.push({type:"publicLine",delta:line.score});
+      if(seen.has(target.id))score.evidence.push({type:"repeatTarget",delta:-NONWOLF_FAKE_SEER_WEIGHTS.repeat});
+      if(response){score.plan="corpseResponse";score.evidence.push({type:"corpseResponse",delta:NONWOLF_FAKE_SEER_WEIGHTS.corpseResponse});}
+      candidates.push({targetId:target.id,black,plan:score.plan,selfCredit:model.selfCredit,
+        ...assessment,...(liar.role==="fox"?{selfPressure:model.selfPressure,publicThreat}:{}),line,evidence:score.evidence,
+        score:Math.round(score.evidence.reduce((sum,e)=>sum+e.delta,0)*100)/100});
+    }
+  }
+  const unvisited=candidates.filter(x=>!seen.has(x.targetId));
+  return {schemaVersion:1,basis:liar.role+"FakeSeer",visibility:"private",decisionDay:state.day,
+    updatedOrder:state.publicRecords?.publishClock||0,resultDay:day,explicitTarget:!!explicit,
+    candidates:explicit||!unvisited.length?candidates:unvisited};
+}
+function chooseNonWolfFakeSeerAction(liar,results=liar.fakeSeerResults||[],allowedTargetIds=null,opportunity=null){
+  return selectFakeSeerEvaluation(buildPublicFakeSeerEvaluation(liar,results,allowedTargetIds,opportunity),NONWOLF_FAKE_SEER_WEIGHTS);
 }
 
 function chooseFakeBlack(liar,target){
@@ -2137,120 +2445,135 @@ function autoSeerTarget(p,results){
 }
 
 
-function wolfAttackScore(target){
-  if(!target.alive || target.role==="wolf") return -999;
-
-  let score=1;
-
-  // 公開COの価値
-  if(target.claimed==="seer") score+=7;
-  if(target.claimed==="medium") score+=4.5;
-  if(target.claimed==="resonator") score+=5.5;
-  if(target.claimed==="knight") score+=3.5;
-  if(target.claimed==="cat") score-=10;
-
-  if(target.villagerClaim===true) score-=0.5;
-
-  // 狼仲間への公開黒判定だけを参照する。未公開結果は参照しない。
-  if(target.claimed==="seer"){
-    const hitWolf=(state.publicRecords?.seerResults||[]).some(r=>
-      r.seerId===target.id && r.black && byId(r.targetId)?.role==="wolf" && byId(r.targetId)?.alive
-    );
-    if(hitWolf)score+=6;
-  }
-  // 潜伏騎士の護衛先・本当の正体は狼の襲撃AIから読まない。
-  // 前夜に噛んで平和だった相手は狐/護衛の可能性があるので少し避ける
-  const suspicion=(state.wolfAI?.suspectedFox?.[target.id]||0);
-  score-=suspicion*2.5;
-
-  // 終盤は確定村・情報役をより優先
-  const aliveCount=living().length;
-  if(aliveCount<=7){
-    if(target.claimed==="resonator") score+=2.5;
-    if(target.claimed==="seer") score+=2;
-    if(target.claimed==="medium") score+=1;
-  }
-
-  // 猫又COはかなり避けるが、終盤に他候補が薄い場合はゼロにはしない
-  if(target.claimed==="cat" && aliveCount<=5) score+=4;
-
-  // 終盤の勝ち筋：確定村や情報役を残すと、翌日の処刑候補が狼へ集中する。
-  // 特に4人以下では村人よりも真確定の共鳴者・霊媒師を優先して除く。
-  // 真偽は必ず公開情報の推理エンジンで判定。猫又襲撃の危険は別途残す。
-  const nonWolves=living().filter(p=>p.role!=="wolf");
-  if(aliveCount<=6){
-    const publicConfirmed=isPubliclyConfirmedTrue(target.id);
-    if(publicConfirmed){
-      score += aliveCount<=4?24:11;
-      if(target.claimed==="medium"||target.claimed==="resonator"||target.claimed==="seer")score+=5;
-    }
-    if(target.claimed==="medium"||target.claimed==="resonator"){
-      score += aliveCount<=4?11:5;
-    }
-    if(target.claimed==="cat")score-=28; // 確定猫又でも道連れを警戒
-    if(target.villagerClaim===true||(!target.claimed&&target.coCheckedNone))score-=aliveCount<=4?8:2;
-    if(nonWolves.length<=3 && publicConfirmed && target.claimed!=="cat")score+=9;
-  }
-
-  // 少しランダム性（終盤は勝ち筋を壊さないよう幅を狭める）
-  score += Math.random()*(aliveCount<=5?0.65:2.2);
-  return score;
+// 襲撃の評価は決定的に作り、抽選は最後に1回だけ行う。数値は推定指標で確率ではない。
+const WOLF_ATTACK_WEIGHTS={base:10,guardDiscount:0.70,executionDiscount:0.50,
+  claimedCatPenalty:30,trueCatPenalty:55,failureStep:8,failureCap:25,
+  middleWindow:15,endWindow:8,temperature:8};
+function publicRoleTrustStrength(entry){
+  if(!entry||entry.status==="false"||entry.conflictingCertainty)return 0;
+  return entry.status==="true"?1:clamp((entry.score-50)/50,0,1)*clamp(entry.confidence/100,0,1);
 }
-
-function wolfForcedPriorityTarget(){
-  const viable=living().filter(p=>p.role!=="wolf");
-  const confirmed=getPublicConfirmations();
-  const knownKnights=viable.filter(p=>p.claimed==="knight"&&confirmed.has(p.id));
-  const knownSeers=viable.filter(p=>p.claimed==="seer"&&confirmed.has(p.id));
-  const fullCo=(state.publicRecords?.fullCoRequests||[]).some(x=>x.role==="knight");
-  const totalKnight=publicRoleCount("knight");
-  // 騎士全員CO後、生存候補が全滅している場合のみ公開上護衛不在。
-  const liveKnightCandidates=viable.filter(p=>p.claimed==="knight");
-  const unexcludedDead=state.players.some(p=>!p.alive&&!p.claimed && !isPubliclyConfirmedTrue(p.id));
-  const confirmedDeadKnights=state.players.filter(p=>!p.alive&&p.claimed==="knight"&&confirmed.has(p.id)).length;
-  const noGuard=totalKnight===0 || (totalKnight>0 && confirmedDeadKnights>=totalKnight) ||
-    (fullCo && !unexcludedDead && liveKnightCandidates.length===0);
-  // 騎士COが確定しているなら騎士を処理し、次に占い師へ。
-  if(knownKnights.length && knownSeers.length){
-    return knownKnights.sort((a,b)=>wolfAttackScore(b)-wolfAttackScore(a))[0];
+function wolfAttackPublicContext(){
+  const context=roleTrustPublicContext();
+  const publicRoles=computeObserverRoleTrust(null,context,true);
+  const wolves=state.players.filter(p=>p.alive&&p.role==="wolf");
+  const knownWolves=new Set(wolves.flatMap(p=>[p.id,...buildPrivateInfo(p).knownWolfAllies]));
+  const threats=wolves.map(p=>({observerId:p.id,
+    model:computeWolfThreat(p,context,publicRoles,computeObserverRoleTrust(p,context))}));
+  const knownRoles=new Map(context.people.map(p=>[p.id,publiclyKnownRoleFor(p.id,context.confirmed)]));
+  const knightCount=context.counts.knight;
+  const confirmedDeadKnights=context.people.filter(p=>!p.alive&&knownRoles.get(p.id)==="knight").length;
+  // 全員COという指示だけでは護衛不在を断定しない。配役0か全員の公開死亡証明が必要。
+  const noGuard=knightCount===0||Number.isInteger(knightCount)&&knightCount>0&&confirmedDeadKnights>=knightCount;
+  const knightCandidates=noGuard?[]:context.people.filter(p=>p.alive&&!p.isSelf&&!knownWolves.has(p.id)&&
+    (!knownRoles.get(p.id)||knownRoles.get(p.id)==="knight")&&
+    !(p.claimed==="knight"&&context.broken.has(p.id)));
+  return {context,publicRoles,wolves,knownWolves,threats,knownRoles,noGuard,knightCandidates};
+}
+function wolfAttackGuardRisk(target,attack){
+  const {context,publicRoles,knownRoles,noGuard,knightCandidates}=attack;
+  if(noGuard)return {score:0,noGuard:true,evidence:[{type:"publicGuardAbsent"}]};
+  const possible=knightCandidates.filter(p=>p.id!==target.id);
+  if(!possible.length)return {score:0,noGuard:false,evidence:[]};
+  const evidence=[];
+  // 公開記録の当夜・最後の指示だけ。本人のforcedGuardTarget/護衛日記は参照しない。
+  let directed=0;
+  for(const knight of possible){
+    const instruction=guardInstructionForDay(knight,state.day+1);
+    if(!instruction||instruction.targetId!==target.id)continue;
+    const strength=knownRoles.get(knight.id)==="knight"?0.85:knight.claimed==="knight"?0.55:0.20;
+    directed=Math.max(directed,strength);
+    evidence.push({type:"guardInstruction",kind:instruction.kind,recipientId:knight.id,
+      targetId:target.id,resultDay:instruction.resultDay,order:instruction.order,weight:strength});
   }
-  if(knownSeers.length && noGuard){
-    return knownSeers.sort((a,b)=>wolfAttackScore(b)-wolfAttackScore(a))[0];
+  // 指示が別人に出ている候補は自然護衛の見積もりから外す。有効な自護衛指示は代替先不明。
+  const free=possible.some(p=>{
+    const instruction=guardInstructionForDay(p,state.day+1);
+    const destination=instruction&&context.people.find(x=>x.id===instruction.targetId&&x.alive);
+    return !destination||destination.id===p.id;
+  });
+  let natural=0;
+  if(free){
+    const role=target.claimed;
+    const entry=publicRoles.roles[role]?.[target.id];
+    const strength=publicRoleTrustStrength(entry);
+    if(role==="seer")natural=0.35*strength;
+    else if(role==="medium")natural=0.20*strength;
+    else if(context.knownVillageIds.has(target.id))natural=0.10;
+    const informationCandidates=context.people.filter(p=>p.alive&&["seer","medium"].includes(p.claimed)&&
+      !context.broken.has(p.id)).length;
+    natural/=Math.sqrt(Math.max(1,informationCandidates));
+    if(natural>0)evidence.push({type:"naturalGuardExpectation",weight:natural});
   }
-  if(knownKnights.length){
-    return knownKnights.sort((a,b)=>wolfAttackScore(b)-wolfAttackScore(a))[0];
+  // 同じ保護理由を足し重ねない。複数の不確かな指示も最大値に留める。
+  return {score:Math.max(directed,natural),noGuard:false,evidence};
+}
+function wolfAttackExecutionRisk(target,attack){
+  const {context,publicRoles}=attack;
+  if(context.knownVillageIds.has(target.id))return {score:0,evidence:[{type:"publicVillage"}]};
+  if(context.broken.has(target.id))return {score:0.85,evidence:[{type:"publicBroken"}]};
+  const latest=new Map();
+  for(const row of context.seerRows.filter(x=>x.record.targetId===target.id)){
+    const old=latest.get(row.record.seerId);
+    if(!old||row.record.day>old.record.day||row.record.day===old.record.day&&
+      (row.record.order??row.source.index)>=(old.record.order??old.source.index))latest.set(row.record.seerId,row);
   }
-  return null;
+  const evidence=[];
+  let score=0;
+  for(const row of latest.values()){
+    if(!row.record.black)continue;
+    const strength=publicRoleTrustStrength(publicRoles.roles.seer[row.record.seerId]);
+    if(strength<=0)continue;
+    score=Math.max(score,0.70*strength);
+    evidence.push({type:"crediblePublicBlack",seerId:row.record.seerId,
+      day:row.record.day,order:row.record.order??null,weight:0.70*strength});
+  }
+  // 投票機能/発言からの処刑推定は未接続。黒だけで処刑確実にはしない。
+  return {score,evidence};
+}
+function buildWolfAttackEvaluation(){
+  const attack=wolfAttackPublicContext();
+  const candidates=[];
+  if(attack.wolves.length)for(const target of attack.context.people){
+    if(!target.alive||attack.knownWolves.has(target.id))continue;
+    const observerScores=attack.threats.map(x=>({observerId:x.observerId,score:x.model.people[target.id].score}));
+    const threat=observerScores.reduce((sum,x)=>sum+x.score,0)/observerScores.length;
+    const guard=wolfAttackGuardRisk(target,attack),execution=wolfAttackExecutionRisk(target,attack);
+    const publicCat=attack.knownRoles.get(target.id)==="cat";
+    const claimedCat=target.claimed==="cat"&&!attack.context.broken.has(target.id);
+    const catPenalty=publicCat?WOLF_ATTACK_WEIGHTS.trueCatPenalty:
+      claimedCat?WOLF_ATTACK_WEIGHTS.claimedCatPenalty:0;
+    // 旧保存のsuspectedFoxは襲撃失敗の記憶としてのみ使い、狐確定とは扱わない。
+    const remembered=Number(state.wolfAI?.suspectedFox?.[target.id]);
+    const failures=Number.isFinite(remembered)?Math.max(0,remembered):0;
+    const failurePenalty=Math.min(WOLF_ATTACK_WEIGHTS.failureCap,failures*WOLF_ATTACK_WEIGHTS.failureStep);
+    const score=(WOLF_ATTACK_WEIGHTS.base+threat)*(1-WOLF_ATTACK_WEIGHTS.guardDiscount*guard.score)*
+      (1-WOLF_ATTACK_WEIGHTS.executionDiscount*execution.score)-catPenalty-failurePenalty;
+    candidates.push({targetId:target.id,threat,observerScores,guard,execution,catPenalty,failurePenalty,
+      score:Math.round(score*100)/100});
+  }
+  return {schemaVersion:1,basis:"wolfAttack",visibility:"private",updatedDay:state.day,
+    updatedOrder:state.publicRecords?.publishClock||0,candidates};
+}
+function wolfAttackScore(target){
+  return buildWolfAttackEvaluation().candidates.find(x=>x.targetId===target.id)?.score??-999;
 }
 function chooseWolfAttackTarget(){
-  const candidates=living().filter(p=>p.role!=="wolf");
-  if(!candidates.length) return null;
-  const forced=wolfForcedPriorityTarget();
-  if(forced)return forced;
-
-  const scored=candidates.map(p=>({p,score:wolfAttackScore(p)}));
-
-  // 終盤は「詰みを避ける襲撃」を優先。明らかな悪手を抽選候補に入れない。
-  if(living().length<=5){
-    scored.sort((a,b)=>b.score-a.score);
-    const best=scored[0];
-    const close=scored.filter(x=>best.score-x.score<2.5);
-    return randomChoice(close).p;
+  const evaluation=buildWolfAttackEvaluation();
+  const scored=evaluation.candidates;
+  let selected=null;
+  if(scored.length){
+    const best=Math.max(...scored.map(x=>x.score));
+    const window=living().length<=5?WOLF_ATTACK_WEIGHTS.endWindow:WOLF_ATTACK_WEIGHTS.middleWindow;
+    const close=scored.filter(x=>best-x.score<=window);
+    const weighted=close.map(x=>({...x,weight:Math.exp((x.score-best)/WOLF_ATTACK_WEIGHTS.temperature)}));
+    let draw=Math.random()*weighted.reduce((sum,x)=>sum+x.weight,0);
+    selected=weighted[weighted.length-1].targetId;
+    for(const x of weighted){draw-=x.weight;if(draw<=0){selected=x.targetId;break;}}
   }
-
-  // 序中盤は上位候補ほど選ばれやすい重み付きランダム
-  const minScore=Math.min(...scored.map(x=>x.score));
-  const weighted=scored.map(x=>({
-    p:x.p,
-    w:Math.max(0.15, x.score-minScore+0.5)
-  }));
-  const total=weighted.reduce((a,b)=>a+b.w,0);
-  let r=Math.random()*total;
-  for(const x of weighted){
-    r-=x.w;
-    if(r<=0) return x.p;
-  }
-  return weighted[0].p;
+  if(!state.wolfAI)state.wolfAI={suspectedFox:{},lastAttackTarget:null,lastAttackWasPeace:false};
+  state.wolfAI.attackEvaluation={...evaluation,selectedTargetId:selected};
+  return selected==null?null:byId(selected);
 }
 
 function updateWolfAIAfterNight(attacked,guardTargets,attackDied){
@@ -2267,7 +2590,7 @@ function updateWolfAIAfterNight(attacked,guardTargets,attackDied){
 
   state.wolfAI.lastAttackWasPeace=peace;
 
-  // 平和で、しかも公開上は護衛先ではなさそうなら狐疑惑を上げる
+  // 原因不明の襲撃失敗を記憶。護衛対象引数は結果解決用で、この記憶には使わない。
   if(peace){
     let delta=0.9;
     if(attacked.claimed==="cat") delta=0.2;
@@ -2929,6 +3252,30 @@ function applyPublicJusatsuBreakdowns({addBroken}){
 
 }
 
+// 全員COの時点で死亡していた人物だけを潜伏真の候補にする。
+function priorDeadIdsForFullCo(request){
+  if(Array.isArray(request.priorDeadIds))return [...new Set(request.priorDeadIds)];
+  if(Array.isArray(request.aliveIds))return state.players.filter(p=>!p.alive&&!request.aliveIds.includes(p.id)).map(p=>p.id);
+  // 時点の記録がない旧保存は、同日死亡や死亡日欠落を保守的に残す。
+  return state.players.filter(p=>!p.alive&&(!(state.publicRecords.deaths||[]).some(d=>d.playerId===p.id)||
+    (state.publicRecords.deaths||[]).some(d=>d.playerId===p.id&&d.day<=request.day))).map(p=>p.id);
+}
+function publiclyKnownRoleFor(id,confirmed){
+  if(byId(id)?.isSelf)return "villager"; // 主人公村人固定の公開規則。
+  if(!confirmed.has(id))return null;
+  const proof=(state.publicRecords.confirmedProofs||[]).find(x=>x.id===id&&x.role);
+  if(proof)return proof.role;
+  if((state.publicRecords.catChains||[]).some(x=>x.catId===id))return "cat";
+  return byId(id)?.claimed||null;
+}
+function excludesDeadRoleCandidate(id,role,confirmed){
+  if(byId(id)?.claimed===role)return true; // CO者は別途その役職候補に数える。
+  const knownRole=publiclyKnownRoleFor(id,confirmed);
+  if(knownRole&&knownRole!==role)return true;
+  return (state.publicRecords.mediumResults||[]).some(r=>r.targetId===id&&r.black&&
+    publiclyKnownRoleFor(r.mediumId,confirmed)==="medium");
+}
+
 function confirmPublicResonators({confirmed,broken,addConfirmed}){
   const request=(state.publicRecords.fullCoRequests||[]).find(x=>x.role==="resonator");
   const count=publicRoleCount("resonator");
@@ -2942,19 +3289,16 @@ function confirmPublicResonators({confirmed,broken,addConfirmed}){
     if(!matchingResonatorPartners(claim,involved,id))return false;
   }
   // 指示時点の死亡者を最優先。旧保存形式は死亡日から保守的に復元する。
-  const priorDeadIds=Array.isArray(request.priorDeadIds)
-    ? request.priorDeadIds
-    : state.players.filter(p=>!p.alive&&(!(state.publicRecords.deaths||[]).some(d=>d.playerId===p.id)||
-        (state.publicRecords.deaths||[]).some(d=>d.playerId===p.id&&d.day<=request.day))).map(p=>p.id);
+  const priorDeadIds=priorDeadIdsForFullCo(request);
   for(const id of priorDeadIds){
     // 相互宣言済みの死者は潜伏不明枠ではない。ただし死亡後の宣言は証拠に使えない。
     const claim=latest.get(id);
     const death=(state.publicRecords.deaths||[]).find(d=>d.playerId===id);
     if(involved.has(id)&&claim&&death&&claim.day<death.day)continue;
-    const certainOther=confirmed.has(id)&&byId(id)?.claimed&&byId(id).claimed!=="resonator";
+    const knownRole=publiclyKnownRoleFor(id,confirmed);
     const certainlyWolf=(state.publicRecords.mediumResults||[]).some(r=>r.targetId===id&&r.black&&
-      confirmed.has(r.mediumId)&&byId(r.mediumId)?.claimed==="medium");
-    if(!certainOther&&!certainlyWolf)return false;
+      publiclyKnownRoleFor(r.mediumId,confirmed)==="medium");
+    if(!(knownRole&&knownRole!=="resonator")&&!certainlyWolf)return false;
   }
   let changed=false;
   for(const id of involved){
@@ -2976,17 +3320,10 @@ function confirmFullCoRoles({confirmed,broken,addConfirmed},fullCoRoles){
     const viable=claimants.filter(p=>!broken.has(p.id));
 
     // 生存者への全員COだけでは、未CO死亡者の潜伏真を排除できない。
-    // 役職が公開確定した死者や、CO指示前に別役職として確定した死者のみ除外する。
+    // 公開証明で別役職と分かった死者は、COの有無にかかわらず除外する。
     const request=(state.publicRecords.fullCoRequests||[]).find(x=>x.role===role);
-    const unexcludedDeaths=state.players.filter(p=>{
-      if(p.alive)return false;
-      const death=(state.publicRecords.deaths||[]).find(d=>d.playerId===p.id);
-      if(!death || !request || death.day>request.day)return false;
-      if(p.claimed===role)return false; // この役職のCO歴があれば潜伏不明枠ではない
-      const certainOther=confirmed.has(p.id)&&p.claimed&&p.claimed!==role;
-      const certainlyEnemy=(state.publicRecords.mediumResults||[]).some(x=>x.targetId===p.id&&x.black&&[...confirmed.keys()].some(id=>id===x.mediumId&&byId(id)?.claimed==="medium"));
-      return !certainOther&&!certainlyEnemy;
-    });
+    const unexcludedDeaths=priorDeadIdsForFullCo(request)
+      .filter(id=>!excludesDeadRoleCandidate(id,role,confirmed));
     if(viable.length===count&&unexcludedDeaths.length===0){
       for(const p of viable){
         if(addConfirmed(p.id,
@@ -3147,6 +3484,13 @@ function formatSpeechTopic(topic){
   const {details}=topic;
   let text;
   switch(topic.variant){
+    case "basicWait":text="今は、誰を信じるか疑うかを決めるだけの公開情報がありません。";break;
+    case "basicTrust":text=details.certainty==="confirmedNonWolf"?
+      `${details.targetName}さんは人狼ではないと見ています。${details.reason}。村人陣営かどうかは別に考えます。`:
+      `${details.targetName}さんを${details.certainty==="inferred"?"今のところ少し":""}信用しています。${details.reason}。`;break;
+    case "basicSuspect":text=details.certainty==="confirmedWolf"?
+      `${details.targetName}さんは人狼と見ています。${details.reason}。`:
+      `${details.targetName}さんを今のところ疑っています。${details.reason}。まだ人狼と決まったわけではありません。`;break;
     case "confirmedSeerBlack":text=`${details.seerName}さんは真占いで確定しているので、${details.targetName}さんへの黒は重く見ます。今日は${details.targetName}さんを優先して考えたいです。`;break;
     case "confirmedSeerWhite":text=`${details.seerName}さんは真占いで確定しているので、${details.targetName}さんは少なくとも人狼ではありません。この結果を前提に灰を見たいです。`;break;
     case "confirmedMediumResult":text=`${details.mediumName}さんは真霊媒で確定しているので、${details.targetName}さんの霊媒結果は確定情報として扱えます。ここから占い結果との整合性を見たいです。`;break;
@@ -3238,6 +3582,15 @@ function selectFirstDaySpeechTopic(top,evals){
 const COM_SPEECH_SCHEMA_VERSION=1;
 function describeComSpeech(observer,topic){
   const id=topic.targetId??null, d=topic.details||{}, v=topic.variant;
+  if(["basicTrust","basicSuspect","basicWait"].includes(v)){
+    const evidence=JSON.parse(JSON.stringify(d.evidence||[]));
+    return {schemaVersion:COM_SPEECH_SCHEMA_VERSION,variant:v,
+      target:id==null?null:{type:id===observer.id?"self":"individual",playerId:id},
+      relatedPlayerIds:[...new Set(evidence.map(e=>e.source?.snapshot?.seerId).filter(x=>Number.isInteger(x)))],
+      claim:id==null?null:{type:"evaluation",certainty:d.certainty,strength:d.certainty==="inferred"?"tentative":"confirmed"},
+      evidence,evidenceCoverage:evidence.length?"complete":"unresolved",
+      intent:id==null?"informationSharing":v==="basicTrust"?"defense":"pursuit",replyTo:null,influence:null};
+  }
   const evaluation=new Set(["confirmedSeerWhite","confirmedRolePremise","confirmed","firstDayConcern","firstDayUnknown","trustSeer","changedSuspect","suspect","trustWhite","grayConcern"]);
   const pointing=new Set(["broken","split","seerMediumConflict","peaceWithGuard","peaceWithoutGuard","multiSeer","multiMedium","multiKnight","confirmedMediumResult"]);
   const proposals=new Set(["confirmedSeerBlack","avoidCat","trustResonator","wait"]);
@@ -3301,7 +3654,51 @@ function recordComSpeech(observer,speech){
   observer.lastSpeechText=speech.fullText;
 }
 
+// 通常発言は公開人物信用の2種類に限定。旧25種は履歴/比較互換のため残す。
+function buildBasicSpeechCandidates(observer){
+  const context=roleTrustPublicContext();
+  const roles=computeObserverRoleTrust(null,context,true);
+  const people=computePublicPersonTrust(context,roles).people;
+  const candidates=[];
+  for(const target of context.people){
+    if(!target.alive||target.id===observer.id||target.claimed)continue;
+    const entry=people[target.id];
+    if(!entry||entry.conflictingCertainty||entry.score===50)continue;
+    const positive=entry.score>50;
+    const supporting=entry.evidence.filter(e=>e.visibility==="public"&&(
+      positive?["fixedVillageProtagonist","publicConfirmedVillage","seerWhite"].includes(e.type):e.type==="seerBlack"));
+    if(!supporting.length)continue;
+    const evidence=JSON.parse(JSON.stringify(supporting));
+    let reason,certainty="inferred";
+    const known=evidence.find(e=>["fixedVillageProtagonist","publicConfirmedVillage"].includes(e.type));
+    const result=evidence.filter(e=>e.source).sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta))[0];
+    if(known){reason="公開情報で村人陣営と確定しているからです";certainty="confirmedVillage";}
+    else if(result){
+      const row=result.source.snapshot;
+      const sourceName=byId(row.seerId)?.name;
+      if(!sourceName)continue;
+      const color=positive?"白":"黒";
+      if(result.roleTrust.status==="true"){
+        reason=`真確定した${sourceName}さんから${color}が出ているからです`;
+        certainty=positive?"confirmedNonWolf":"confirmedWolf";
+      }else reason=`${sourceName}さんから${color}が出ていて、その占い師の公開信用も材料にしています`;
+    }else continue;
+    candidates.push({kind:positive?"trust":"suspect",targetId:target.id,
+      variant:positive?"basicTrust":"basicSuspect",weight:Math.min(20,Math.abs(entry.score-50)),
+      details:{targetName:byId(target.id).name,reason,certainty,evidence}});
+  }
+  return candidates;
+}
 function selectSpeechTopic(observer){
+  if(!observer?.alive)return {kind:"none",targetId:null,variant:"basicWait",details:{}};
+  const candidates=buildBasicSpeechCandidates(observer);
+  if(!candidates.length)return {kind:"none",targetId:null,variant:"basicWait",details:{}};
+  const total=candidates.reduce((n,c)=>n+c.weight,0);
+  let draw=Math.random()*total;
+  for(const c of candidates){draw-=c.weight;if(draw<0)return c;}
+  return candidates[candidates.length-1];
+}
+function selectLegacySpeechTopic(observer){
   const publicInfo=buildPublicInfo();
   const privateInfo=buildPrivateInfo(observer);
 
@@ -3542,8 +3939,9 @@ function publishMorningRoleReports(){
 
 function resolveNight(){
   if(state.phase!=="night"||state.winner)return;
-  const guardTargets=chooseNightGuardTargets();
+  // 襲撃を決めてから実護衛を抽選。襲撃評価にその夜の秘密の護衛結果を渡さない。
   const attacked=roleLiving("wolf").length?chooseWolfAttackTarget():null;
+  const guardTargets=chooseNightGuardTargets();
   // 襲撃予定者も占いを実行し、死亡処理後の生存者だけが報告する。
   const foxKilled=resolveNightDivinations();
   applyNightFoxDeaths(foxKilled);

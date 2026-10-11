@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.11.3</title>
+<title>個人用人狼アプリ v2.12.0</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -116,7 +116,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.11.3</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.12.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -215,7 +215,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </div>
 
 <script>
-const GAME_VERSION="2.11.3";
+const GAME_VERSION="2.12.0";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -3654,19 +3654,498 @@ function selectFirstDaySpeechTopic(top,evals){
   return {kind:"wait",targetId:null,variant:"wait",details:{}};
 }
 
+// 朝一の文面データ。役職・陣営に依存しない。判断と根拠は別処理で決定する。
+const COM_MORNING_VOICES={
+  "joshua": {
+    "greeting": "おはよう、みんな。",
+    "brokenGreeting": "おはよう。……まず、僕の話を聞いてほしい。",
+    "role": "【役職】なら、【名前】が【評価】と思う。",
+    "person": "【名前】は【評価】だと思う。",
+    "lynch": "今日は【名前】を吊りたい。",
+    "keep": "【名前】は最後の狼だと考えているし、まだ狐が残っているかもしれない。今日は残したいな。",
+    "wait": "まだ判断しづらいな。もう少しみんなの話を聞いて考えたい。",
+    "reason": "【理由】からね。",
+    "firstDay": [
+      "おはようみんな。ジョシュアだよ。まずは落ち着いて話していこう。",
+      "僕はジョシュア。緊張するけど、みんなと力を合わせて頑張りたいな。",
+      "おはよう。分からないことは聞きながら考えていくよ。よろしくね。"
+    ],
+    "confirmed": "【名前】は【評価】と公開情報で確定しているよ。",
+    "info": "【事実】。この報告を見ながら、もう少し考えたいな。"
+  },
+  "geode": {
+    "greeting": "おはよーさん。",
+    "brokenGreeting": "おはよーさん。いやあ、厳しい朝だねえ。",
+    "role": "【役職】なら、【名前】が【評価】かねえ。",
+    "person": "俺は【名前】が【評価】と思うねえ。",
+    "lynch": "今日は【名前】を吊りたいねえ。",
+    "keep": "【名前】が最後の狼だと思うんだよねえ。狐がまだいるかもしれないし、今日は残そうや。",
+    "wait": "いやあ、まだ決め手がないねえ。おじさん、もうちょい話を聞きたいな。",
+    "reason": "【理由】からさ。",
+    "firstDay": [
+      "おはよーさん。ジオードだ。おじさんにもついていける話で頼むよ。",
+      "いやあ、朝から物騒だねえ。ま、肩の力を抜いて話そうや。",
+      "どーも、俺はジオード。軽そうだって？そこは否定できないねえ。"
+    ],
+    "confirmed": "【名前】は【評価】と公開情報で確定してるねえ。",
+    "info": "【事実】ってことだねえ。今は報告の整理までにしとくよ。"
+  },
+  "albert": {
+    "greeting": "おはよう。始めようか。",
+    "brokenGreeting": "……僕の説明に矛盾がある、ということだな。",
+    "role": "【役職】なら、【名前】が【評価】。",
+    "person": "【名前】は【評価】と考えている。",
+    "lynch": "今日は【名前】を吊るべきだと考える。",
+    "keep": "【名前】は最後の狼と見ている。狐が残っている可能性がある以上、今日は残したい。",
+    "wait": "現時点では判断材料が足りない。結論を出す前に、情報を整理したい。",
+    "reason": "【理由】からだ。",
+    "firstDay": [
+      "アルバートだ。よろしく。話は順番に聞かせてもらう。",
+      "おはよう。騒いでも状況は変わらない。落ち着いて始めよう。",
+      "挨拶は短く済ませよう。僕はアルバートだ。"
+    ],
+    "confirmed": "【名前】は【評価】と公開情報で確定している。",
+    "info": "【事実】。まずは報告として整理しておく。真偽の判断はこれからだ。"
+  },
+  "momiji": {
+    "greeting": "おはよー！",
+    "brokenGreeting": "お、おはよう！……そんなに一斉に見んなって！",
+    "role": "【役職】なら、俺は【名前】が【評価】と思うぞ！",
+    "person": "俺は【名前】が【評価】と思う！",
+    "lynch": "今日は【名前】を吊りたい！",
+    "keep": "【名前】が最後の狼だと思うんだ！狐がまだいるかもしれないなら、今日は残そうぜ！",
+    "wait": "うーん、まだ分かんねえ！もうちょっと話を聞かせてくれ！",
+    "reason": "【理由】からな！",
+    "firstDay": [
+      "おはよー！俺はモミジだ！難しい話は分かりやすく頼むぞ！",
+      "1.2.3...よし、みんないるな！俺はモミジ！困ったら遠慮なく言えよ！",
+      "おはよう！じっとしてるの苦手なんだよな。さっそく話そうぜ！"
+    ],
+    "confirmed": "【名前】は【評価】って公開情報で確定してるぞ！",
+    "info": "【事実】ってことだな！まだ誰を信じるかは決められねえ！"
+  },
+  "kaede": {
+    "greeting": "……おはよう。",
+    "brokenGreeting": "……うん。説明、しないといけないね。",
+    "role": "【役職】なら、僕は【名前】が【評価】と思う……。",
+    "person": "【名前】は【評価】だと思ってる。",
+    "lynch": "今日は……【名前】を吊りたい。",
+    "keep": "【名前】が最後の狼だと思う。まだ狐がいるかもしれないから……今日は残したい。",
+    "wait": "……まだ、決められない。もう少し考えさせてほしい。",
+    "reason": "【理由】から……。",
+    "firstDay": [
+      "……おはよう。カエデです。みんなの話、ちゃんと聞くから...。",
+      "カエデです。あまり喋るのは得意じゃないけど…よろしくお願いします。",
+      "おはよう。僕、考えるのに少し時間がかかるから...少し待ってもらえると助かる。"
+    ],
+    "confirmed": "【名前】は【評価】と公開情報で確定してる……。",
+    "info": "【事実】……。今は、報告として覚えておくね。"
+  },
+  "francois": {
+    "greeting": "ごきげんよう、諸君。",
+    "brokenGreeting": "ごきげんよう。随分と冷たい視線だね。",
+    "role": "【役職】なら、【名前】が【評価】ね。",
+    "person": "私は【名前】が【評価】と考えているよ。",
+    "lynch": "今日は【名前】を吊るのがよいと思うね。",
+    "keep": "【名前】を最後の狼と見るなら、まだ手放したくないね。狐が残っている可能性があるのだから。",
+    "wait": "結論を急ぐほどの材料はないね。もう少し、皆の話を聞かせてもらおう。",
+    "reason": "【理由】からだよ。",
+    "firstDay": [
+      "ごきげんよう。フランソワだ。皆、実に感じのよい顔をしているね。",
+      "フランソワと申します。親しくするにしても、まずは互いを知るところからだね。",
+      "おはよう、諸君。ここでどんな話が聞けるのか、楽しみにしているよ。"
+    ],
+    "confirmed": "【名前】は【評価】と公開情報で確定しているね。",
+    "info": "【事実】ということだね。報告と事実は、分けて考えさせてもらおう。"
+  },
+  "melbon": {
+    "greeting": "皆様、おはようございます。",
+    "brokenGreeting": "おはようございます。これは少々、分が悪いですね。",
+    "role": "【役職】でしたら、【名前】が【評価】と思います。",
+    "person": "【名前】は【評価】と思います。",
+    "lynch": "本日は【名前】を吊ることを提案いたします。",
+    "keep": "【名前】が最後の狼と考えております。狐が残っている可能性もございますので、本日は残しませんか。",
+    "wait": "まだ判断いたしかねますね。皆様のお話を、もう少し伺いたく存じます。",
+    "reason": "【理由】からですね。",
+    "firstDay": [
+      "おはようございます。メルボンと申します。どうぞお手柔らかに。",
+      "皆様、おはようございます。お話は最後まで伺いますので、一人ずつお願いいたしますね。",
+      "メルボンです。せっかくのご縁ですから、穏やかにお付き合いできれば幸いです。"
+    ],
+    "confirmed": "【名前】は【評価】と公開情報で確定しております。",
+    "info": "【事実】とのことですね。真偽につきましては、まだ判断を控えます。"
+  },
+  "milk": {
+    "greeting": "おはよ！",
+    "brokenGreeting": "……なに？みんなでぼくを責めるの？",
+    "role": "【役職】なら、【名前】が【評価】と思う！",
+    "person": "ぼく、【名前】は【評価】と思う。",
+    "lynch": "今日は【名前】を吊りたい。",
+    "keep": "【名前】が最後の狼だと思うの。狐がまだいるかもしれないなら、今日は吊っちゃだめだと思う。",
+    "wait": "うーん……まだ分かんない。もう少しお話して？",
+    "reason": "【理由】からだよ。",
+    "firstDay": [
+      "おはよ！ぼく、ミルク！ねえ、みんなもう起きてる？",
+      "ミルクだよ！こわい話でも、大きな声でおどかすのはなしだからね！",
+      "ふああ……おはよ。ねむいね...。あ、むずかしい言葉はつかわないでね。"
+    ],
+    "confirmed": "【名前】は【評価】って公開情報で決まってるんだよ。",
+    "info": "【事実】ってことだね。ほんとかどうかは、まだ分かんない。"
+  },
+  "max": {
+    "greeting": "おはよう。",
+    "brokenGreeting": "……何だ、その目は。言いたいことがあるなら言え。",
+    "role": "【役職】なら、僕は【名前】が【評価】と見ている。",
+    "person": "【名前】は【評価】と思うね。",
+    "lynch": "今日は【名前】を吊るべきだと思う。",
+    "keep": "【名前】が最後の狼だと思う。狐が残っているかもしれないのに、今吊るのは困るだろう。",
+    "wait": "まだ決めるには早いだろう。僕だって、材料もなしに判断はしない。",
+    "reason": "【理由】からだ。",
+    "firstDay": [
+      "僕はマックスだ。名前くらいきちんと覚えておいてくれよ。",
+      "おはよう。そんなに縮こまらなくてもいい。僕まで落ち着かないだろう。",
+      "マックスだ。挨拶もできないようでは困るからね。……ほら、君もおはよう。"
+    ],
+    "confirmed": "【名前】は【評価】と公開情報で確定しているんだ。",
+    "info": "【事実】ということだな。報告しただけで本物と決まるわけじゃないだろう。"
+  },
+  "cortes": {
+    "greeting": "おはようございます。",
+    "brokenGreeting": "……私の説明では、皆様にご納得いただけませんね。",
+    "role": "【役職】でしたら、【名前】が【評価】と思います。",
+    "person": "【名前】は【評価】と考えております。",
+    "lynch": "本日は【名前】を吊ることを提案いたします。",
+    "keep": "【名前】は最後の狼と考えております。狐が残っている可能性がございますので、本日は残すべきかと。",
+    "wait": "今のところ、判断を下すには材料が足りません。皆様のお話を伺いましょう。",
+    "reason": "【理由】からでございます。",
+    "firstDay": [
+      "おはようございます。コルテスでございます。皆様、どうぞよろしくお願いいたします。",
+      "皆様、おはようございます。急がずとも結構。まずは息を整えましょう。",
+      "コルテスと申します。困ったことがございましたら、お声がけくださいませ。"
+    ],
+    "confirmed": "【名前】は【評価】と公開情報で確定してございます。",
+    "info": "【事実】という状況でございます。真偽の判断には、もう少し材料が必要かと。"
+  },
+  "zaemon": {
+    "greeting": "おはよう、皆の者。",
+    "brokenGreeting": "ま、待て。儂の話を聞いてからでも遅くあるまい！",
+    "role": "【役職】なら、儂は【名前】が【評価】と見ておる。",
+    "person": "【名前】は【評価】と思うぞ。",
+    "lynch": "今日は【名前】を吊るべきじゃと思う。",
+    "keep": "【名前】が最後の狼と見ておる。狐がまだおるやもしれぬ。今日は残すのがよかろう。",
+    "wait": "まだ決め手が足りぬな。皆の者、もう少し話してみよ。",
+    "reason": "【理由】からじゃ。",
+    "firstDay": [
+      "儂がザエモンじゃ。そう固くならずともよい。面を上げて話すがよいぞ。",
+      "おはよう、皆の者。朝からしけた顔をするでない。儂まで気が滅入るわ。",
+      "ザエモンじゃ。挨拶は聞こえる声でな。この儂が返事をしてやろう。"
+    ],
+    "confirmed": "【名前】は【評価】と公開情報で確定しておるぞ。",
+    "info": "【事実】ということじゃな。これだけでは、まだ真偽は決められぬ。"
+  },
+  "yamato": {
+    "greeting": "おはよう。",
+    "brokenGreeting": "……申し開きは、容易ではないな。",
+    "role": "【役職】なら、【名前】が【評価】と見る。",
+    "person": "【名前】は【評価】と考える。",
+    "lynch": "今日は【名前】を吊るべきと考える。",
+    "keep": "【名前】が最後の狼と見る。狐が残っている可能性があるゆえ、今日は残したい。",
+    "wait": "今は判断を控える。結論を出すには、まだ材料が足りぬ。",
+    "reason": "【理由】ゆえだ。",
+    "firstDay": [
+      "ヤマトと申す。務めは果たす。よろしく頼む。",
+      "おはよう。まずは皆の話を聞こう。順に話してくれ。",
+      "拙者はヤマト。賑やかな挨拶は不得手ゆえ、これにて失礼。"
+    ],
+    "confirmed": "【名前】は【評価】と公開情報で確定しておる。",
+    "info": "【事実】とのことだ。まずは報告として押さえておこう。"
+  },
+  "henry": {
+    "greeting": "……おはよう。",
+    "brokenGreeting": "おはよう……僕、何か言った方がいいよね……。",
+    "role": "僕は……【役職】なら、【名前】が【評価】と思う。",
+    "person": "【名前】は【評価】だと思う……。",
+    "lynch": "今日は……【名前】を吊りたいと思ってる。",
+    "keep": "【名前】が最後の狼だと思うんだ。狐がまだいるかもしれないから……今日は残したい。",
+    "wait": "ごめん……まだ決められない。もう少し話を聞かせてもらえるかな。",
+    "reason": "【理由】から。",
+    "firstDay": [
+      "おはよう……ヘンリーです。声、小さいかな。よろしくね。",
+      "ヘンリーです。少し咳が出るけど、元気だから……気にしないで。",
+      "あの……僕もここにいるよ。おはよう、みんな。"
+    ],
+    "confirmed": "【名前】は【評価】と公開情報で確定してる……。",
+    "info": "【事実】……だね。まだ、ほんとかどうかまでは分からないけど。"
+  },
+  "dominic": {
+    "greeting": "よっ、おはよう！",
+    "brokenGreeting": "お、おう！……ずいぶん風当たりが強いな！",
+    "role": "【役職】なら、俺は【名前】が【評価】と思うぜ！",
+    "person": "【名前】は【評価】と思ってる！",
+    "lynch": "今日は【名前】を吊りたいぜ！",
+    "keep": "【名前】が最後の狼だと思うぜ。狐がまだいるかもしれねえなら、今日は残そう！",
+    "wait": "うーん、まだ決め手がねえな！もうひと押し、材料が欲しいぜ！",
+    "reason": "【理由】からな！",
+    "firstDay": [
+      "おはよう！ドミニクだ！まずは元気出していこうぜ！",
+      "よっ、みんな！声なら誰にも負けねえぞ！……でかすぎたか？",
+      "ドミニクだ。こうして顔を合わせたんだ、遠慮せず話そうぜ！"
+    ],
+    "confirmed": "【名前】は【評価】って公開情報で確定してるぜ！",
+    "info": "【事実】ってことだな！まずは覚えておこうぜ！"
+  },
+  "pattino": {
+    "greeting": "おはー。",
+    "brokenGreeting": "……あれ？これ、俺かなりヤバい感じ？",
+    "role": "【役職】なら、【名前】が【評価】かなー。",
+    "person": "俺、【名前】は【評価】って思ってる。",
+    "lynch": "今日は【名前】を吊りたいかなー。",
+    "keep": "【名前】って最後の狼だと思うんだよね。まだ狐いるかもだし、今日は残しとこうよ。",
+    "wait": "んー、まだピンとこないわ。もうちょい話してから決めよ？",
+    "reason": "【理由】からさ。",
+    "firstDay": [
+      "おはー。パッティーノだよ。ま、いい感じにやってこーぜ。",
+      "どーもどーも。なんか空気かたくね？もうちょい気楽にいこうよ。",
+      "パッティーノでーす。朝から頭使うのしんどいけど、とりあえず混ぜてよ。"
+    ],
+    "confirmed": "【名前】は【評価】って公開情報で確定してるんだよね。",
+    "info": "【事実】って感じね。まだ誰を信じるかまでは決めてないよ。"
+  },
+  "makimura": {
+    "greeting": "おはよう、みんな。",
+    "brokenGreeting": "……困ったな。何から話せばいいだろう。",
+    "role": "【役職】なら、【名前】が【評価】と思うな。",
+    "person": "【名前】は【評価】だと思う。",
+    "lynch": "今日は【名前】を吊りたいと思ってる。",
+    "keep": "【名前】が最後の狼だと思う。狐がまだ残っているかもしれないし、今日は残したいな。",
+    "wait": "まだ判断しきれないな。焦らず、もう少し話を聞こう。",
+    "reason": "【理由】からだよ。",
+    "firstDay": [
+      "おはよう、マキムラだ。眠れてない奴はいないか？無理はするなよ。",
+      "おはよう。朝の世話は済ませてきた。こっちでも手が要るなら言ってくれ。",
+      "おはよう。みんな、飯は食べたか？腹が減ってると気も立つからな。"
+    ],
+    "confirmed": "【名前】は【評価】と公開情報で確定しているんだよ。",
+    "info": "【事実】ということだな。焦らず、ほかの話も聞いていこう。"
+  },
+  "rixis": {
+    "greeting": "おはよう。",
+    "brokenGreeting": "……待ってくれ。少し、整理する時間が欲しい。",
+    "role": "【役職】なら、【名前】が【評価】と見ている。",
+    "person": "【名前】は【評価】と思う。",
+    "lynch": "今日は【名前】を吊りたい。",
+    "keep": "【名前】が最後の狼と見ている。狐が残っている可能性を考えると、今日は残したい。",
+    "wait": "まだ絞り込めないな。もう少し材料を集めてから判断する。",
+    "reason": "【理由】からだ。",
+    "firstDay": [
+      "リクシスだ、よろしく。名前と顔は先に覚えておくよ。",
+      "おはよう。知らない顔も多いな。まずは挨拶からいこうか。俺はリクシス、よろしくな。",
+      "リクシスだ。落ち着かない時ほどひと息ついた方がいい。俺もそうする。"
+    ],
+    "confirmed": "【名前】は【評価】と公開情報で確定している。",
+    "info": "【事実】という報告だな。真偽を判断するには、まだ材料が欲しい。"
+  },
+  "wanunu_iii": {
+    "greeting": "おはよう！ワン！",
+    "brokenGreeting": "……ぼくのはなし、へんだったか？",
+    "role": "【役職】なら、【名前】が【評価】と思う。",
+    "person": "【名前】は【評価】と思う。",
+    "lynch": "今日は【名前】をつりたい。",
+    "keep": "【名前】が、さいごのおおかみだと思う。きつね、まだいるかもしれない。今日はのこしたいぞ。",
+    "wait": "まだ、わからない。おはなし、もっときくぞ。",
+    "reason": "【理由】からだぞ。",
+    "firstDay": [
+      "おはよう！ワヌヌ3世だ！さんせいまでが、なまえだぞ！",
+      "ワン！……おはようだ。ぼく、ことばもわかるぞ。ちゃんときくぞ。",
+      "ぼく、ワヌヌ3世。いぬだけど、おはなしにいれてくれ。"
+    ],
+    "confirmed": "【名前】は【評価】って、みんながわかるはなしで、きまってるぞ。",
+    "info": "【事実】。そういうはなし、あったぞ。ほんとかどうか、まだわからない。"
+  },
+  "naminami": {
+    "greeting": "おはようございます！",
+    "brokenGreeting": "あれ……説明を間違えました？ちょっと待ってください！",
+    "role": "【役職】なら、【名前】が【評価】と思います！",
+    "person": "【名前】は【評価】と思います。",
+    "lynch": "今日は【名前】を吊りたいです。",
+    "keep": "【名前】が最後の狼だと思います。狐がまだいる可能性があるので、今日は残したいです！",
+    "wait": "まだ判断材料が足りませんね。もう少しお話を聞いてから考えます！",
+    "reason": "【理由】からです！",
+    "firstDay": [
+      "おはようございます！ナミナミです。チキュウの挨拶は、これで合っていますよね？",
+      "ナミナミです！見た目は少しキュートですが、皆さんのお話は分かります。よろしく！",
+      "こんばんは！……あっ、朝でしたね。ナミナミです。よろしくお願いします！"
+    ],
+    "confirmed": "【名前】は【評価】と公開情報で確定しています！",
+    "info": "【事実】ということですね！まだ真偽の判断まではできません。"
+  }
+};
+
+
+// 朝一専用候補。通常意見の入口・信用点数・実投票は変更しない。
+function buildMorningSpeechCandidates(observer){
+  const pub=buildSpeechPublicInformation(),decision=buildSpeechDecisionInformation(observer,pub);
+  const base=[...buildBasicSpeechCandidates(observer),...buildRoleTruthSpeechCandidates(observer),
+    ...buildExecutionSpeechCandidates(observer).topics];
+  const candidates=base.filter(t=>(t.details.evidence||[]).every(e=>{
+    const sourceId=e.source?.snapshot?.seerId;
+    if(sourceId==null)return true;
+    const role=decision.roles.roles.seer[sourceId];
+    return role&&role.status!=="false"&&!role.conflictingCertainty;
+  }));
+  // 偽物と断定できるのは公開の破綻だけ。本人の秘密で判明した偽は理由にしない。
+  for(const person of pub.context.people){
+    if(person.id===observer.id||!["seer","medium"].includes(person.claimed)||!pub.context.broken.has(person.id))continue;
+    const reasons=[...pub.context.broken.get(person.id)];
+    candidates.push({kind:"roleFalse",variant:"roleFalse",targetId:person.id,weight:20,
+      details:{targetName:byId(person.id).name+(person.alive?"":"（死亡）"),role:person.claimed,
+        roleLabel:person.claimed==="seer"?"占い師":"霊媒師",certainty:"confirmedFalse",
+        evidence:[{type:"publicBreakdown",visibility:"public",snapshot:{playerId:person.id,reasons}}]}});
+  }
+  // 生存＋公開占いを根拠に狐を否定。占い師自身の真偽は個人判断で選別する。
+  for(const target of pub.context.people){
+    if(!target.alive||target.claimed||target.id===observer.id)continue;
+    const person=decision.people.people[target.id];
+    if(!person||person.conflictingCertainty||pub.people.people[target.id]?.conflictingCertainty)continue;
+    for(const row of pub.context.seerRows.filter(r=>r.record.targetId===target.id&&!r.record.black&&r.record.day<=state.day)){
+      const id=row.record.seerId,publicRole=pub.roles.roles.seer[id],personalRole=decision.roles.roles.seer[id];
+      if(!publicRole||!personalRole||publicRole.status==="false"||personalRole.status==="false"||
+        publicRole.conflictingCertainty||personalRole.conflictingCertainty||
+        publicRole.status==="true"&&publiclyKnownRoleFor(id,pub.context.confirmed)!=="seer")continue;
+      const weight=personalSpeechWeight(personalRole.score,publicRole.score,true);
+      if(!weight)continue;
+      candidates.push({kind:"trust",variant:"nonFox",targetId:target.id,weight,
+        details:{targetName:byId(target.id).name,certainty:publicRole.status==="true"?"confirmedNonFox":"inferred",
+          evidence:[{type:"survivedPublicDivination",visibility:"public",source:JSON.parse(JSON.stringify(row.source)),
+            roleTrust:JSON.parse(JSON.stringify(publicRole)),snapshot:{playerId:target.id,alive:true}}]}});
+      // 同じ人物への複数の占いは候補数による加点にしない。
+      break;
+    }
+  }
+  if(candidates.length)return candidates;
+  // 中立の報告を信用根拠に格上げしない。評価不能なら公開情報の整理へ。
+  const reports=[...pub.context.seerRows,...pub.context.mediumRows].filter(row=>row.record.day<=state.day);
+  const latest=new Map();
+  for(const row of reports){
+    const id=row.record.seerId??row.record.mediumId,old=latest.get(id);
+    if(!old||row.record.day>old.record.day||row.record.day===old.record.day&&(row.record.order??0)>(old.record.order??0))latest.set(id,row);
+  }
+  for(const row of latest.values()){
+    const r=row.record;
+    candidates.push({kind:"information",variant:"morningInfo",targetId:r.targetId,weight:1,
+      details:{certainty:"reported",evidence:[{type:"reportedResult",visibility:"public",source:JSON.parse(JSON.stringify(row.source))}]}});
+  }
+  for(const role of ["seer","medium","knight"]){
+    const claimants=pub.context.people.filter(p=>p.claimed===role);
+    if(!claimants.length)continue;
+    candidates.push({kind:"information",variant:"morningInfo",targetId:null,weight:1,
+      details:{certainty:"reported",evidence:[{type:"claimSummary",visibility:"public",snapshot:{role,
+        claimants:claimants.map(p=>({playerId:p.id,alive:p.alive}))}}]}});
+  }
+  return candidates;
+}
+function selectMorningSpeechTopic(observer){
+  const groups=buildSpeechSelectionGroups(observer,buildMorningSpeechCandidates(observer));
+  if(!groups.length)return {kind:"none",variant:"basicWait",targetId:null,details:{}};
+  return weightedSpeechChoice(weightedSpeechChoice(groups).candidates).topic;
+}
+function morningVoiceFor(observer){
+  return COM_MORNING_VOICES[observer.characterId]||COM_MORNING_VOICES.joshua;
+}
+function morningName(observer,id){
+  const name=byId(id)?.name||"その人";
+  return name+(["melbon","cortes"].includes(observer.characterId)?"様":observer.characterId==="naminami"?"さん":"");
+}
+function morningRoleLabel(role){return ({seer:"占い師",medium:"霊媒師",knight:"騎士"})[role]||"役職";}
+// 理由は公開の構造記録から再構成。details.reasonの自由文・私的判断文は使わない。
+function morningReason(observer,topic){
+  const d=topic.details,evidence=copyPublicSpeechEvidence(d.evidence||[]),name=id=>morningName(observer,id);
+  const broken=evidence.find(e=>e.type==="publicBreakdown");
+  if(broken)return `「${broken.snapshot.reasons[0]}」という公開の矛盾がある`;
+  const confirmed=evidence.find(e=>e.type==="publicRoleConfirmation");
+  if(confirmed)return `公開情報で真${morningRoleLabel(confirmed.snapshot.role)}と確定している`;
+  const village=evidence.find(e=>e.type==="publicConfirmedVillage");
+  if(village)return "公開情報で村人陣営と確定している";
+  const match=evidence.find(e=>e.type==="confirmedResultMatch");
+  if(match){
+    const partner=(match.sources||[]).find(s=>d.role==="seer"?s.snapshot?.mediumId!=null:s.snapshot?.seerId!=null);
+    const id=d.role==="seer"?partner?.snapshot?.mediumId:partner?.snapshot?.seerId;
+    return `公開した結果が、真確定した${name(id)}の${d.role==="seer"?"霊媒":"占い"}結果と一致している`;
+  }
+  const fox=evidence.find(e=>e.type==="survivedPublicDivination");
+  if(fox)return `${fox.roleTrust.status==="true"?"真確定した":"真寄りに見ている"}${name(fox.source.snapshot.seerId)}に占われた後も生きている`;
+  const result=evidence.filter(e=>e.source?.snapshot&&(e.source.snapshot.seerId!=null||e.source.snapshot.mediumId!=null))
+    .sort((a,b)=>Math.abs(b.delta||0)-Math.abs(a.delta||0))[0];
+  if(result){
+    const r=result.source.snapshot;
+    const prefix=result.type==="confirmedWolfResult"||result.roleTrust?.status==="true"?"真確定した":"真寄りに見ている";
+    return `${prefix}${name(r.seerId??r.mediumId)}から${r.black?"黒":"白"}が出ている`;
+  }
+  return null;
+}
+function formatMorningConsideration(observer,topic){
+  const d=topic.details||{},v=topic.variant,voice=morningVoiceFor(observer),name=morningName(observer,topic.targetId)+(["roleTruth","roleFalse"].includes(topic.variant)&&!byId(topic.targetId)?.alive?"（死亡）":"");
+  const fill=(text,values)=>text.replace(/【(役職|名前|評価|理由|事実)】/g,(_,key)=>values[key]??"");
+  if(v==="basicWait")return voice.wait;
+  if(v==="morningInfo"){
+    const report=d.evidence.find(e=>e.type==="reportedResult");
+    const summary=d.evidence.find(e=>e.type==="claimSummary");
+    let fact;
+    if(report){const r=report.source.snapshot;fact=`${r.day}日目、${morningName(observer,r.seerId??r.mediumId)}は${morningName(observer,r.targetId)}に${r.black?"黒":"白"}を報告している。`;}
+    else if(summary)fact=`${morningRoleLabel(summary.snapshot.role)}のCOは${summary.snapshot.claimants.length}人。そのうち生存者は${summary.snapshot.claimants.filter(p=>p.alive).length}人。`;
+    else return voice.wait;
+    if(observer.characterId==="wanunu_iii")fact=fact.replace(/報告している/g,"言ってる").replace(/生存者/g,"いきてるひと");
+    return fill(voice.info,{事実:fact.replace(/。$/,""),});
+  }
+  if(v==="wolfKeep")return fill(voice.keep,{名前:morningName(observer,d.keepId)});
+  const reason=morningReason(observer,topic);
+  if(!reason)return voice.wait;
+  let template,evaluation;
+  if(v==="roleTruth"||v==="roleFalse"){
+    if(d.certainty==="confirmedRole")return fill(voice.confirmed,{名前:morningName(observer,topic.targetId)+(byId(topic.targetId)?.alive?"":"（死亡）"),評価:`真${d.roleLabel}`})+fill(voice.reason,{理由:reason});
+    if(v==="roleFalse")return fill(voice.confirmed,{名前:morningName(observer,topic.targetId)+(byId(topic.targetId)?.alive?"":"（死亡）"),評価:"破綻している"})+fill(voice.reason,{理由:reason});
+    template=voice.role;evaluation="本物っぽい";
+  }else if(v==="lynchProposal"){
+    const policy=d.evidence.find(e=>e.type==="executionPolicy")?.snapshot;
+    const keep=d.keeping?`${morningName(observer,policy.keep.keepId)}は今日は残して、` : "";
+    return keep+fill(voice.lynch,{名前:name})+fill(voice.reason,{理由:reason});
+  }else{
+    template=voice.person;
+    evaluation=v==="nonFox"?"狐ではなさそう":v==="basicSuspect"?"怪しい":"人狼ではなさそう";
+    if(d.certainty==="confirmedWolf")return fill(voice.confirmed,{名前:name,評価:observer.characterId==="wanunu_iii"?"おおかみ":"人狼"})+fill(voice.reason,{理由:reason});
+    if(d.certainty==="confirmedNonWolf"||d.certainty==="confirmedVillage")return fill(voice.confirmed,{名前:name,評価:observer.characterId==="wanunu_iii"?"おおかみではない":"人狼ではない"})+fill(voice.reason,{理由:reason});
+    if(d.certainty==="confirmedNonFox")return fill(voice.confirmed,{名前:name,評価:observer.characterId==="wanunu_iii"?"きつねではない":"狐ではない"})+fill(voice.reason,{理由:reason});
+  }
+  if(observer.characterId==="wanunu_iii")evaluation=evaluation.replace("怪しい","あやしい").replace("人狼","おおかみ").replace("狐","きつね");
+  return fill(template,{役職:d.roleLabel,名前:name,評価:evaluation})+fill(voice.reason,{理由:reason});
+}
+function generateMorningComSpeech(observer){
+  const voice=morningVoiceFor(observer);
+  if(state.day===1){
+    let text=voice.firstDay[Math.floor(Math.random()*voice.firstDay.length)];
+    if(!COM_MORNING_VOICES[observer.characterId])text=text.replaceAll("ジョシュア",observer.name);
+    const topic={kind:"greeting",targetId:null,variant:"firstDayGreeting",details:{}};
+    return {kind:topic.kind,targetId:null,text,fullText:`${observer.name}：「${text}」`,semantics:describeComSpeech(observer,topic)};
+  }
+  const topic=publicSpeechTopic(selectMorningSpeechTopic(observer));
+  const greeting=isPubliclyBroken(observer.id)?voice.brokenGreeting:voice.greeting;
+  const text=greeting+formatMorningConsideration(observer,topic);
+  return {kind:topic.kind,targetId:topic.targetId,text,fullText:`${observer.name}：「${text}」`,semantics:describeComSpeech(observer,topic)};
+}
+
 // 発言記録。公開根拠を保存し、通常発言の重複判定にも利用する。
 // intentは文章から心理を推測せず、明示的な情報整理/質問だけを記録する。
 const COM_SPEECH_SCHEMA_VERSION=1;
 function describeComSpeech(observer,topic){
   const id=topic.targetId??null, d=topic.details||{}, v=topic.variant;
-  if(["basicTrust","basicSuspect","basicWait","roleTruth","wolfKeep","lynchProposal"].includes(v)){
+  if(["basicTrust","basicSuspect","basicWait","roleTruth","wolfKeep","lynchProposal","roleFalse","nonFox","morningInfo","firstDayGreeting"].includes(v)){
     const evidence=copyPublicSpeechEvidence(d.evidence||[]);
     return {schemaVersion:COM_SPEECH_SCHEMA_VERSION,variant:v,
       target:id==null?null:{type:id===observer.id?"self":"individual",playerId:id},
       relatedPlayerIds:[...new Set(evidence.flatMap(e=>e.source?[e.source.snapshot?.seerId]:(e.sources||[]).flatMap(s=>[s.snapshot?.seerId,s.snapshot?.mediumId])).filter(x=>Number.isInteger(x)&&x!==id))],
-      claim:id==null&&v!=="wolfKeep"?null:{type:["wolfKeep","lynchProposal"].includes(v)?"proposal":"evaluation",certainty:d.certainty,strength:d.certainty==="conditional"?"conditional":d.certainty==="inferred"?"tentative":"confirmed"},
+      claim:["morningInfo","firstDayGreeting","basicWait"].includes(v)?null:{type:["wolfKeep","lynchProposal"].includes(v)?"proposal":"evaluation",certainty:d.certainty,strength:d.certainty==="conditional"?"conditional":d.certainty==="inferred"?"tentative":"confirmed"},
       evidence,evidenceCoverage:evidence.length?"complete":"unresolved",
-      intent:["wolfKeep","lynchProposal"].includes(v)?(v==="wolfKeep"?"defense":"pursuit"):id==null?"informationSharing":v==="basicTrust"?"defense":v==="roleTruth"?"informationSharing":"pursuit",replyTo:null,influence:null};
+      intent:["morningInfo","firstDayGreeting"].includes(v)?"informationSharing":["wolfKeep","lynchProposal"].includes(v)?(v==="wolfKeep"?"defense":"pursuit"):id==null?"informationSharing":["basicTrust","nonFox"].includes(v)?"defense":v==="roleTruth"?"informationSharing":"pursuit",replyTo:null,influence:null};
   }
   const evaluation=new Set(["confirmedSeerWhite","confirmedRolePremise","confirmed","firstDayConcern","firstDayUnknown","trustSeer","changedSuspect","suspect","trustWhite","grayConcern"]);
   const pointing=new Set(["broken","split","seerMediumConflict","peaceWithGuard","peaceWithoutGuard","multiSeer","multiMedium","multiKnight","confirmedMediumResult"]);
@@ -3899,7 +4378,7 @@ function buildExecutionSpeechCandidates(observer){
 }
 // 対象・主張・公開根拠の同一性。記録順、名前、言い回し、私的候補点は比較しない。
 function speechRepeatKey(topic){
-  const variants=["basicTrust","basicSuspect","roleTruth","lynchProposal","wolfKeep"];
+  const variants=["basicTrust","basicSuspect","roleTruth","lynchProposal","wolfKeep","roleFalse","nonFox","morningInfo"];
   if(!topic||!variants.includes(topic.variant))return null;
   const details=topic.details||topic;
   const evidence=details.evidence||[];
@@ -3950,8 +4429,9 @@ function buildSpeechSelectionGroups(observer,candidates){
     if(!Number.isFinite(topic.weight)||topic.weight<=0)continue;
     const factor=speechRepetitionFactor(observer,topic,repetition);
     const urgent=topic.variant==="wolfKeep"||topic.variant==="lynchProposal"&&topic.details.certainty==="confirmedWolf";
-    if(!groups.has(topic.variant))groups.set(topic.variant,{variant:topic.variant,baseWeight:1,freshness:0,candidates:[]});
-    const group=groups.get(topic.variant);
+    const groupKey=topic.variant==="roleFalse"?"roleTruth":topic.variant==="nonFox"?"basicTrust":topic.variant;
+    if(!groups.has(groupKey))groups.set(groupKey,{variant:groupKey,baseWeight:1,freshness:0,candidates:[]});
+    const group=groups.get(groupKey);
     group.baseWeight=Math.max(group.baseWeight,urgent?2:1);
     group.freshness=Math.max(group.freshness,factor);
     group.candidates.push({topic,weight:topic.weight*factor});
@@ -4064,7 +4544,8 @@ function selectLegacySpeechTopic(observer){
   return {kind:"wait",targetId:null,variant:"wait",details:{}};
 }
 
-function generateComSpeech(observer){
+function generateComSpeech(observer,morning=false){
+  if(morning)return generateMorningComSpeech(observer);
   const selected=publicSpeechTopic(selectSpeechTopic(observer));
   const topic=formatSpeechTopic(selected);
   return {...topic,fullText:`${observer.name}：「${topic.text}」`,semantics:describeComSpeech(observer,selected)};
@@ -4074,9 +4555,9 @@ function runDaySpeeches(){
   const speakers=living().filter(p=>!p.isSelf&&(p.lastSpeechDay||0)!==state.day);
   if(!speakers.length)return;
 
-  log(`── ${state.day}日目の意見 ──`,"system");
+  log(`── ${state.day}日目の${state.day===1?"挨拶":"朝一"} ──`,"system");
   speakers.forEach(p=>{
-    const speech=generateComSpeech(p);
+    const speech=generateComSpeech(p,true);
     recordComSpeech(p,speech);
     log(speech.fullText,"talk");
   });

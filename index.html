@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.13.0</title>
+<title>個人用人狼アプリ v2.14.0</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -116,7 +116,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.13.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.14.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -215,7 +215,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </div>
 
 <script>
-const GAME_VERSION="2.13.0";
+const GAME_VERSION="2.14.0";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -997,7 +997,7 @@ function ensureCharacterMetadata(){
 
 function newPlayer(id,name,role,isSelf=false){
   return {
-    id,name,role,alive:true,isSelf,claimed:null,roleTrust:null,personTrust:null,privatePersonTrust:null,wolfOutwardTrust:null,wolfThreat:null,
+    id,name,role,alive:true,isSelf,claimed:null,roleTrust:null,personTrust:null,privatePersonTrust:null,wolfOutwardTrust:null,wolfThreat:null,characterOutlook:null,outwardOutlook:null,
     seerResults:[],mediumResults:[],fakeSeerResults:[],fakeMediumResults:[],
     forcedSeerTarget:null,forcedGuardTarget:null,fakeClaimRole:null,
     lastReportedSeerCount:0,lastReportedMediumCount:0,
@@ -4105,61 +4105,207 @@ function refreshRoleHypotheses(){
     p.roleHypotheses=buildRoleHypotheses(p,context);
     p.outwardRoleHypotheses=p.role==='wolf'?buildRoleHypotheses(p,context,true):null;
   }
+  refreshCharacterOutlooks();
 }
-function buildHypothesisMorningCandidates(observer,pub){
-  const model=buildRoleHypotheses(observer,pub.context,observer.role==='wolf'),supported=model.supported;
-  if(!supported)return [];
+function buildHypothesisMorningCandidates(observer,pub,outlook){
+  outlook=outlook||buildCharacterOutlook(observer,pub,observer.role==='wolf');
   const candidates=[];
   const add=(variant,id,weight,evidence,extra={})=>candidates.push({kind:variant==='roleTruth'?'roleTruth':variant==='basicTrust'?'trust':variant==='lynchProposal'?'lynch':'suspect',
-    variant,targetId:id,weight,details:{certainty:'inferred',hypothesis:true,evidence,...extra}});
-  const rows=[...pub.context.seerRows,...pub.context.mediumRows];
-  for(const role of ['seer','medium']){
-    const selected=supported.trueIds[role].filter(id=>byId(id)?.claimed===role);
-    for(const person of pub.context.claimants.filter(p=>p.role===role&&p.id!==observer.id)){
-      if(pub.context.confirmed.has(person.id)||pub.context.broken.has(person.id))continue;
-      const isTrue=selected.includes(person.id);
-      const evidence=[];
-      // 予想を支持する理由には公開された結果の一致だけを使う。
-      if(isTrue){
-        for(const s of pub.context.seerRows)for(const m of pub.context.mediumRows){
-          if(s.record.targetId!==m.record.targetId||s.record.black!==m.record.black||
-            !supported.trueIds.seer.includes(s.record.seerId)||!supported.trueIds.medium.includes(m.record.mediumId)||
-            ![s.record.seerId,m.record.mediumId].includes(person.id))continue;
-          evidence.push({type:'hypothesisResultMatch',visibility:'public',sources:[s.source,m.source]});
-        }
-      }
-      if(!isTrue){
-        const request=(state.publicRecords.fullCoRequests||[]).find(r=>r.role===role);
-        if(request&&pub.context.claimants.filter(p=>p.role===role).length>pub.context.counts[role])evidence.push({type:'hypothesisRoleComparison',visibility:'public',
-          snapshot:{role,claimantIds:pub.context.claimants.filter(p=>p.role===role).map(p=>p.id),roleCount:pub.context.counts[role]}});
-      }
-      add(isTrue?'roleTruth':'roleFalse',person.id,3,evidence,{role,roleLabel:morningRoleLabel(role)});
-    }
+    variant,targetId:id,weight,details:{certainty:'inferred',hypothesis:true,evidence:JSON.parse(JSON.stringify(evidence)),...extra}});
+  for(const role of ['seer','medium'])for(const entry of Object.values(outlook.roles[role].assessments)){
+    if(entry.targetId===observer.id||entry.view==='unknown'||entry.certaintyScope==='public')continue;
+    add(entry.view==='true'?'roleTruth':'roleFalse',entry.targetId,3,entry.publicEvidence,{role,roleLabel:morningRoleLabel(role)});
   }
-  const policy=buildPublicExecutionEvaluation(observer);
-  for(const target of pub.context.people){
-    if(!target.alive||target.id===observer.id||!Object.hasOwn(supported.colors,target.id))continue;
-    const black=supported.colors[target.id];
-    const publicRows=rows.filter(row=>row.record.targetId===target.id&&row.record.black===black&&
-      supported.trueIds[row.record.seerId!=null?'seer':'medium'].includes(row.record.seerId??row.record.mediumId));
-    const evidence=publicRows.slice(0,1).map(row=>({type:'hypothesisResult',visibility:'public',source:row.source}));
-    // 非公開の結果で選ばれた結論は個人の予想としてだけ述べ、根拠は空にする。
-    if(!target.claimed)add(black?'basicSuspect':'basicTrust',target.id,black?6:3,evidence);
-    const survivedRow=publicRows.find(row=>row.record.seerId!=null&&row.record.day>1);
-    if(!black&&!target.claimed&&supported.notFoxIds.includes(target.id)&&survivedRow)
-      add('nonFox',target.id,2,[{type:'survivedPublicDivination',visibility:'public',source:survivedRow.source,
-        roleTrust:{status:pub.roles.roles.seer[survivedRow.record.seerId]?.status||'unconfirmed'},
-        snapshot:{playerId:target.id,alive:true}}]);
-    if(black&&!pub.context.knownVillageIds.has(target.id)&&target.claimed!=='cat'&&!(policy.keep?.active&&target.id===policy.keep.keepId)){
-      add('lynchProposal',target.id,5,evidence);
+  for(const entry of Object.values(outlook.people)){
+    const id=entry.targetId;
+    if(!entry.alive||id===observer.id||entry.conflictingInformation)continue;
+    if(!entry.claimed&&entry.wolfView!=='unknown'){
+      add(entry.wolfView==='wolfLeaning'?'basicSuspect':'basicTrust',id,entry.wolfView==='wolfLeaning'?6:3,entry.publicEvidence);
+      if(entry.wolfView==='nonWolfLeaning'&&entry.foxView==='unlikely'&&entry.foxEvidence.length)add('nonFox',id,2,entry.foxEvidence);
     }
+    if(id===outlook.lynchPreference.targetId&&entry.wolfView==='wolfLeaning')add('lynchProposal',id,5,entry.publicEvidence);
   }
   return candidates;
 }
 
-// 朝一専用候補。通常意見の入口・信用点数・実投票は変更しない。
+// 各キャラの現在の見立て。全体を私的データとして保存し、発言には公開根拠だけを投影する。
+const CHARACTER_OUTLOOK_VERSION=1;
+function outlookInformation(observer,pub,publicOnly){
+  const records=state.publicRecords||{};
+  const profile=hasValidCharacterProfile(observer.characterProfile,observer.characterId)?observer.characterProfile:
+    CHARACTER_ROSTER.find(p=>p.id===observer.characterId);
+  return {
+    roleCounts:pub.context.counts,
+    co:{people:pub.context.people.map(p=>({id:p.id,claimed:p.claimed??null})),events:records.coEvents||[],full:records.fullCoRequests||[]},
+    reports:{seer:pub.context.seerRows,medium:pub.context.mediumRows},
+    deaths:{people:pub.context.people.map(p=>({id:p.id,alive:p.alive})),deaths:records.deaths||[],executions:records.executions||[],cat:records.catChains||[]},
+    certainty:{confirmed:[...pub.context.confirmed].map(([id,reasons])=>({id,role:publiclyKnownRoleFor(id,pub.context.confirmed),reasons})),broken:[...pub.context.broken]},
+    guards:{reports:records.guards||[],instructions:records.guardInstructions||[]},
+    privateInfo:publicOnly?null:{...buildPrivateInfo(observer),
+      results:['seer','medium'].includes(observer.role)?observer[observer.role+'Results']||[]:[]},
+    persona:{id:observer.id,characterId:observer.characterId??null,stats:profile?.stats||null,roster:state.players.map(p=>p.name)}
+  };
+}
+function canOutlookLynch(observer,person,context,policy){
+  return person.alive&&person.id!==observer.id&&!context.knownVillageIds.has(person.id)&&
+    !(policy.keep.active&&person.id===policy.keep.keepId)&&
+    (person.claimed!=='cat'||context.broken.has(person.id)||!!policy.wolfEvidence[person.id]);
+}
+function buildCharacterOutlook(observer,pub=buildSpeechPublicInformation(),publicOnly=false){
+  const basis=publicOnly?'outward':'personal';
+  const stored=publicOnly?observer.outwardOutlook:observer.characterOutlook;
+  const previous=stored?.schemaVersion===CHARACTER_OUTLOOK_VERSION&&stored.visibility==='private'&&
+    stored.observerId===observer.id&&stored.basis===basis?stored:null;
+  const information=outlookInformation(observer,pub,publicOnly),informationKey=JSON.stringify(information);
+  const model=buildRoleHypotheses(observer,pub.context,publicOnly),supported=model.supported;
+  const info=publicOnly?{selfRole:null,knownWolfAllies:[]}:buildPrivateInfo(observer);
+  const knownWolves=new Set(info.knownWolfAllies);
+  if(info.selfRole==='wolf')knownWolves.add(observer.id);
+  const policy=buildPublicExecutionEvaluation(observer),rows=[...pub.context.seerRows,...pub.context.mediumRows];
+  const roleForRow=row=>row.record.seerId!=null?'seer':'medium';
+  const sourceId=row=>row.record.seerId??row.record.mediumId;
+  const publiclyTrue=row=>!pub.context.broken.has(sourceId(row))&&
+    publiclyKnownRoleFor(sourceId(row),pub.context.confirmed)===roleForRow(row);
+  const selected=row=>supported?.trueIds[roleForRow(row)].includes(sourceId(row));
+  const roles={},roleTrustModel=computeObserverRoleTrust(publicOnly?null:observer,pub.context,publicOnly);
+  for(const role of ['seer','medium']){
+    const ids=(supported?.trueIds[role]||[...pub.context.confirmed.keys()].filter(id=>publiclyKnownRoleFor(id,pub.context.confirmed)===role)).filter(id=>!pub.context.broken.has(id));
+    const assessments={};
+    for(const person of pub.context.claimants.filter(p=>p.role===role)){
+      const publicTrue=publiclyKnownRoleFor(person.id,pub.context.confirmed)===role;
+      const publicFalse=pub.context.broken.has(person.id),chosen=ids.includes(person.id);
+      const view=publicFalse?'false':publicTrue||chosen?'true':supported?'false':'unknown';
+      const publicEvidence=[];
+      if(publicFalse)publicEvidence.push({type:'publicBreakdown',visibility:'public',snapshot:{playerId:person.id,reasons:[...pub.context.broken.get(person.id)]}});
+      else if(publicTrue)publicEvidence.push({type:'publicRoleConfirmation',visibility:'public',snapshot:{playerId:person.id,role,reasons:[...pub.context.confirmed.get(person.id)]}});
+      else if(chosen){
+        for(const s of pub.context.seerRows)for(const m of pub.context.mediumRows){
+          if(s.record.targetId!==m.record.targetId||s.record.black!==m.record.black||!selected(s)||!selected(m)||
+            ![s.record.seerId,m.record.mediumId].includes(person.id))continue;
+          publicEvidence.push({type:'hypothesisResultMatch',visibility:'public',sources:[s.source,m.source]});
+        }
+      }else if(view==='false'&&(state.publicRecords.fullCoRequests||[]).some(r=>r.role===role)){
+        const claimants=pub.context.claimants.filter(p=>p.role===role);
+        if(claimants.length>pub.context.counts[role])publicEvidence.push({type:'hypothesisRoleComparison',visibility:'public',
+          snapshot:{role,claimantIds:claimants.map(p=>p.id),roleCount:pub.context.counts[role]}});
+      }
+      const roleTrust=roleTrustModel.roles[role][person.id];
+      assessments[person.id]={targetId:person.id,view,certaintyScope:publicTrue||publicFalse?'public':
+        roleTrust?.certaintyScope==='private'?'private':view==='unknown'?null:'inferred',
+        judgmentReasons:JSON.parse(JSON.stringify(roleTrust?.evidence||[])),publicEvidence:copyPublicSpeechEvidence(publicEvidence)};
+    }
+    roles[role]={trueCandidateIds:[...ids],unknownTrueSlots:Math.max(0,(pub.context.counts[role]||0)-ids.length),assessments};
+  }
+  const people={};
+  for(const target of pub.context.people){
+    const id=target.id,publicRole=publiclyKnownRoleFor(id,pub.context.confirmed);
+    const ownRole=!publicOnly&&id===observer.id?info.selfRole:null;
+    const publicRows=rows.filter(row=>row.record.targetId===id&&publiclyTrue(row));
+    const ownRows=!publicOnly&&['seer','medium'].includes(info.selfRole)?
+      (observer[info.selfRole+'Results']||[]).filter(r=>(r.target??r.targetId)===id):[];
+    const colors=new Set(publicRows.map(row=>!!row.record.black));
+    if(publicRole)colors.add(publicRole==='wolf');
+    if(ownRole)colors.add(ownRole==='wolf');
+    if(knownWolves.has(id))colors.add(true);
+    for(const r of ownRows)colors.add(!!r.black);
+    if(supported&&Object.hasOwn(supported.colors,id))colors.add(supported.colors[id]);
+    if(['seer','medium'].some(role=>roles[role].trueCandidateIds.includes(id)))colors.add(false);
+    const conflictingInformation=colors.size>1;
+    const black=colors.size===1?[...colors][0]:null;
+    const wolfView=conflictingInformation||black===null?'unknown':black?'wolfLeaning':'nonWolfLeaning';
+    const publicColor=publicRows.some(row=>row.record.black===black)||publicRole&&black===(publicRole==='wolf');
+    const privateColor=ownRole||knownWolves.has(id)||ownRows.length;
+    const wolfScope=wolfView==='unknown'?null:publicColor?'public':privateColor?'private':'inferred';
+    const reportRoots=rows.filter(row=>row.record.targetId===id&&row.record.black===black&&(selected(row)||publiclyTrue(row)));
+    const publicEvidence=reportRoots.slice(0,1).map(row=>({type:publiclyTrue(row)?black?'confirmedWolfResult':'seerWhite':'hypothesisResult',visibility:'public',
+      source:row.source,...(publiclyTrue(row)?{roleTrust:{status:'true'}}:{})}));
+    if(publicRole&&TEAM[publicRole]==='村人陣営')publicEvidence.unshift({type:'publicConfirmedVillage',visibility:'public',snapshot:{playerId:id,role:publicRole}});
+    const survived=rows.find(row=>row.record.targetId===id&&row.record.seerId!=null&&!row.record.black&&row.record.day>1&&target.alive&&(selected(row)||publiclyTrue(row)));
+    const privateNotFox=ownRole&&ownRole!=='fox'||knownWolves.has(id)||info.selfRole==='seer'&&ownRows.some(r=>r.day>1)&&target.alive;
+    const publicNotFox=(pub.context.counts.fox??0)===0||publicRole&&publicRole!=='fox'||survived&&publiclyTrue(survived);
+    const inferredNotFox=supported?.notFoxIds.includes(id)||wolfView==='wolfLeaning'||['seer','medium'].some(role=>roles[role].trueCandidateIds.includes(id));
+    const foxView=publicNotFox||privateNotFox||inferredNotFox?'unlikely':pub.context.counts.fox>0?'possible':'unknown';
+    const foxEvidence=survived?[{type:'survivedPublicDivination',visibility:'public',source:survived.source,
+      roleTrust:{status:publiclyTrue(survived)?'true':'unconfirmed'},snapshot:{playerId:id,alive:true}}]:[];
+    const judgmentReasons=reportRoots.map(row=>({type:'supportedReportedResult',visibility:'public',source:row.source}));
+    if(ownRole)judgmentReasons.push({type:'ownIdentity',visibility:'private',snapshot:{role:ownRole}});
+    if(knownWolves.has(id))judgmentReasons.push({type:'knownWolf',visibility:'private',snapshot:{playerId:id}});
+    for(const r of ownRows)judgmentReasons.push({type:info.selfRole==='seer'?'ownSeerResult':'ownMediumResult',visibility:'private',snapshot:{day:r.day,targetId:id,black:r.black}});
+    if(publicRole)judgmentReasons.push({type:'publicRoleConfirmation',visibility:'public',snapshot:{playerId:id,role:publicRole}});
+    people[id]={targetId:id,alive:target.alive,claimed:target.claimed,wolfView,wolfCertaintyScope:wolfScope,
+      foxView,foxCertaintyScope:publicNotFox?'public':privateNotFox?'private':inferredNotFox?'inferred':null,
+      knownRole:ownRole||publicRole||(knownWolves.has(id)?'wolf':null),conflictingInformation,
+      judgmentReasons,publicEvidence:copyPublicSpeechEvidence(publicEvidence),foxEvidence:copyPublicSpeechEvidence(foxEvidence)};
+  }
+  const eligible=pub.context.people.filter(p=>canOutlookLynch(observer,p,pub.context,policy)&&
+    !people[p.id].conflictingInformation&&(people[p.id].wolfView==='wolfLeaning'||pub.context.broken.has(p.id)));
+  const ranked=eligible.map(p=>{
+    const publicCandidate=policy.candidates.find(c=>c.targetId===p.id);
+    const tier=policy.wolfEvidence[p.id]?3:pub.context.broken.has(p.id)?2:1;
+    return {id:p.id,tier,score:publicCandidate?.score||25};
+  }).sort((a,b)=>b.tier-a.tier||b.score-a.score||
+    (hypothesisBias(observer,'lynch:'+b.id)+(previous?.lynchPreference?.targetId===b.id ? .2 : 0))-
+    (hypothesisBias(observer,'lynch:'+a.id)+(previous?.lynchPreference?.targetId===a.id ? .2 : 0))||a.id-b.id);
+  const preferred=ranked[0],entry=preferred?people[preferred.id]:null;
+  const lynchPreference=preferred?{targetId:preferred.id,reasonType:preferred.tier===3?'confirmedWolf':preferred.tier===2?'publicBreakdown':'hypothesisBlack',
+    certaintyScope:preferred.tier===3?'public':entry.wolfCertaintyScope,eligibleTargetIds:ranked.map(p=>p.id)}:
+    {targetId:null,reasonType:'noEligibleTarget',certaintyScope:null,eligibleTargetIds:[]};
+  const protection=policy.keep.active?{targetIds:[policy.keep.keepId],reasonType:'publicWolfKeep',policy:JSON.parse(JSON.stringify(policy.keep))}:
+    {targetIds:[],reasonType:null,policy:JSON.parse(JSON.stringify(policy.keep))};
+  const core={roles,people,lynchPreference,protection};
+  const predictionKey=JSON.stringify({supportKey:model.supportKey,roles:Object.fromEntries(Object.entries(roles).map(([role,r])=>[role,{trueCandidateIds:r.trueCandidateIds,views:Object.fromEntries(Object.entries(r.assessments).map(([id,a])=>[id,[a.view,a.certaintyScope]]))}])),
+    people:Object.fromEntries(Object.entries(people).map(([id,p])=>[id,[p.wolfView,p.wolfCertaintyScope,p.foxView,p.foxCertaintyScope,p.knownRole,p.conflictingInformation]])),lynch:lynchPreference.targetId,protect:protection.targetIds});
+  const changed=previous?.informationKey!==informationKey||previous?.predictionKey!==predictionKey;
+  const causes=[];
+  let oldInformation;
+  try{oldInformation=previous?JSON.parse(previous.informationKey):null;}catch{}
+  if(!oldInformation)causes.push('initial');
+  else for(const key of Object.keys(information))if(JSON.stringify(oldInformation[key])!==JSON.stringify(information[key]))causes.push(key);
+  if(!causes.length&&changed)causes.push('revalidated');
+  const history=Array.isArray(previous?.updateHistory)?previous.updateHistory.slice(-15):[];
+  const revisions=Number.isInteger(previous?.revision)?previous.revision:0;
+  const revision=changed?revisions+1:revisions;
+  const personState=p=>p?{alive:p.alive,wolfView:p.wolfView,wolfCertaintyScope:p.wolfCertaintyScope,
+    foxView:p.foxView,foxCertaintyScope:p.foxCertaintyScope,knownRole:p.knownRole}:null;
+  const peopleChanges=Object.keys(people).map(Number).map(id=>({targetId:id,before:personState(previous?.people?.[id]),after:personState(people[id])}))
+    .filter(change=>JSON.stringify(change.before)!==JSON.stringify(change.after));
+  const roleChanges=Object.entries(roles).filter(([role,r])=>JSON.stringify(previous?.roles?.[role])!==JSON.stringify(r))
+    .map(([role,r])=>({role,previousTrueIds:previous?.roles?.[role]?.trueCandidateIds||[],trueIds:r.trueCandidateIds}));
+  const event={revision,day:state.day,order:state.publicRecords.publishClock||0,causes,
+    previousSupportKey:previous?.supportKey||null,supportKey:model.supportKey,
+    changedPeople:peopleChanges.map(c=>c.targetId),peopleChanges,roleChanges,previousLynchId:previous?.lynchPreference?.targetId??null,lynchId:lynchPreference.targetId};
+  return {schemaVersion:CHARACTER_OUTLOOK_VERSION,visibility:'private',basis,observerId:observer.id,
+    informationKey,predictionKey,supportKey:model.supportKey,status:model.status,revision,
+    updatedDay:changed?state.day:previous.updatedDay,updatedOrder:changed?state.publicRecords.publishClock||0:previous.updatedOrder,
+    updateHistory:changed?[...history,event].slice(-16):Array.isArray(previous.updateHistory)?previous.updateHistory:[],...core};
+}
+function refreshCharacterOutlooks(){
+  const pub=buildSpeechPublicInformation();
+  for(const observer of state.players){
+    if(!observer.alive)continue;
+    observer.characterOutlook=buildCharacterOutlook(observer,pub);
+    observer.outwardOutlook=observer.role==='wolf'?buildCharacterOutlook(observer,pub,true):null;
+  }
+}
+function speechFitsOutlook(observer,topic,outlook){
+  const id=topic.targetId,p=outlook.people[id];
+  if(topic.variant==='roleTruth'||topic.variant==='roleFalse')return outlook.roles[topic.details.role]?.assessments[id]?.view===(topic.variant==='roleTruth'?'true':'false');
+  if(topic.variant==='basicTrust')return p?.wolfView==='nonWolfLeaning'&&!p.conflictingInformation;
+  if(topic.variant==='basicSuspect')return p?.wolfView==='wolfLeaning'&&!p.conflictingInformation;
+  if(topic.variant==='nonFox')return p?.foxView==='unlikely'&&!p.conflictingInformation;
+  if(topic.variant==='lynchProposal')return id===outlook.lynchPreference.targetId;
+  if(topic.variant==='wolfKeep')return outlook.protection.targetIds.includes(topic.details.keepId??id);
+  return true;
+}
 function buildMorningSpeechCandidates(observer){
-  const pub=buildSpeechPublicInformation(),decision=buildSpeechDecisionInformation(observer,pub);
+  const pub=buildSpeechPublicInformation(),outlook=buildCharacterOutlook(observer,pub,observer.role==='wolf');
+  const topics=buildOutlookSpeechCandidates(observer,pub,outlook).filter(t=>speechFitsOutlook(observer,t,outlook));
+  return topics.length?topics:buildMorningInformationCandidates(pub);
+}
+
+// 朝一専用候補。通常意見の入口・信用点数・実投票は変更しない。
+function buildOutlookSpeechCandidates(observer,pub,outlook){
+  const decision=buildSpeechDecisionInformation(observer,pub);
   const base=[...buildBasicSpeechCandidates(observer),...buildRoleTruthSpeechCandidates(observer),
     ...buildExecutionSpeechCandidates(observer).topics];
   const candidates=base.filter(t=>(t.details.evidence||[]).every(e=>{
@@ -4197,12 +4343,12 @@ function buildMorningSpeechCandidates(observer){
       break;
     }
   }
-  const hypotheses=buildHypothesisMorningCandidates(observer,pub);
+  const hypotheses=buildHypothesisMorningCandidates(observer,pub,outlook);
   if(hypotheses.length){
     // 予想の話題があれば、毎朝の真確定役職の復唱は候補から外す。
     const useful=candidates.filter(t=>t.variant!=="roleTruth"||t.details.certainty!=="confirmedRole"||
       !(observer.speechHistory||[]).some(h=>h.semantics?.variant==="roleTruth"&&h.semantics?.target?.playerId===t.targetId&&h.semantics?.claim?.certainty==="confirmedRole"));
-    const supported=buildRoleHypotheses(observer,pub.context,observer.role==="wolf").supported;
+    const supported={trueIds:Object.fromEntries(Object.entries(outlook.roles).map(([role,r])=>[role,r.trueCandidateIds]))};
     const coherent=useful.filter(t=>{
       if(t.details.certainty!=="inferred")return true;
       if(t.variant==="roleTruth")return supported.trueIds[t.details.role]?.includes(t.targetId);
@@ -4214,6 +4360,10 @@ function buildMorningSpeechCandidates(observer){
     return [...coherent,...hypotheses.filter(t=>!coherent.some(c=>c.variant===t.variant&&c.targetId===t.targetId))];
   }
   if(candidates.length)return candidates;
+  return buildMorningInformationCandidates(pub);
+}
+function buildMorningInformationCandidates(pub){
+  const candidates=[];
   // 中立の報告を信用根拠に格上げしない。評価不能なら公開情報の整理へ。
   const reports=[...pub.context.seerRows,...pub.context.mediumRows].filter(row=>row.record.day<=state.day);
   const latest=new Map();

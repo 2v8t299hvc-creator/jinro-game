@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.11.2</title>
+<title>個人用人狼アプリ v2.11.3</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -116,7 +116,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.11.2</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.11.3</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -215,7 +215,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </div>
 
 <script>
-const GAME_VERSION="2.11.2";
+const GAME_VERSION="2.11.3";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -3654,7 +3654,7 @@ function selectFirstDaySpeechTopic(top,evals){
   return {kind:"wait",targetId:null,variant:"wait",details:{}};
 }
 
-// 発言記録の第1段階。判断・文面・乱数には使わず、公開情報だけを参照する。
+// 発言記録。公開根拠を保存し、通常発言の重複判定にも利用する。
 // intentは文章から心理を推測せず、明示的な情報整理/質問だけを記録する。
 const COM_SPEECH_SCHEMA_VERSION=1;
 function describeComSpeech(observer,topic){
@@ -3788,9 +3788,8 @@ function buildRoleTruthSpeechCandidates(observer){
         (e.status!=="true"||publiclyKnownRoleFor(e.claimantId,context.confirmed)===role);
     });
     if(!entries.length)continue;
-    const best=Math.max(...entries.map(e=>decision.roles.roles[role][e.claimantId].score));
-    const leaders=entries.filter(e=>decision.roles.roles[role][e.claimantId].score===best);
-    for(const entry of leaders){
+    // 条件を満たす候補は最高点以外も残し、対象抽選に渡す。
+    for(const entry of entries){
       const id=entry.claimantId;
       if(id===observer.id)continue;
       const target=byId(id);
@@ -3885,9 +3884,8 @@ function buildPublicExecutionEvaluation(observer){
 function buildExecutionSpeechCandidates(observer){
   const evaluation=buildPublicExecutionEvaluation(observer),{keep}=evaluation;
   const candidates=evaluation.candidates;
-  const best=candidates.length?candidates.filter(c=>c.tier===candidates[0].tier&&c.score===candidates[0].score):[];
   const snapshot={type:"executionPolicy",visibility:"public",snapshot:{remainingWolves:evaluation.remainingWolves,fox:evaluation.fox,keep}};
-  const topics=best.map(c=>({kind:"lynch",variant:"lynchProposal",targetId:c.targetId,weight:20,
+  const topics=candidates.map(c=>({kind:"lynch",variant:"lynchProposal",targetId:c.targetId,weight:Math.min(20,c.score/5),
     details:{targetName:byId(c.targetId).name,reason:c.reason,certainty:c.certainty,keeping:keep.active,
       catClaim:c.catClaim,evidence:[...c.evidence,JSON.parse(JSON.stringify(snapshot))]}}));
   if(keep.active){
@@ -3899,16 +3897,82 @@ function buildExecutionSpeechCandidates(observer){
   }
   return {evaluation,topics,priority:keep.active||candidates.some(c=>c.tier===3)};
 }
+// 対象・主張・公開根拠の同一性。記録順、名前、言い回し、私的候補点は比較しない。
+function speechRepeatKey(topic){
+  const variants=["basicTrust","basicSuspect","roleTruth","lynchProposal","wolfKeep"];
+  if(!topic||!variants.includes(topic.variant))return null;
+  const details=topic.details||topic;
+  const evidence=details.evidence||[];
+  if(hasPrivateSpeechData(evidence))return null;
+  const normalize=value=>{
+    if(Array.isArray(value))return value.map(normalize).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    if(!value||typeof value!=="object")return value;
+    return Object.fromEntries(Object.keys(value).sort().filter(k=>
+      !["index","order","observedDay","updatedDay","updatedOrder","targetName","seerName","mediumName","key"].includes(k)
+    ).map(k=>[k,normalize(value[k])]));
+  };
+  const policy=evidence.find(e=>e.type==="executionPolicy")?.snapshot;
+  const roots=evidence.filter(e=>e.type!=="executionPolicy").map(normalize);
+  // 飼い方針はその公開条件も根拠。普通の吊りは無関係な盤面変化で補正解除しない。
+  if(topic.variant==="wolfKeep"||details.keeping||policy?.keep?.active&&topic.variant==="lynchProposal"){
+    if(policy)roots.push(normalize({type:"keepConditions",remainingWolves:policy.remainingWolves,
+      fox:{possible:policy.fox?.possible,max:policy.fox?.max},keep:policy.keep}));
+  }
+  const targetId=topic.variant==="wolfKeep"?(details.keepId??policy?.keep?.keepId??topic.targetId??topic.target?.playerId??null):
+    topic.targetId??topic.target?.playerId??null;
+  return JSON.stringify({variant:topic.variant,targetId,
+    certainty:details.certainty??topic.claim?.certainty??null,
+    roots:[...new Set(roots.map(r=>JSON.stringify(r)))].sort()});
+}
+function buildSpeechRepetitionContext(observer){
+  const today=new Map(),previous=new Set();
+  for(const player of state.players){
+    for(const history of player.speechHistory||[]){
+      const sameDay=player.id!==observer.id&&history.day===state.day;
+      const previousDay=player.id===observer.id&&history.day===state.day-1;
+      if(!sameDay&&!previousDay)continue;
+      const key=speechRepeatKey(history.semantics);
+      if(!key)continue;
+      if(sameDay)today.set(key,(today.get(key)||0)+1);
+      if(previousDay)previous.add(key);
+    }
+  }
+  return {today,previous};
+}
+function speechRepetitionFactor(observer,topic,context=buildSpeechRepetitionContext(observer)){
+  const key=speechRepeatKey(topic);
+  if(!key)return 1;
+  return Math.max(Number.MIN_VALUE,Math.pow(0.5,(context.today.get(key)||0)+(context.previous.has(key)?1:0)));
+}
+function buildSpeechSelectionGroups(observer,candidates){
+  const groups=new Map(),repetition=buildSpeechRepetitionContext(observer);
+  for(const topic of candidates){
+    if(!Number.isFinite(topic.weight)||topic.weight<=0)continue;
+    const factor=speechRepetitionFactor(observer,topic,repetition);
+    const urgent=topic.variant==="wolfKeep"||topic.variant==="lynchProposal"&&topic.details.certainty==="confirmedWolf";
+    if(!groups.has(topic.variant))groups.set(topic.variant,{variant:topic.variant,baseWeight:1,freshness:0,candidates:[]});
+    const group=groups.get(topic.variant);
+    group.baseWeight=Math.max(group.baseWeight,urgent?2:1);
+    group.freshness=Math.max(group.freshness,factor);
+    group.candidates.push({topic,weight:topic.weight*factor});
+  }
+  // 候補人数で話題点を増やさない。各話題で最も重複の少ない候補の補正を使う。
+  return [...groups.values()].map(g=>({...g,weight:g.baseWeight*g.freshness}));
+}
+function weightedSpeechChoice(items){
+  const total=items.reduce((n,c)=>n+c.weight,0);
+  let draw=Math.random()*total;
+  for(const item of items){draw-=item.weight;if(draw<0)return item;}
+  return items[items.length-1];
+}
 function selectSpeechTopic(observer){
   if(!observer?.alive)return {kind:"none",targetId:null,variant:"basicWait",details:{}};
   const execution=buildExecutionSpeechCandidates(observer);
-  const candidates=execution.priority?execution.topics:
-    [...buildBasicSpeechCandidates(observer),...buildRoleTruthSpeechCandidates(observer),...execution.topics];
-  if(!candidates.length)return {kind:"none",targetId:null,variant:"basicWait",details:{}};
-  const total=candidates.reduce((n,c)=>n+c.weight,0);
-  let draw=Math.random()*total;
-  for(const c of candidates){draw-=c.weight;if(draw<0)return c;}
-  return candidates[candidates.length-1];
+  const candidates=[...buildBasicSpeechCandidates(observer),...buildRoleTruthSpeechCandidates(observer),...execution.topics];
+  const groups=buildSpeechSelectionGroups(observer,candidates);
+  if(!groups.length)return {kind:"none",targetId:null,variant:"basicWait",details:{}};
+  const group=weightedSpeechChoice(groups);
+  return weightedSpeechChoice(group.candidates).topic;
 }
 function selectLegacySpeechTopic(observer){
   const publicInfo=buildPublicInfo();

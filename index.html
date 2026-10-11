@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.15.0</title>
+<title>個人用人狼アプリ v2.16.0</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -116,7 +116,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.15.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.16.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -217,7 +217,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </div>
 
 <script>
-const GAME_VERSION="2.15.0";
+const GAME_VERSION="2.16.0";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -2231,6 +2231,7 @@ function fakeSeerCandidatePool(liar,results,allowedTargetIds,opportunity,context
     (p.alive||day<state.day||corpseIds.has(p.id))&&(!corpseIds.size||corpseIds.has(p.id)));
   const own=[...results,...(state.publicRecords?.seerResults||[]).filter(r=>r.seerId===liar.id)
     .map(r=>({target:r.targetId,black:r.black}))];
+  if(!explicit&&!corpseIds.size)targets=preferredSeerTargets(liar,targets,own,context.confirmed);
   return {day,explicit,corpseIds,targets,own,seen:new Set(own.map(r=>r.target??r.targetId))};
 }
 function buildWolfFakeSeerEvaluation(liar,results=liar.fakeSeerResults||[],allowedTargetIds=null,opportunity=null){
@@ -2528,15 +2529,29 @@ function isKnownVillageSeerTarget(target,confirmed){
   return confirmed.has(target.id);
 }
 /* 自動選択は確定者を除外してから未占いを優先。明示指示は呼び出し側が扱う。 */
-function autoSeerTarget(p,results){
-  const confirmed=getPublicConfirmations();
-  const useful=living().filter(x=>x.id!==p.id&&!isKnownVillageSeerTarget(x,confirmed));
-  const seen=new Set(results.map(r=>r.target));
-  const unvisited=useful.filter(x=>!seen.has(x.id));
-  // 未確定者が全員占い済みなら再占い。全員確定なら無理に選ばない。
-  return randomChoice(unvisited.length?unvisited:useful);
+function isProtectedSeerTarget(target,confirmed=getPublicConfirmations()){
+  if(confirmed.has(target.id))return true;
+  if(target.claimed!=='resonator'||getPublicBreakdowns().has(target.id))return false;
+  const claims=latestResonatorClaims(state.publicRecords.resonatorClaims||[]);
+  const members=resonatorLineMembers(claims),count=publicRoleCount('resonator');
+  if(count!=null&&members.size>count)return false;
+  for(const claim of claims.values())for(const id of claim.partnerIds||[]){
+    const partner=byId(id);
+    if(partner?.alive&&partner.claimed&&partner.claimed!=='resonator')return false;
+  }
+  return true;
 }
-
+function preferredSeerTargets(observer,targets,results,confirmed=getPublicConfirmations()){
+  const seen=new Set(results.map(r=>r.target??r.targetId));
+  const useful=targets.filter(p=>p.id!==observer.id&&!isProtectedSeerTarget(p,confirmed));
+  const fresh=useful.filter(p=>!seen.has(p.id));
+  const pool=fresh.length?fresh:useful;
+  const reported=new Set((state.publicRecords.seerResults||[]).filter(r=>r.seerId!==observer.id).map(r=>r.targetId));
+  const tier=p=>p.claimed?2:reported.has(p.id)?1:0;
+  const best=Math.min(...pool.map(tier));
+  return pool.filter(p=>tier(p)===best);
+}
+function autoSeerTarget(p,results){return randomChoice(preferredSeerTargets(p,living(),results));}
 
 // 襲撃の評価は決定的に作り、抽選は最後に1回だけ行う。数値は推定指標で確率ではない。
 const WOLF_ATTACK_WEIGHTS={base:10,guardDiscount:0.70,executionDiscount:0.50,
@@ -2624,8 +2639,7 @@ function wolfAttackExecutionRisk(target,attack){
   // 投票機能/発言からの処刑推定は未接続。黒だけで処刑確実にはしない。
   return {score,evidence};
 }
-function buildWolfAttackEvaluation(){
-  const attack=wolfAttackPublicContext();
+function buildWolfAttackEvaluation(attack=wolfAttackPublicContext()){
   const candidates=[];
   if(attack.wolves.length)for(const target of attack.context.people){
     if(!target.alive||attack.knownWolves.has(target.id))continue;
@@ -2651,21 +2665,164 @@ function buildWolfAttackEvaluation(){
 function wolfAttackScore(target){
   return buildWolfAttackEvaluation().candidates.find(x=>x.targetId===target.id)?.score??-999;
 }
-function chooseWolfAttackTarget(){
-  const evaluation=buildWolfAttackEvaluation();
-  const scored=evaluation.candidates;
-  let selected=null;
-  if(scored.length){
-    const best=Math.max(...scored.map(x=>x.score));
-    const window=living().length<=5?WOLF_ATTACK_WEIGHTS.endWindow:WOLF_ATTACK_WEIGHTS.middleWindow;
-    const close=scored.filter(x=>best-x.score<=window);
-    const weighted=close.map(x=>({...x,weight:Math.exp((x.score-best)/WOLF_ATTACK_WEIGHTS.temperature)}));
-    let draw=Math.random()*weighted.reduce((sum,x)=>sum+x.weight,0);
-    selected=weighted[weighted.length-1].targetId;
-    for(const x of weighted){draw-=x.weight;if(draw<=0){selected=x.targetId;break;}}
+function chooseWolfAttackTarget(){return chooseStrategicWolfAttack();}
+
+// 狼陣営の路線と今夜の行動。診断・路線・抽選結果は私的な保存データ。
+const WOLF_STRATEGY_VERSION=1;
+function villageRoleCredit(entry){return !entry||entry.status==='false'||entry.conflictingCertainty?0:entry.status==='true'?100:clamp(entry.score,0,100);}
+function elementarySubsetWeight(weights,k){
+  if(k<0||k>weights.length)return 0;
+  const dp=Array(k+1).fill(0);dp[0]=1;
+  for(const w of weights)for(let j=k;j>0;j--)dp[j]+=dp[j-1]*w;
+  return dp[k];
+}
+function buildKnightSurvivalModel(attack){
+  const {context,knownRoles,knownWolves,publicRoles}=attack;
+  const count=Number.isInteger(context.counts.knight)?Math.max(0,context.counts.knight):0;
+  const publicPeople=computePublicPersonTrust(context,publicRoles);
+  const candidates=context.people.filter(p=>!knownWolves.has(p.id)&&
+    (!knownRoles.get(p.id)||knownRoles.get(p.id)==='knight')&&
+    (!p.claimed||p.claimed==='knight')&&!context.broken.has(p.id));
+  const fixed=candidates.filter(p=>knownRoles.get(p.id)==='knight');
+  const unknown=candidates.filter(p=>knownRoles.get(p.id)!=='knight').map(p=>{
+    let credit=clamp((publicPeople.people[p.id]?.score??50)/100,.05,.95);
+    if(p.claimed==='knight'){
+      for(const row of context.seerRows.filter(row=>row.record.targetId===p.id&&row.record.black))
+        credit*=1-.75*villageRoleCredit(publicRoles.roles.seer[row.record.seerId])/100;
+    }
+    return {id:p.id,alive:p.alive,claimed:p.claimed,credit,weight:p.claimed==='knight'?1+5*credit:1};
+  });
+  const remaining=Math.min(Math.max(0,count-fixed.length),unknown.length);
+  const denominator=elementarySubsetWeight(unknown.map(p=>p.weight),remaining);
+  const probabilityNone=modifier=>{
+    if(count===0)return 1;
+    if(!denominator)return 0; // 不整合盤面では安全側へ倒す。
+    const forced=fixed.reduce((n,p)=>n*modifier(p),1);
+    return clamp(forced*elementarySubsetWeight(unknown.map(p=>p.weight*modifier(p)),remaining)/denominator,0,1);
+  };
+  const probabilities=Object.fromEntries(fixed.map(p=>[p.id,1]));
+  for(const p of unknown)probabilities[p.id]=remaining&&denominator?
+    clamp(p.weight*elementarySubsetWeight(unknown.filter(q=>q.id!==p.id).map(q=>q.weight),remaining-1)/denominator,0,1):0;
+  return {count,fixed,unknown,remaining,probabilities,
+    livingUnknown:unknown.filter(p=>p.alive&&!p.claimed).length,
+    deadUnknown:unknown.filter(p=>!p.alive&&!p.claimed).length,
+    survival:1-probabilityNone(p=>p.alive?0:1),probabilityNone};
+}
+function wolfSeerGuardConcentrations(attack){
+  const seers=attack.context.people.filter(p=>p.alive&&p.claimed==='seer'&&!attack.context.broken.has(p.id));
+  const weights=seers.map(p=>({id:p.id,credit:villageRoleCredit(attack.publicRoles.roles.seer[p.id])}));
+  const total=weights.reduce((n,p)=>n+Math.exp((p.credit-50)/15),0);
+  return Object.fromEntries(weights.map(p=>[p.id,.9*Math.exp((p.credit-50)/15)/total]));
+}
+function strategicGuardChance(knight,target,attack,concentrations){
+  if(!knight.alive||knight.id===target.id)return 0;
+  const seerTotal=Object.keys(concentrations).length;
+  const others=attack.context.people.filter(p=>p.alive&&p.id!==knight.id&&!Object.hasOwn(concentrations,p.id));
+  const natural=concentrations[target.id]??(others.length?(seerTotal?.1:1)/others.length:0);
+  const instruction=guardInstructionForDay(knight,state.day+1);
+  const destination=instruction&&attack.context.people.find(p=>p.id===instruction.targetId&&p.alive&&p.id!==knight.id);
+  if(!destination)return natural;
+  const strength=instruction.kind==='public'?.95:.90;
+  return target.id===destination.id?Math.max(strength,natural):(1-strength)*natural;
+}
+function ownWolfBlackSources(targetId,attack){
+  return [...new Set(attack.context.seerRows.filter(row=>row.record.targetId===targetId&&row.record.black&&
+    attack.knownWolves.has(row.record.seerId)&&attack.context.people.some(p=>p.id===row.record.seerId&&p.alive&&p.claimed==='seer')&&
+    !attack.context.broken.has(row.record.seerId)).map(row=>row.record.seerId))];
+}
+function buildStrategicWolfAttack(){
+  const attack=wolfAttackPublicContext(),baseline=buildWolfAttackEvaluation(attack);
+  const knight=buildKnightSurvivalModel(attack),concentrations=wolfSeerGuardConcentrations(attack);
+  const style=attack.wolves.length?attack.wolves.reduce((sum,w)=>{
+    const stats=w.characterProfile?.stats||CHARACTER_ROSTER.find(p=>p.id===w.characterId)?.stats;
+    return sum+(stats?(stats.emotionality-stats.logic)/24:0);
+  },0)/attack.wolves.length:0;
+  const seers=attack.context.people.filter(p=>p.alive&&p.claimed==='seer'&&!attack.context.broken.has(p.id)&&!attack.knownWolves.has(p.id));
+  const own=attack.context.people.filter(p=>p.alive&&p.claimed==='seer'&&!attack.context.broken.has(p.id)&&attack.knownWolves.has(p.id));
+  const privateRoles=attack.threats.map(w=>computeObserverRoleTrust(byId(w.observerId),attack.context));
+  const candidates=baseline.candidates.map(c=>{
+    const target=attack.context.people.find(p=>p.id===c.targetId);
+    const guardRisk=1-knight.probabilityNone(k=>1-strategicGuardChance(k,target,attack,concentrations));
+    const concentration=concentrations[target.id]??0;
+    const A=[.2,.4,.7,1][Math.min(3,knight.deadUnknown)];
+    const modifier=knight.survival===0?1:1-concentration*(1-A);
+    const challengeProbability=clamp(.65*(1-guardRisk)*modifier*(1+style),.02,.85);
+    const ownBlackSources=ownWolfBlackSources(target.id,attack);
+    const friendlyFakeBlack=attack.context.seerRows.filter(row=>row.record.targetId===target.id&&row.record.black&&
+      !attack.knownWolves.has(row.record.seerId)&&privateRoles.some(model=>model.roles.seer[row.record.seerId]?.status==='false'));
+    const friendlyPenalty=friendlyFakeBlack.length?20:0;
+    const score=(WOLF_ATTACK_WEIGHTS.base+c.threat)*(1-.7*guardRisk)*(1-.5*c.execution.score)-c.catPenalty-c.failurePenalty-friendlyPenalty;
+    return {...c,guardRisk,concentration,challengeProbability,knightProbability:knight.probabilities[target.id]||0,
+      ownBlackSources,friendlyPenalty,strategyScore:score};
+  });
+  const safe=candidates.filter(c=>!c.ownBlackSources.length);
+  const allowed=safe.length?safe:candidates;
+  const relevant=seers.map(p=>allowed.find(c=>c.targetId===p.id)).filter(Boolean);
+  const primary=[...relevant].sort((a,b)=>
+    (.65*villageRoleCredit(attack.publicRoles.roles.seer[b.targetId])/100+.35*b.threat/100)-
+    (.65*villageRoleCredit(attack.publicRoles.roles.seer[a.targetId])/100+.35*a.threat/100)||a.targetId-b.targetId)[0];
+  const hunts=allowed.filter(c=>c.knightProbability>0&&c.targetId!==primary?.targetId&&c.catPenalty===0);
+  const rivalCredit=Math.max(0,...relevant.map(c=>villageRoleCredit(attack.publicRoles.roles.seer[c.targetId])));
+  const ownCredit=Math.max(0,...own.map(p=>villageRoleCredit(attack.publicRoles.roles.seer[p.id])));
+  const C=own.length?clamp(.5+(ownCredit-rivalCredit)/100,0,1):0;
+  const T=primary?clamp(primary.threat/100,0,1):0;
+  const prior=knight.count/Math.max(1,knight.fixed.length+knight.unknown.length);
+  const H=hunts.length?clamp(Math.max(...hunts.map(c=>c.knightProbability*(1-c.execution.score)))/Math.max(.1,prior),0,1):0;
+  const P=primary?.challengeProbability??0;
+  const scores={credit:60*C+20*(1-T)+20*(1-P),challenge:40*T+35*H+25*P};
+  const stored=state.wolfAI?.strategy;
+  const previous=stored?.schemaVersion===WOLF_STRATEGY_VERSION?stored:null;
+  let route=primary?(own.length?(scores.credit>=scores.challenge?'credit':'challenge'):'challenge'):'wait';
+  let reason=!primary?'noPublicSeer':!own.length?'noViableWolfSeer':'scoreComparison';
+  if(previous&&previous.route!=='wait'&&primary&&own.length){
+    route=previous.route;
+    const rival=route==='credit'?'challenge':'credit';
+    if(state.day-previous.changedDay>=2&&scores[rival]>=scores[route]+15){route=rival;reason='advantageOver15';}
+    else reason='maintainRoute';
   }
-  if(!state.wolfAI)state.wolfAI={suspectedFox:{},lastAttackTarget:null,lastAttackWasPeace:false};
-  state.wolfAI.attackEvaluation={...evaluation,selectedTargetId:selected};
+  if(previous?.route==='credit'&&!own.length&&primary)reason='wolfSeerLost';
+  const changed=!previous||route!==previous.route;
+  const history=changed?[...(previous?.history||[]),{day:state.day,from:previous?.route||null,to:route,reason}].slice(-16):previous.history;
+  const strategy={schemaVersion:1,visibility:'private',route,changedDay:changed?state.day:previous.changedDay,
+    reason,scores,history,primarySeerId:primary?.targetId??null};
+  return {schemaVersion:1,visibility:'private',basis:'wolfStrategy',day:state.day,baseline,strategy,
+    knight:{count:knight.count,survival:knight.survival,livingUnknown:knight.livingUnknown,deadUnknown:knight.deadUnknown,
+      candidates:[...knight.fixed.map(p=>({id:p.id,alive:p.alive,confirmed:true})),...knight.unknown],probabilities:knight.probabilities},
+    concentrations,candidates,allowedTargetIds:allowed.map(c=>c.targetId),huntTargetIds:hunts.map(c=>c.targetId),
+    primarySeerId:primary?.targetId??null,challengeProbability:P,emergencyOwnBlack:!safe.length&&!!candidates.length};
+}
+function chooseStrategicWolfAttack(){
+  const old=state.wolfAI?.attackDecision;
+  if(old?.day===state.day){
+    const target=old.targetId==null?null:byId(old.targetId);
+    if(target==null||target.alive&&target.role!=='wolf')return target;
+  }
+  const e=buildStrategicWolfAttack(),allowed=e.candidates.filter(c=>e.allowedTargetIds.includes(c.targetId));
+  let pool=allowed,action='fallback';
+  const primary=allowed.find(c=>c.targetId===e.primarySeerId);
+  if(e.strategy.route==='challenge'&&primary){
+    if(Math.random()<e.challengeProbability){pool=allowed.filter(c=>c.targetId===primary.targetId);action='seerChallenge';}
+    else if(e.huntTargetIds.length){pool=allowed.filter(c=>e.huntTargetIds.includes(c.targetId));action='knightHunt';}
+  }else if(e.strategy.route==='credit'){
+    const creditPool=allowed.filter(c=>byId(c.targetId).claimed!=='seer');
+    if(creditPool.length)pool=creditPool;
+    action='creditPressure';
+  }
+  let selected=null;
+  if(pool.length){
+    const best=Math.max(...pool.map(c=>c.strategyScore));
+    const window=living().length<=5?WOLF_ATTACK_WEIGHTS.endWindow:WOLF_ATTACK_WEIGHTS.middleWindow;
+    const close=pool.filter(c=>best-c.strategyScore<=window);
+    const weights=close.map(c=>({...c,weight:Math.exp((c.strategyScore-best)/WOLF_ATTACK_WEIGHTS.temperature)}));
+    let draw=Math.random()*weights.reduce((n,c)=>n+c.weight,0);
+    selected=weights.at(-1).targetId;
+    for(const c of weights){draw-=c.weight;if(draw<=0){selected=c.targetId;break;}}
+  }
+  state.wolfAI=state.wolfAI||{suspectedFox:{},lastAttackTarget:null,lastAttackWasPeace:false};
+  state.wolfAI.strategy=e.strategy;
+  state.wolfAI.attackEvaluation={...e.baseline,selectedTargetId:selected};
+  state.wolfAI.strategicAttackEvaluation={...e,selectedTargetId:selected,action};
+  state.wolfAI.attackDecision={day:state.day,targetId:selected,action,route:e.strategy.route};
   return selected==null?null:byId(selected);
 }
 

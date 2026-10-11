@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.14.0</title>
+<title>個人用人狼アプリ v2.15.0</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -116,7 +116,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.14.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.15.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -137,6 +137,8 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
       <div class="muted assist-note">OFFでも内部判定とCOMの推理はそのまま動作します。</div>
       <hr>
       <h2>配役</h2>
+      <label class="assist-toggle"><input id="firstVictimEnabled" type="checkbox"> 初日犠牲者あり（役欠けあり）</label>
+      <div class="muted">ONでテンプレを選ぶと村人を1人追加します。参加人数は初日死亡者を含む総人数です。</div>
       <div class="preset-list" id="presetList"></div>
       <div id="roleConfig"></div>
       <div class="notice" id="sumNotice"></div>
@@ -215,7 +217,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </div>
 
 <script>
-const GAME_VERSION="2.14.0";
+const GAME_VERSION="2.15.0";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -244,15 +246,18 @@ function defaultCounts(n){
 }
 const ROLE_PRESETS={
   9:{villager:3,seer:1,medium:1,knight:1,wolf:2,madman:1},
-  12:{villager:4,seer:1,medium:1,knight:1,resonator:2,wolf:2,madman:1},
+  11:{villager:4,seer:1,medium:1,knight:1,wolf:2,madman:1,fox:1},
+  13:{villager:4,seer:1,medium:1,knight:1,cat:1,wolf:3,madman:1,fox:1},
   15:{villager:4,seer:1,medium:1,resonator:2,knight:1,cat:1,wolf:3,madman:1,fox:1},
-  16:{villager:5,seer:1,medium:1,resonator:2,knight:1,cat:1,wolf:3,madman:1,fox:1},
-  20:{villager:6,seer:1,medium:1,resonator:2,knight:1,cat:1,wolf:5,madman:2,fox:1}
+  17:{villager:5,seer:1,medium:1,knight:1,resonator:2,cat:1,wolf:4,madman:1,fox:1}
 };
+let selectedRolePreset=null;
 function applyRolePreset(n){
   const preset=ROLE_PRESETS[n];if(!preset)return;
-  $("#playerCount").value=n;
-  document.querySelectorAll("[data-role-count]").forEach(e=>e.value=preset[e.dataset.roleCount]||0);
+  selectedRolePreset=n;
+  const extra=$("#firstVictimEnabled").checked?1:0;
+  $("#playerCount").value=n+extra;
+  document.querySelectorAll("[data-role-count]").forEach(e=>e.value=(preset[e.dataset.roleCount]||0)+(e.dataset.roleCount==="villager"?extra:0));
   updateSum();
   document.querySelectorAll("[data-preset]").forEach(b=>b.classList.toggle("preset-active",+b.dataset.preset===n));
 }
@@ -269,14 +274,18 @@ function renderRoleConfig(){
       <div><b>${nm}</b><div class="muted">${TEAM[k]}</div></div>
       <input type="number" min="0" max="20" value="${c[k]??0}" data-role-count="${k}">
     </div>`).join("");
-  document.querySelectorAll("[data-role-count]").forEach(e=>e.addEventListener("input",updateSum));
+  document.querySelectorAll("[data-role-count]").forEach(e=>e.addEventListener("input",()=>{selectedRolePreset=null;updateSum()}));
   updateSum();
 }
 function getRoleCounts(){const o={};document.querySelectorAll("[data-role-count]").forEach(e=>o[e.dataset.roleCount]=Math.max(0,+e.value||0));return o}
+function hasOpeningVictimCandidate(counts){
+  return Object.entries(counts).some(([role,count])=>!['wolf','fox'].includes(role)&&count>(role==='villager'?1:0));
+}
 function updateSum(){
   const n=+$("#playerCount").value,c=getRoleCounts(),sum=Object.values(c).reduce((a,b)=>a+b,0);
-  const ok=sum===n&&c.villager>=1&&c.wolf>=1;
-  $("#sumNotice").innerHTML=`配役合計 <b>${sum}</b> / ${n}人　${ok?"✅ 開始できます":"⚠️ 合計人数を合わせ、村人1人以上・人狼1人以上にしてください"}`;
+  const victimOK=!$("#firstVictimEnabled").checked||hasOpeningVictimCandidate(c);
+  const ok=sum===n&&c.villager>=1&&c.wolf>=1&&victimOK;
+  $("#sumNotice").innerHTML=`配役合計 <b>${sum}</b> / ${n}人　${ok?"✅ 開始できます":!victimOK?"⚠️ 初日犠牲者の候補となる、主人公以外の人狼・妖狐以外の参加者が必要です":"⚠️ 合計人数を合わせ、村人1人以上・人狼1人以上にしてください"}`;
   $("#startBtn").disabled=!ok;
 }
 
@@ -1006,9 +1015,73 @@ function newPlayer(id,name,role,isSelf=false){
   };
 }
 
+function divinationKillsFox(day){return day>1||state?.openingRulesVersion===1;}
+function openingPublicDeaths(){
+  return state?.openingRulesVersion===1?(state.publicRecords?.deaths||[]).filter(d=>d.day===1&&d.phase==='night'):[];
+}
+function openingAllowsRole(id,role){
+  const deaths=openingPublicDeaths();
+  if(!deaths.some(d=>d.playerId===id))return true;
+  if(!state.firstVictimEnabled)return role==='fox';
+  // 一死体なら呪殺も猫の道連れもない。初日襲撃では狼と狐は選ばれない。
+  if(deaths.length===1)return !['wolf','fox','cat'].includes(role);
+  if(publicRoleCount('cat')===0&&role==='wolf')return false;
+  return true;
+}
+function matchOpeningHypothesisRoles(domains,counts){
+  const ids=openingPublicDeaths().map(d=>d.playerId);
+  if(!state.firstVictimEnabled||!ids.length)return matchHypothesisRoles(domains,counts);
+  // 開始死体は「非猫の襲撃犠牲者＋狐」か「猫＋狼＋狐」のどちらか。
+  // 原因を読まず公開ルールから可能な配置だけを列挙する。
+  const constrain=(victim,wolf)=>domains.map(d=>({...d,roles:d.roles.filter(role=>{
+    if(!ids.includes(d.id))return true;
+    if(d.id===victim)return wolf==null?!['wolf','fox','cat'].includes(role):role==='cat';
+    if(d.id===wolf)return role==='wolf';
+    return role==='fox';
+  })}));
+  for(const victim of ids){
+    const ordinary=matchHypothesisRoles(constrain(victim,null),counts);
+    if(ordinary)return ordinary;
+    if(counts.cat>0)for(const wolf of ids.filter(id=>id!==victim)){
+      const cat=matchHypothesisRoles(constrain(victim,wolf),counts);
+      if(cat)return cat;
+    }
+  }
+  return null;
+}
+function resolveOpeningNight(){
+  if(state.openingResolved)return;
+  const victim=state.firstVictimEnabled?randomChoice(living().filter(p=>!p.isSelf&&!['wolf','fox'].includes(p.role))):null;
+  const foxes=new Set();
+  // 死亡予定の占い師も能力は成立。対象・結果は死亡の反映より前に決める。
+  for(const seer of roleLiving('seer').slice()){
+    const target=autoSeerTarget(seer,[]);
+    if(!target)continue;
+    seer.seerResults.push({day:1,target:target.id,black:target.role==='wolf'});
+    if(target.role==='fox')foxes.add(target.id);
+  }
+  const victims=new Set(foxes);
+  if(victim){
+    victims.add(victim.id);
+    if(victim.role==='cat'){
+      const wolf=randomChoice(roleLiving('wolf'));
+      if(wolf)victims.add(wolf.id);
+    }
+  }
+  // 原因と役職は公開しない。通常の襲撃死と同じ表示・公開記録。
+  for(const id of [...victims].sort((a,b)=>a-b)){
+    const p=byId(id);if(!p?.alive)continue;
+    p.alive=false;recordPublicDeath(p,1,'night','found-dead');
+    log(`${p.name} が無残な姿で発見されました。`,'death');
+  }
+  state.openingResolved=true;
+}
 function startGame(){
   const n=clamp(+$("#playerCount").value,5,20),c=getRoleCounts();
   if(Object.values(c).reduce((a,b)=>a+b,0)!==n||c.villager<1||c.wolf<1)return;
+  if($("#firstVictimEnabled").checked&&!hasOpeningVictimCandidate(c)){
+    alert("初日犠牲者になれる参加者がいません。人狼・妖狐以外のCOMを配役してください。");return;
+  }
   if(c.resonator===1){
     alert("共鳴者は2人以上で配役してください。");
     return;
@@ -1026,7 +1099,7 @@ function startGame(){
 
   state={
     version:GAME_VERSION,characterRosterVersion:CHARACTER_ROSTER_VERSION,day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
-    publicRoleCounts:{...c},
+    publicRoleCounts:{...c},openingRulesVersion:1,firstVictimEnabled:!!$("#firstVictimEnabled").checked,
     publicRecords:{seerResults:[],mediumResults:[],guards:[],executions:[],deaths:[],catChains:[],resonatorClaims:[],fullCoRequests:[],confirmedProofs:[],coEvents:[]},
     uiSettings:{
       showConfirmedBadges:!!$("#showConfirmedBadges")?.checked,
@@ -1035,11 +1108,6 @@ function startGame(){
     logPersonFilterId:null
   };
 
-  // 初日占い
-  roleLiving("seer").forEach(s=>{
-    const target=autoSeerTarget(s,[]);
-    if(target)s.seerResults.push({day:1,target:target.id,black:target.role==="wolf"});
-  });
 
   assignFakeClaims();
   ensureWolfSeerPlan();
@@ -1050,9 +1118,11 @@ function startGame(){
   log(`ゲーム開始。参加者は${n}人。`,"system");
   // 本人向け役職通知。公開情報/COMの推理材料には渡さない。
   state.logs.push({msg:`あなたの役職は【${roleName(self.role)}】です。`,cls:"system",visibility:"private",recipientId:self.id});
-  renderLog();
-  runDaySpeeches();
-  save();showGame();
+  resolveOpeningNight();
+  const openingWinner=checkWin();
+  if(openingWinner)finish(openingWinner);
+  else runDaySpeeches();
+  renderLog();save();showGame();
 }
 
 function assignFakeClaims(){
@@ -1534,9 +1604,10 @@ function createFakeSeerResult(liar,opportunity,previousResults){
   // 呪殺対応に使えるのは公開死体だけ。狐の内部役職や死亡原因は読まない。
   const corpses=(state.publicRecords.deaths||[]).filter(d=>d.phase==="night"&&d.day===day)
     .map(d=>byId(d.playerId)).filter(p=>p&&candidates.some(c=>c.id===p.id));
+  const canRespond=corpses.length>=2||day===1&&state.openingRulesVersion===1&&!state.firstVictimEnabled&&corpses.length>=1;
   if(liar.role==="wolf"){
     const request={...opportunity,forcedTarget:target?.id??null,
-      jusatsuTargetIds:!target&&!lockedTarget&&corpses.length>=2?corpses.map(p=>p.id):[]};
+      jusatsuTargetIds:!target&&!lockedTarget&&canRespond?corpses.map(p=>p.id):[]};
     plan=chooseWolfFakeSeerAction(liar,previousResults,autoTargetIds,request);
     if(plan?.withheld)return null;
     if(plan?.target){
@@ -1550,7 +1621,7 @@ function createFakeSeerResult(liar,opportunity,previousResults){
   }
   if(["madman","fox"].includes(liar.role)){
     const request={...opportunity,forcedTarget:target?.id??null,
-      jusatsuTargetIds:!target&&!lockedTarget&&corpses.length>=2?corpses.map(p=>p.id):[]};
+      jusatsuTargetIds:!target&&!lockedTarget&&canRespond?corpses.map(p=>p.id):[]};
     plan=chooseNonWolfFakeSeerAction(liar,previousResults,autoTargetIds,request);
     if(plan?.withheld)return null;
     if(plan?.target){
@@ -1562,7 +1633,7 @@ function createFakeSeerResult(liar,opportunity,previousResults){
       return result;
     }
   }
-  if(!target&&!lockedTarget&&liar.role==="wolf"&&corpses.length>=2){
+  if(!target&&!lockedTarget&&liar.role==="wolf"&&canRespond){
     target=randomChoice(corpses);jusatsuResponse=true;
   }
   if(!target){
@@ -2731,7 +2802,7 @@ function computeObserverRoleTrust(observer,context,publicOnly=false){
       if(role==="seer"){
         // 生存狐は自分への占い報告が真占いのものではないと本人だけが分かる。
         // 公開された報告は根拠の一部だが、狐の正体と生存による推論は非公開。
-        if(!publicOnly&&privateInfo.selfRole==="fox"&&observer.alive&&r.day>1&&r.targetId===observer.id){
+        if(!publicOnly&&privateInfo.selfRole==="fox"&&observer.alive&&divinationKillsFox(r.day)&&r.targetId===observer.id){
           add("survivingFoxResult","survivingFoxResult",0,"private",[row.source],"false");
         }else if(!publicOnly&&r.targetId===observer.id&&!knownWolves.has(observer.id)){
           if(r.black)add("selfBlack","selfBlack",0,"private",[row.source],"false");
@@ -3294,35 +3365,35 @@ function createPublicTruthContext(){
   };
 }
 
-function applyPublicJusatsuBreakdowns({addBroken}){
-  // 公開情報から証明できる呪殺だけを扱う。死体原因を隠し役職から読むことは禁止。
-  // 猫又なし・2死体以上・初日の無死者時点で全占いCO済みという限定条件。
-  // 真占いが襲撃死して結果を残せない夜は断定を保留する。
-  const seerCountForJ=publicRoleCount("seer");
-  const catCountForJ=publicRoleCount("cat");
-  const firstFull=(state.publicRecords.fullCoRequests||[]).find(x=>x.role==="seer"&&x.day===1);
-  if(firstFull && catCountForJ===0 && seerCountForJ===1){
-    const byNight=new Map();
-    for(const d of state.publicRecords.deaths||[]){
-      if(d.phase!=="night"||d.day<=1)continue;
-      if(!byNight.has(d.day))byNight.set(d.day,[]);
-      byNight.get(d.day).push(d.playerId);
-    }
-    for(const [day,deaths] of byNight){
-      if(deaths.length<2)continue;
-      const declared=state.players.filter(p=>p.claimed==="seer");
-      // 死んだ占いCO者、または初日CO後に増えた者がいると、完全な候補列挙は困難。
-      if(declared.some(p=>(state.publicRecords.deaths||[]).some(d=>d.playerId===p.id&&d.day===day)))continue;
-      const candidates=(state.publicRecords.seerResults||[]).filter(r=>r.day===day&&declared.some(p=>p.id===r.seerId));
-      if(!candidates.length)continue;
-      for(const c of candidates){
-        if(!deaths.includes(c.targetId)){
-          addBroken(c.seerId,`${day}日目の複数死体は呪殺確定なのに、死者を占っていない`);
-        }
-      }
+function applyPublicJusatsuBreakdowns({addBroken,confirmed}){
+  const count=publicRoleCount('seer'),cats=publicRoleCount('cat');
+  const firstFull=(state.publicRecords.fullCoRequests||[]).find(x=>x.role==='seer'&&x.day===1);
+  // 犠牲者OFFの開始死体は、公開ルールだけで狐と分かる。
+  const opening=openingPublicDeaths();
+  if(!state.firstVictimEnabled&&opening.length){
+    for(const r of state.publicRecords.seerResults||[])if(r.black&&opening.some(d=>d.playerId===r.targetId))
+      addBroken(r.seerId,'初日犠牲者なしの開始死体は妖狐なのに黒を出している');
+  }
+  if(!firstFull||count!==1)return;
+  // 全員CO前の死亡者に真占いがいた可能性を残す。欠けた真の未報告呪殺もあり得る。
+  if(priorDeadIdsForFullCo(firstFull).some(id=>!excludesDeadRoleCandidate(id,'seer',confirmed)))return;
+  const byNight=new Map();
+  for(const d of state.publicRecords.deaths||[]){
+    if(d.phase!=='night')continue;
+    if(d.day===1&&state.openingRulesVersion!==1)continue;
+    if(!byNight.has(d.day))byNight.set(d.day,[]);
+    byNight.get(d.day).push(d.playerId);
+  }
+  for(const [day,deaths] of byNight){
+    const guaranteed=day===1&&!state.firstVictimEnabled?deaths.length>0:cats===0&&deaths.length>=2;
+    if(!guaranteed)continue;
+    const declared=state.players.filter(p=>p.claimed==='seer');
+    if(declared.some(p=>(state.publicRecords.deaths||[]).some(d=>d.playerId===p.id&&d.day===day)))continue;
+    for(const r of state.publicRecords.seerResults||[]){
+      if(r.day===day&&declared.some(p=>p.id===r.seerId)&&(!deaths.includes(r.targetId)||r.black))
+        addBroken(r.seerId,`${day}日目は呪殺確定なのに死者への白結果を出していない`);
     }
   }
-
 }
 
 // 全員COの時点で死亡していた人物だけを潜伏真の候補にする。
@@ -3341,6 +3412,7 @@ function publiclyKnownRoleFor(id,confirmed){
   return byId(id)?.claimed||null;
 }
 function excludesDeadRoleCandidate(id,role,confirmed){
+  if(!openingAllowsRole(id,role))return true;
   if(byId(id)?.claimed===role)return true; // CO者は別途その役職候補に数える。
   const knownRole=publiclyKnownRoleFor(id,confirmed);
   if(knownRole&&knownRole!==role)return true;
@@ -3370,7 +3442,7 @@ function confirmPublicResonators({confirmed,broken,addConfirmed}){
     const knownRole=publiclyKnownRoleFor(id,confirmed);
     const certainlyWolf=(state.publicRecords.mediumResults||[]).some(r=>r.targetId===id&&r.black&&
       publiclyKnownRoleFor(r.mediumId,confirmed)==="medium");
-    if(!(knownRole&&knownRole!=="resonator")&&!certainlyWolf)return false;
+    if(openingAllowsRole(id,"resonator")&&!(knownRole&&knownRole!=="resonator")&&!certainlyWolf)return false;
   }
   let changed=false;
   for(const id of involved){
@@ -4017,7 +4089,7 @@ function buildRoleHypotheses(observer,context=roleTrustPublicContext(),publicOnl
   const privateRows=!publicOnly&&['seer','medium'].includes(privateInfo.selfRole)?
     (observer[privateInfo.selfRole+'Results']||[]).map(r=>({targetId:r.target??r.targetId,black:r.black,day:r.day})):[];
   const previous=publicOnly?observer.outwardRoleHypotheses:observer.roleHypotheses;
-  const fingerprint=JSON.stringify({counts:context.counts,people:context.people,persona:observer.characterId,stats,roster:state.players.map(p=>p.name),
+  const fingerprint=JSON.stringify({openingRulesVersion:state.openingRulesVersion||0,firstVictimEnabled:!!state.firstVictimEnabled,openingDeaths:openingPublicDeaths(),counts:context.counts,people:context.people,persona:observer.characterId,stats,roster:state.players.map(p=>p.name),
     confirmed:[...context.confirmed.keys()].map(id=>[id,publiclyKnownRoleFor(id,context.confirmed)]),
     broken:[...context.broken.keys()],seer:context.seerRows,medium:context.mediumRows,
     full:state.publicRecords.fullCoRequests,privateInfo,privateRows});
@@ -4058,15 +4130,24 @@ function buildRoleHypotheses(observer,context=roleTrustPublicContext(),publicOnl
     }
     const rows=[...context.seerRows.filter(r=>seer.ids.includes(r.record.seerId)),
       ...context.mediumRows.filter(r=>medium.ids.includes(r.record.mediumId))];
-    for(const {record:r} of rows){color(r.targetId,r.black);if(r.seerId!=null&&r.day>1&&byId(r.targetId)?.alive)notFox.add(r.targetId);}
-    for(const r of privateRows){color(r.targetId,r.black);if(privateInfo.selfRole==='seer'&&r.day>1&&byId(r.targetId)?.alive)notFox.add(r.targetId);}
+    for(const {record:r} of rows){color(r.targetId,r.black);if(r.seerId!=null&&divinationKillsFox(r.day)&&byId(r.targetId)?.alive)notFox.add(r.targetId);}
+    for(const r of privateRows){color(r.targetId,r.black);if(privateInfo.selfRole==='seer'&&divinationKillsFox(r.day)&&byId(r.targetId)?.alive)notFox.add(r.targetId);}
+    const openingDeaths=openingPublicDeaths().map(d=>d.playerId);
+    const openingJusatsu=openingDeaths.length>0&&(!state.firstVictimEnabled||counts.cat===0&&openingDeaths.length>=2);
+    if(openingJusatsu&&counts.seer===1){
+      const selected=seer.ids[0];
+      if(selected!=null&&byId(selected)?.alive){
+        const first=rows.filter(row=>row.record.seerId===selected&&row.record.day===1);
+        if(first.some(row=>row.record.black||!openingDeaths.includes(row.record.targetId)))conflict=true;
+      }
+    }
     if(conflict)continue;
     const closed=new Map(['seer','medium'].map(role=>{
       const request=(state.publicRecords.fullCoRequests||[]).find(r=>r.role===role);
       return [role,request?new Set(priorDeadIdsForFullCo(request)):null];
     }));
     const domains=context.people.map(person=>{
-      let roles=roleNames.filter(r=>counts[r]>0);
+      let roles=roleNames.filter(r=>counts[r]>0&&openingAllowsRole(person.id,r));
       if(fixed.has(person.id))roles=roles.filter(r=>r===fixed.get(person.id));
       for(const role of ['seer','medium']){
         if(trueIds[role].includes(person.id))roles=roles.filter(r=>r===role);
@@ -4079,7 +4160,7 @@ function buildRoleHypotheses(observer,context=roleTrustPublicContext(),publicOnl
       if(notFox.has(person.id))roles=roles.filter(r=>r!=='fox');
       return {id:person.id,roles};
     });
-    const assignment=matchHypothesisRoles(domains,counts);
+    const assignment=matchOpeningHypothesisRoles(domains,counts);
     if(!assignment)continue;
     const key='seer:'+seer.ids.slice().sort((a,b)=>a-b).join(',')+'|medium:'+medium.ids.slice().sort((a,b)=>a-b).join(',');
     const matches=new Set();
@@ -4135,6 +4216,7 @@ function outlookInformation(observer,pub,publicOnly){
   const profile=hasValidCharacterProfile(observer.characterProfile,observer.characterId)?observer.characterProfile:
     CHARACTER_ROSTER.find(p=>p.id===observer.characterId);
   return {
+    opening:{rulesVersion:state.openingRulesVersion||0,firstVictimEnabled:!!state.firstVictimEnabled},
     roleCounts:pub.context.counts,
     co:{people:pub.context.people.map(p=>({id:p.id,claimed:p.claimed??null})),events:records.coEvents||[],full:records.fullCoRequests||[]},
     reports:{seer:pub.context.seerRows,medium:pub.context.mediumRows},
@@ -4220,8 +4302,8 @@ function buildCharacterOutlook(observer,pub=buildSpeechPublicInformation(),publi
     const publicEvidence=reportRoots.slice(0,1).map(row=>({type:publiclyTrue(row)?black?'confirmedWolfResult':'seerWhite':'hypothesisResult',visibility:'public',
       source:row.source,...(publiclyTrue(row)?{roleTrust:{status:'true'}}:{})}));
     if(publicRole&&TEAM[publicRole]==='村人陣営')publicEvidence.unshift({type:'publicConfirmedVillage',visibility:'public',snapshot:{playerId:id,role:publicRole}});
-    const survived=rows.find(row=>row.record.targetId===id&&row.record.seerId!=null&&!row.record.black&&row.record.day>1&&target.alive&&(selected(row)||publiclyTrue(row)));
-    const privateNotFox=ownRole&&ownRole!=='fox'||knownWolves.has(id)||info.selfRole==='seer'&&ownRows.some(r=>r.day>1)&&target.alive;
+    const survived=rows.find(row=>row.record.targetId===id&&row.record.seerId!=null&&!row.record.black&&divinationKillsFox(row.record.day)&&target.alive&&(selected(row)||publiclyTrue(row)));
+    const privateNotFox=ownRole&&ownRole!=='fox'||knownWolves.has(id)||info.selfRole==='seer'&&ownRows.some(r=>divinationKillsFox(r.day))&&target.alive;
     const publicNotFox=(pub.context.counts.fox??0)===0||publicRole&&publicRole!=='fox'||survived&&publiclyTrue(survived);
     const inferredNotFox=supported?.notFoxIds.includes(id)||wolfView==='wolfLeaning'||['seer','medium'].some(role=>roles[role].trueCandidateIds.includes(id));
     const foxView=publicNotFox||privateNotFox||inferredNotFox?'unlikely':pub.context.counts.fox>0?'possible':'unknown';
@@ -4328,7 +4410,7 @@ function buildOutlookSpeechCandidates(observer,pub,outlook){
     if(!target.alive||target.claimed||target.id===observer.id)continue;
     const person=decision.people.people[target.id];
     if(!person||person.conflictingCertainty||pub.people.people[target.id]?.conflictingCertainty)continue;
-    for(const row of pub.context.seerRows.filter(r=>r.record.targetId===target.id&&!r.record.black&&r.record.day>1&&r.record.day<=state.day)){
+    for(const row of pub.context.seerRows.filter(r=>r.record.targetId===target.id&&!r.record.black&&divinationKillsFox(r.record.day)&&r.record.day<=state.day)){
       const id=row.record.seerId,publicRole=pub.roles.roles.seer[id],personalRole=decision.roles.roles.seer[id];
       if(!publicRole||!personalRole||publicRole.status==="false"||personalRole.status==="false"||
         publicRole.conflictingCertainty||personalRole.conflictingCertainty||
@@ -5175,7 +5257,8 @@ function openFlowMenu(){
   ])
 }
 
-$("#playerCount").addEventListener("input",renderRoleConfig);
+$("#playerCount").addEventListener("input",()=>{selectedRolePreset=null;renderRoleConfig()});
+$("#firstVictimEnabled").addEventListener("change",()=>{if(selectedRolePreset!=null)applyRolePreset(selectedRolePreset);else updateSum()});
 $("#startBtn").onclick=startGame;
 $("#loadBtn").onclick=load;
 $("#debugBtnTop").onclick=()=>$("#debugPanel").classList.toggle("hidden");

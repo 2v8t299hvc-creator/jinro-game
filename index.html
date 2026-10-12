@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.18.0</title>
+<title>個人用人狼アプリ v2.19.0</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -116,7 +116,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.18.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.19.0</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -217,7 +217,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </div>
 
 <script>
-const GAME_VERSION="2.18.0";
+const GAME_VERSION="2.19.0";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -1098,7 +1098,7 @@ function startGame(){
   for(let i=1;i<n;i++)ps.push(createCharacterPlayer(i,characters[i-1],roles[i-1]));
 
   state={
-    version:GAME_VERSION,intuitionEnabled:true,characterRosterVersion:CHARACTER_ROSTER_VERSION,day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
+    version:GAME_VERSION,intuitionEnabled:true,speechMemoryEnabled:true,characterRosterVersion:CHARACTER_ROSTER_VERSION,day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
     publicRoleCounts:{...c},openingRulesVersion:1,firstVictimEnabled:!!$("#firstVictimEnabled").checked,
     publicRecords:{seerResults:[],mediumResults:[],guards:[],executions:[],deaths:[],catChains:[],resonatorClaims:[],fullCoRequests:[],confirmedProofs:[],coEvents:[]},
     uiSettings:{
@@ -1186,13 +1186,13 @@ function publishedSeerRecord(seer,targetId,black,day){
   ensurePublicRecords();
   const before=state.publicRecords.seerResults.length;
   pushPublicRecord("seerResults",{seerId:seer.id,targetId,black:!!black,day,order:nextPublicationOrder()},["seerId","targetId","day","black"]);
-  if(state.publicRecords.seerResults.length>before){queueIntuitionSignal(seer,"seer",{targetId,black:!!black,day});if(!intuitionPublicationDepth)flushIntuitionEvents(seer.id);}
+  if(state.publicRecords.seerResults.length>before){noteSocialSeerPublication(state.publicRecords.seerResults.at(-1));queueIntuitionSignal(seer,"seer",{targetId,black:!!black,day});if(!intuitionPublicationDepth)flushIntuitionEvents(seer.id);}
 }
 function publishedMediumRecord(medium,targetId,black,day){
   ensurePublicRecords();
   const before=state.publicRecords.mediumResults.length;
   pushPublicRecord("mediumResults",{mediumId:medium.id,targetId,black:!!black,day,order:nextPublicationOrder()},["mediumId","targetId","day","black"]);
-  if(state.publicRecords.mediumResults.length>before){queueIntuitionSignal(medium,"medium",{targetId,black:!!black,day});if(!intuitionPublicationDepth)flushIntuitionEvents(medium.id);}
+  if(state.publicRecords.mediumResults.length>before){noteSocialMediumPublication(state.publicRecords.mediumResults.at(-1));queueIntuitionSignal(medium,"medium",{targetId,black:!!black,day});if(!intuitionPublicationDepth)flushIntuitionEvents(medium.id);}
 }
 function publishedGuardRecord(knight,targetId,day){
   pushPublicRecord("guards",{knightId:knight.id,targetId,day,order:nextPublicationOrder()},["knightId","targetId","day"]);
@@ -3112,7 +3112,7 @@ function computePrivatePersonTrust(observer,publicPeople){
     entry.privateEvidence=privateEvidence;
     entry.evidence.push(...privateEvidence);
   }
-  return result;
+  return applySocialPersonTrust(observer,result);
 }
 // 発言用の信用は公開記録から作った基準だけ。個人版の数値/確定/根拠を投影しない。
 function getSpeechPersonTrust(observer,targetId){
@@ -3205,7 +3205,7 @@ function buildPersonalDecisionInformation(observer,publicInformation=buildSpeech
 }
 // 人狼は表向きの公開基準のみ。他役職は本人情報で候補を選別し、根拠は公開モデルから作る。
 function buildSpeechDecisionInformation(observer,publicInformation){
-  if(observer.role==="wolf")return {roles:getPersonalityRoleTrust(observer,publicInformation.context,true),people:publicInformation.people};
+  if(observer.role==="wolf")return {roles:getPersonalityRoleTrust(observer,publicInformation.context,true),people:applySocialPersonTrust(observer,JSON.parse(JSON.stringify(publicInformation.people)),true)};
   return buildPersonalDecisionInformation(observer,publicInformation);
 }
 function personalSpeechWeight(personalScore,publicScore,positive){
@@ -4218,6 +4218,183 @@ const COM_MORNING_VOICES={
 };
 
 
+// 発言記憶と事後評価。保存されるのは聞いた公開主張、内部分類や身内切り判定ではない。
+const SPEECH_MEMORY_VERSION=1;
+let socialMorningBasis=null;
+function ensureSpeechMemorySystem(){
+  if(state.speechMemorySystem?.schemaVersion===1)return state.speechMemorySystem;
+  let seed=196613;for(const c of state.players.map(p=>p.characterId||p.name).join('|')){seed^=c.charCodeAt(0);seed=Math.imul(seed,16777619);}
+  if(globalThis.crypto?.getRandomValues){const a=new Uint32Array(1);globalThis.crypto.getRandomValues(a);seed=a[0];}
+  return state.speechMemorySystem={schemaVersion:1,visibility:'private',seed:(seed>>>0)||97531,clock:0,breakdowns:{},mediumOrders:{},seerOrders:{}};
+}
+function socialOrder(){return ++ensureSpeechMemorySystem().clock;}
+function captureSocialBreakdowns(context=null){
+  if(!state||state.speechMemoryEnabled===false)return;
+  const system=ensureSpeechMemorySystem(),broken=context?.broken||getPublicBreakdowns();
+  for(const [id] of broken)if(!system.breakdowns[id])system.breakdowns[id]={order:socialOrder(),day:state.day};
+}
+function noteSocialMediumPublication(row){
+  if(state.speechMemoryEnabled===false)return;
+  ensureSpeechMemorySystem().mediumOrders[row.order]={order:socialOrder(),day:state.day};
+}
+function noteSocialSeerPublication(row){
+  if(state.speechMemoryEnabled===false)return;
+  const system=ensureSpeechMemorySystem();system.seerOrders??={};
+  system.seerOrders[row.order]={order:socialOrder(),day:state.day};
+}
+function speechMemoryProbabilities(listener,impression){
+  const stats=personalityProfile(listener)?.stats||{logic:3,emotionality:3};
+  return {basic:Math.min(99,[50,65,80,90,99][stats.logic-1]+4*(stats.emotionality-1)*(impression?1:0))/100,
+    details:[60,70,80,90,99][stats.logic-1]/100};
+}
+function suspicionTypeFromSpeech(semantics){
+  const variant=semantics?.variant;
+  return semantics?.suspicionType||(variant==='roleFalse'?'fake':
+    ['basicSuspect','gutSuspect','gutLynch','lynchProposal'].includes(variant)?'vague':null);
+}
+function rememberSuspicionSpeech(speaker,speech,historyIndex){
+  if(state.speechMemoryEnabled===false)return;
+  const semantics=speech.semantics;if(!semantics||speech.targetId==null)return;
+  const variant=semantics.variant;
+  const type=suspicionTypeFromSpeech(semantics);
+  if(!['wolf','fake','vague'].includes(type))return;
+  captureSocialBreakdowns();
+  const order=socialOrder(),system=ensureSpeechMemorySystem();
+  for(const listener of living().filter(p=>!p.isSelf&&p.id!==speaker.id)){
+    const relation=personalityProfile(listener)?.relationships?.find(r=>r.targetId===speaker.characterId);
+    const outlook=listener.role==='wolf'?listener.outwardOutlook:listener.characterOutlook;
+    const person=outlook?.people[speech.targetId];
+    const impression=relation?.affinity>=4||person?.wolfView==='wolfLeaning'||person?.intuitionSuspicion?.active||
+      Object.values(outlook?.roles||{}).some(r=>r.assessments[speech.targetId]?.view==='false');
+    const rates=speechMemoryProbabilities(listener,impression);
+    if(intuitionRandom(system)>=rates.basic)continue;
+    const detailed=intuitionRandom(system)<rates.details;
+    listener.suspicionMemories??=[];
+    listener.suspicionMemories.push({schemaVersion:1,speakerId:speaker.id,targetId:speech.targetId,type,day:state.day,order,
+      source:{speakerId:speaker.id,historyIndex},detailed,
+      evidence:detailed?JSON.parse(JSON.stringify(semantics.evidence||[])):[]});
+  }
+}
+function socialSourceStrength(entry){
+  if(!entry||entry.status==='false'||entry.conflictingCertainty)return 0;
+  return entry.status==='true'?1:clamp((entry.score-50)/30,0,.8);
+}
+function buildSocialReputation(observer,pub=buildSpeechPublicInformation(),publicOnly=observer.role==='wolf'){
+  if(socialMorningBasis?.day===state.day&&socialMorningBasis.people[observer.id])return JSON.parse(JSON.stringify(socialMorningBasis.people[observer.id]));
+  const people={},memories=observer.suspicionMemories||[],system=state.speechMemorySystem;
+  if(!system||!memories.length)return {visibility:'private',people};
+  const roles=getPersonalityRoleTrust(observer,pub.context,publicOnly);
+  for(const memory of memories){
+    // 記憶の元となった公開発言が実在し、話者・対象・主張が一致することを確認。
+    const statement=byId(memory.speakerId)?.speechHistory?.[memory.source.historyIndex];
+    if(!statement||statement.targetId!==memory.targetId||statement.day!==memory.day||suspicionTypeFromSpeech(statement.semantics)!==memory.type)continue;
+    const options=[];
+    const breakdown=system.breakdowns[memory.targetId];
+    if(memory.type!=='wolf'&&breakdown&&memory.order<breakdown.order&&pub.context.broken.has(memory.targetId))
+      options.push({strength:1,match:memory.type==='fake'?1:.5,kind:'breakdown',day:breakdown.day,
+        evidence:{type:'publicBreakdown',visibility:'public',snapshot:{playerId:memory.targetId,reasons:[...pub.context.broken.get(memory.targetId)]}}});
+    if(memory.type!=='fake')for(const row of pub.context.mediumRows.filter(r=>r.record.targetId===memory.targetId&&r.record.black)){
+      const moment=system.mediumOrders[row.record.order];
+      if(!moment||memory.order>=moment.order)continue;
+      const strength=socialSourceStrength(roles.roles.medium[row.record.mediumId]);
+      if(strength>0)options.push({strength,match:memory.type==='wolf'?1:.5,kind:'mediumBlack',day:moment.day,
+        evidence:{type:'memoryMediumBlack',visibility:'public',source:JSON.parse(JSON.stringify(row.source)),
+          snapshot:{mediumId:row.record.mediumId,targetId:memory.targetId,publiclyConfirmed:publiclyKnownRoleFor(row.record.mediumId,pub.context.confirmed)==='medium'}}});
+    }
+    const best=options.sort((a,b)=>b.strength*b.match-a.strength*a.match)[0];if(!best)continue;
+    const person=people[memory.speakerId]??={reasoningBonus:0,whiteBonus:0,matches:[]};
+    const previous=person.matches.find(m=>m.targetId===memory.targetId);
+    const score=best.strength*best.match;if(previous&&(previous.score>score||previous.score===score&&(previous.memory.detailed||!memory.detailed)))continue;
+    if(previous)person.matches=person.matches.filter(m=>m!==previous);
+    person.matches.push({targetId:memory.targetId,score,memory:JSON.parse(JSON.stringify(memory)),confirmation:best});
+  }
+  for(const person of Object.values(people)){
+    const sum=person.matches.reduce((n,m)=>n+m.score,0);
+    person.reasoningBonus=Math.min(18,6*sum);person.whiteBonus=Math.min(6,2*sum);
+    person.reasoningTrust=50+person.reasoningBonus;
+  }
+  return {visibility:'private',people};
+}
+function historyWhiteAllowed(observer,id,outlook,pub){
+  const person=outlook.people[id];return person?.alive&&id!==observer.id&&!person.claimed&&!person.conflictingInformation&&
+    person.wolfView!=='wolfLeaning'&&person.knownRole!=='wolf'&&!pub.context.broken.has(id);
+}
+function buildHistorySpeechCandidates(observer,outlook,pub){
+  const candidates=[];
+  for(const [key,score]of Object.entries(outlook.socialReputation?.people||{})){
+    const id=+key,person=outlook.people[id];if(!person?.alive||id===observer.id||person.claimed)continue;
+    const best=[...score.matches].sort((a,b)=>b.score-a.score)[0];if(!best)continue;
+    const history=best.memory;
+    const evidence=[{type:'rememberedSuspicion',visibility:'public',snapshot:{speakerId:id,targetId:history.targetId,
+      day:history.day,type:history.type,detailed:history.detailed,source:history.source},
+      ...(history.detailed?{sources:JSON.parse(JSON.stringify(history.evidence))}:{})},best.confirmation.evidence];
+    if(score.reasoningBonus>=3)candidates.push({kind:'trust',variant:'pastReliable',targetId:id,weight:2+score.reasoningBonus/3,
+      details:{certainty:'inferred',evidence}});
+    if(score.whiteBonus>=1&&historyWhiteAllowed(observer,id,outlook,pub))candidates.push({kind:'trust',variant:'pastWhite',targetId:id,weight:2+score.whiteBonus,
+      details:{certainty:'inferred',evidence}});
+  }
+  return candidates;
+}
+function applySocialPersonTrust(observer,result,publicOnly=false){
+  const reputation=buildSocialReputation(observer,buildSpeechPublicInformation(),publicOnly);
+  for(const [id,entry]of Object.entries(result.people||{})){
+    const score=reputation.people[id];if(!score)continue;
+    entry.socialReputation={visibility:'private',reasoningBonus:score.reasoningBonus,whiteBonus:score.whiteBonus};
+    if(entry.wolfStatus!=='wolf'&&entry.villageStatus!=='village'&&entry.villageStatus!=='nonVillage'&&!entry.conflictingCertainty)
+      entry.score=Math.round(clamp(entry.score+score.whiteBonus,1,99)*100)/100;
+  }
+  return result;
+}
+const COM_HISTORY_RELIABLE={
+ joshua:'【名前】の考えは、少し頼りにしたいな。',geode:'【名前】の読み、おじさんも参考にしたいねえ。',albert:'【名前】の考察には、一定の信用を置ける。',momiji:'【名前】の考えは頼りになりそうだ！',kaede:'……【名前】の考え、参考にしたい。',francois:'【名前】の見立ては、参考にする価値がありそうだね。',melbon:'【名前】の考察は、参考にさせていただきたいですね。',milk:'【名前】のかんがえ、ちょっとたよりにしたい！',max:'【名前】の考えは、少し認めてもいい。',cortes:'【名前】の考察は、参考にさせていただきたく存じます。',zaemon:'【名前】の見立て、儂も聞いてやろう。',yamato:'【名前】の考察は、参考にできそうだ。',henry:'【名前】の考えなら……少し頼ってみたいな。',dominic:'【名前】の考え、頼りになりそうだぜ！',pattino:'【名前】の読み、けっこういい感じじゃない？',makimura:'【名前】の考えは、参考にしてよさそうだな。',rixis:'【名前】の考察は、参考にする価値がある。',wanunu_iii:'【名前】のかんがえ、たよりになりそうだぞ。',naminami:'【名前】の考察は、参考になりそうです！'
+};
+
+function morningTopicFamily(topic){
+  if(['pastWhite','pastReliable'].includes(topic.variant))return 'person';
+  if(['lynchProposal','gutLynch','wolfKeep'].includes(topic.variant))return 'execution';
+  if(['morningInfo','basicWait'].includes(topic.variant))return 'information';
+  return ['roleTruth','roleFalse'].includes(topic.variant)||byId(topic.targetId)?.claimed?'role':'person';
+}
+function morningCandidateWeight(topic){
+  if(topic.variant==='roleFalse'&&topic.details?.certainty==='confirmedFalse')return 5;
+  if(['roleTruth','roleFalse'].includes(topic.variant))return 3;
+  if(['basicSuspect','gutSuspect'].includes(topic.variant))return 4;
+  if(['basicTrust','nonFox'].includes(topic.variant))return 3;
+  if(['lynchProposal','gutLynch'].includes(topic.variant))return topic.details?.certainty==='confirmedWolf'?8:5;
+  if(topic.variant==='wolfKeep')return 6;
+  return topic.weight;
+}
+function morningFamilyBoost(observer,family,candidates){
+  if(family==='role'&&candidates.some(t=>t.variant==='roleFalse'&&t.details?.certainty==='confirmedFalse'&&
+    state.speechMemorySystem?.breakdowns[t.targetId]?.day===state.day))return 1.5;
+  if(family!=='execution')return 1;
+  const previous=observer.characterOutlook?.updateHistory?.filter(h=>h.day<state.day).at(-1);
+  const policy=candidates.find(t=>t.variant==='wolfKeep')?.details?.evidence.find(e=>e.type==='executionPolicy')?.snapshot;
+  const oldKeep=observer.morningPolicyHistory?.at(-1);
+  const active=!!policy?.keep.active;
+  if(oldKeep&&oldKeep.day<state.day&&oldKeep.active!==active)return 1.8;
+  const freshWolf=candidates.some(t=>t.details?.certainty==='confirmedWolf'&&(t.details.evidence||[]).some(e=>{
+    const r=e.source?.snapshot;if(!r)return false;
+    const moments=r.seerId!=null?state.speechMemorySystem?.seerOrders:state.speechMemorySystem?.mediumOrders;
+    return moments?.[r.order]?.day===state.day;
+  }));
+  if(freshWolf&&previous&&previous.lynchId!==observer.characterOutlook?.lynchPreference.targetId)return 1.5;
+  return 1;
+}
+function buildMorningSelectionGroups(observer,candidates){
+  const available=candidates.filter(t=>t.weight>0),hasOpinion=available.some(t=>morningTopicFamily(t)!=='information');
+  const selected=hasOpinion?available.filter(t=>morningTopicFamily(t)!=='information'):available;
+  const groups=new Map();
+  for(const topic of selected){
+    const family=morningTopicFamily(topic),base=morningCandidateWeight(topic),personality=personalitySpeechFactor(observer,topic);
+    if(!groups.has(family))groups.set(family,{variant:family,candidates:[],before:0,after:0});
+    const group=groups.get(family),repeat=speechRepetitionFactor(observer,topic);
+    group.candidates.push({topic,weight:base*personality*repeat});
+    group.before+=base;group.after+=base*personality;
+  }
+  return [...groups.values()].map(g=>({...g,weight:morningFamilyBoost(observer,g.variant,g.candidates.map(c=>c.topic))*g.after/g.before}));
+}
+
 // 報告に対する直感。内部的中情報はエンジンだけが保持し、本人には感覚のみ。
 const INTUITION_VERSION=1;
 let intuitionPublicationDepth=0;
@@ -4365,7 +4542,7 @@ function getPersonalityRoleTrust(observer,context,publicOnly=false){
 function personalitySpeechFactor(observer,topic){
   const a=personalityWeights(observer).assertiveness-1;
   if(topic.variant==='lynchProposal'||topic.variant==='gutLynch'||topic.variant==='roleFalse')return [.6,.8,1,1.2,1.4][a];
-  if(['roleTruth','basicTrust','basicSuspect','gutSuspect','nonFox','wolfKeep'].includes(topic.variant))return [.8,.9,1,1.1,1.2][a];
+  if(['roleTruth','basicTrust','basicSuspect','gutSuspect','nonFox','wolfKeep','pastWhite','pastReliable'].includes(topic.variant))return [.8,.9,1,1.1,1.2][a];
   if(['morningInfo','basicWait'].includes(topic.variant))return [1.4,1.2,1,.8,.6][a];
   return 1;
 }
@@ -4547,6 +4724,7 @@ function outlookInformation(observer,pub,publicOnly){
     certainty:{confirmed:[...pub.context.confirmed].map(([id,reasons])=>({id,role:publiclyKnownRoleFor(id,pub.context.confirmed),reasons})),broken:[...pub.context.broken]},
     guards:{reports:records.guards||[],instructions:records.guardInstructions||[]},
     intuition:observer.intuitionJudgments||[],
+    speechMemory:observer.suspicionMemories||[],
     privateInfo:publicOnly?null:{...buildPrivateInfo(observer),
       results:['seer','medium'].includes(observer.role)?observer[observer.role+'Results']||[]:[]},
     persona:{id:observer.id,characterId:observer.characterId??null,stats:profile?.stats||null,roster:state.players.map(p=>p.name)}
@@ -4660,7 +4838,8 @@ function buildCharacterOutlook(observer,pub=buildSpeechPublicInformation(),publi
     {targetId:null,reasonType:'noEligibleTarget',certaintyScope:null,eligibleTargetIds:[]};
   const protection=policy.keep.active?{targetIds:[policy.keep.keepId],reasonType:'publicWolfKeep',policy:JSON.parse(JSON.stringify(policy.keep))}:
     {targetIds:[],reasonType:null,policy:JSON.parse(JSON.stringify(policy.keep))};
-  const core={roles,people,lynchPreference,protection};
+  const socialReputation=buildSocialReputation(observer,pub,publicOnly);
+  const core={roles,people,lynchPreference,protection,socialReputation};
   const predictionKey=JSON.stringify({supportKey:model.supportKey,roles:Object.fromEntries(Object.entries(roles).map(([role,r])=>[role,{trueCandidateIds:r.trueCandidateIds,views:Object.fromEntries(Object.entries(r.assessments).map(([id,a])=>[id,[a.view,a.certaintyScope]]))}])),
     people:Object.fromEntries(Object.entries(people).map(([id,p])=>[id,[p.wolfView,p.wolfCertaintyScope,p.foxView,p.foxCertaintyScope,p.knownRole,p.conflictingInformation]])),lynch:lynchPreference.targetId,protect:protection.targetIds});
   const changed=previous?.informationKey!==informationKey||previous?.predictionKey!==predictionKey;
@@ -4698,6 +4877,8 @@ function refreshCharacterOutlooks(){
 function speechFitsOutlook(observer,topic,outlook){
   const id=topic.targetId,p=outlook.people[id];
   if(topic.variant==='roleTruth'||topic.variant==='roleFalse')return outlook.roles[topic.details.role]?.assessments[id]?.view===(topic.variant==='roleTruth'?'true':'false');
+  if(topic.variant==='pastWhite')return historyWhiteAllowed(observer,id,outlook,buildSpeechPublicInformation())&&(outlook.socialReputation?.people[id]?.whiteBonus||0)>=1;
+  if(topic.variant==='pastReliable')return (outlook.socialReputation?.people[id]?.reasoningBonus||0)>=3;
   if(topic.variant==='gutSuspect')return p?.intuitionSuspicion?.active===true;
   if(topic.variant==='gutLynch')return id===outlook.lynchPreference.targetId&&outlook.lynchPreference.reasonType==='intuition';
   if(topic.variant==='basicTrust')return p?.wolfView==='nonWolfLeaning'&&!p.conflictingInformation;
@@ -4767,9 +4948,9 @@ function buildOutlookSpeechCandidates(observer,pub,outlook){
         return id==null||supported.trueIds[r.seerId!=null?"seer":"medium"].includes(id);
       });
     });
-    return [...coherent,...buildIntuitionSpeechCandidates(observer,outlook),...hypotheses.filter(t=>!coherent.some(c=>c.variant===t.variant&&c.targetId===t.targetId))];
+    return [...coherent,...buildHistorySpeechCandidates(observer,outlook,pub),...buildIntuitionSpeechCandidates(observer,outlook),...hypotheses.filter(t=>!coherent.some(c=>c.variant===t.variant&&c.targetId===t.targetId))];
   }
-  const gut=buildIntuitionSpeechCandidates(observer,outlook);
+  const gut=[...buildIntuitionSpeechCandidates(observer,outlook),...buildHistorySpeechCandidates(observer,outlook,pub)];
   if(candidates.length||gut.length)return [...candidates,...gut];
   return buildMorningInformationCandidates(pub);
 }
@@ -4797,7 +4978,7 @@ function buildMorningInformationCandidates(pub){
   return candidates;
 }
 function selectMorningSpeechTopic(observer){
-  const groups=buildSpeechSelectionGroups(observer,buildMorningSpeechCandidates(observer));
+  const groups=buildMorningSelectionGroups(observer,buildMorningSpeechCandidates(observer));
   if(!groups.length)return {kind:"none",variant:"basicWait",targetId:null,details:{}};
   return weightedSpeechChoice(weightedSpeechChoice(groups).candidates).topic;
 }
@@ -4845,6 +5026,18 @@ function morningReason(observer,topic){
 function formatMorningConsideration(observer,topic){
   const d=topic.details||{},v=topic.variant,voice=morningVoiceFor(observer),name=morningName(observer,topic.targetId)+(["roleTruth","roleFalse"].includes(topic.variant)&&!byId(topic.targetId)?.alive?"（死亡）":"");
   const fill=(text,values)=>text.replace(/【(役職|名前|評価|理由|事実)】/g,(_,key)=>values[key]??"");
+  if(v==='pastWhite'||v==='pastReliable'){
+    const memory=d.evidence.find(e=>e.type==='rememberedSuspicion')?.snapshot;
+    const broken=d.evidence.find(e=>e.type==='publicBreakdown');
+    const medium=d.evidence.find(e=>e.type==='memoryMediumBlack');
+    const target=morningName(observer,memory.targetId);
+    const subjective=memory.detailed&&d.evidence.find(e=>e.type==='rememberedSuspicion')?.sources?.some(e=>e.type==='subjectiveIntuition');
+    const claim=memory.type==='fake'?'偽寄りに見ていた':memory.type==='wolf'?'狼寄りに見ていた':subjective?'勘で疑っていた':'疑っていた';
+    const basis=broken?`${target}が破綻する前から${claim}`:
+      `${medium.snapshot.publiclyConfirmed?'真確定した':'真寄りに見ている'}${morningName(observer,medium.snapshot.mediumId)}の霊媒結果で黒が出た${target}を、結果が出る前から${claim}`;
+    const line=v==='pastWhite'?fill(voice.person,{名前:name,評価:'白寄り'}):(COM_HISTORY_RELIABLE[observer.characterId]||COM_HISTORY_RELIABLE.joshua).replaceAll('【名前】',name);
+    return line+fill(voice.reason,{理由:basis});
+  }
   if(v==='gutSuspect'||v==='gutLynch'){
     const line=v==='gutLynch'?fill(voice.lynch,{名前:name}):fill(voice.person,{名前:name,評価:observer.characterId==='wanunu_iii'?'あやしい':'怪しい'});
     return line+(COM_INTUITION_REASONS[observer.characterId]||COM_INTUITION_REASONS.joshua);
@@ -4907,14 +5100,14 @@ function generateMorningComSpeech(observer){
 const COM_SPEECH_SCHEMA_VERSION=1;
 function describeComSpeech(observer,topic){
   const id=topic.targetId??null, d=topic.details||{}, v=topic.variant;
-  if(["basicTrust","basicSuspect","basicWait","roleTruth","wolfKeep","lynchProposal","roleFalse","nonFox","morningInfo","firstDayGreeting","gutSuspect","gutLynch"].includes(v)){
+  if(["basicTrust","basicSuspect","basicWait","roleTruth","wolfKeep","lynchProposal","roleFalse","nonFox","morningInfo","firstDayGreeting","gutSuspect","gutLynch","pastWhite","pastReliable"].includes(v)){
     const evidence=copyPublicSpeechEvidence(d.evidence||[]);
     return {schemaVersion:COM_SPEECH_SCHEMA_VERSION,variant:v,
       target:id==null?null:{type:id===observer.id?"self":"individual",playerId:id},
       relatedPlayerIds:[...new Set(evidence.flatMap(e=>e.source?[e.source.snapshot?.seerId]:(e.sources||[]).flatMap(s=>[s.snapshot?.seerId,s.snapshot?.mediumId])).filter(x=>Number.isInteger(x)&&x!==id))],
       claim:["morningInfo","firstDayGreeting","basicWait"].includes(v)?null:{type:["wolfKeep","lynchProposal","gutLynch"].includes(v)?"proposal":"evaluation",certainty:d.certainty,strength:d.certainty==="conditional"?"conditional":d.certainty==="inferred"?"tentative":"confirmed"},
       evidence,evidenceCoverage:evidence.length?"complete":"unresolved",
-      intent:['gutSuspect','gutLynch'].includes(v)?'pursuit':["morningInfo","firstDayGreeting"].includes(v)?"informationSharing":["wolfKeep","lynchProposal"].includes(v)?(v==="wolfKeep"?"defense":"pursuit"):id==null?"informationSharing":["basicTrust","nonFox"].includes(v)?"defense":v==="roleTruth"?"informationSharing":"pursuit",replyTo:null,influence:null};
+      intent:v==='pastWhite'?'defense':v==='pastReliable'?'informationSharing':['gutSuspect','gutLynch'].includes(v)?'pursuit':["morningInfo","firstDayGreeting"].includes(v)?"informationSharing":["wolfKeep","lynchProposal"].includes(v)?(v==="wolfKeep"?"defense":"pursuit"):id==null?"informationSharing":["basicTrust","nonFox"].includes(v)?"defense":v==="roleTruth"?"informationSharing":"pursuit",replyTo:null,influence:null};
   }
   const evaluation=new Set(["confirmedSeerWhite","confirmedRolePremise","confirmed","firstDayConcern","firstDayUnknown","trustSeer","changedSuspect","suspect","trustWhite","grayConcern"]);
   const pointing=new Set(["broken","split","seerMediumConflict","peaceWithGuard","peaceWithoutGuard","multiSeer","multiMedium","multiKnight","confirmedMediumResult"]);
@@ -4974,6 +5167,7 @@ function recordComSpeech(observer,speech){
   observer.speechHistory.push({day:state.day,kind:speech.kind,targetId:speech.targetId,text:speech.text,
     recordId:{speakerId:observer.id,historyIndex},
     semantics:speech.semantics?JSON.parse(JSON.stringify(speech.semantics)):null});
+  rememberSuspicionSpeech(observer,speech,historyIndex);
   if(speech.targetId!=null&&["suspect","gray","seerMediumConflict","broken"].includes(speech.kind))observer.lastSuspectId=speech.targetId;
   observer.lastSpeechDay=state.day;
   observer.lastSpeechText=speech.fullText;
@@ -5147,7 +5341,7 @@ function buildExecutionSpeechCandidates(observer){
 }
 // 対象・主張・公開根拠の同一性。記録順、名前、言い回し、私的候補点は比較しない。
 function speechRepeatKey(topic){
-  const variants=["basicTrust","basicSuspect","roleTruth","lynchProposal","wolfKeep","roleFalse","nonFox","morningInfo","gutSuspect","gutLynch"];
+  const variants=["basicTrust","basicSuspect","roleTruth","lynchProposal","wolfKeep","roleFalse","nonFox","morningInfo","gutSuspect","gutLynch","pastWhite","pastReliable"];
   if(!topic||!variants.includes(topic.variant))return null;
   const details=topic.details||topic;
   const evidence=details.evidence||[];
@@ -5187,10 +5381,12 @@ function buildSpeechRepetitionContext(observer){
   }
   return {today,previous};
 }
-function speechRepetitionFactor(observer,topic,context=buildSpeechRepetitionContext(observer)){
-  const key=speechRepeatKey(topic);
-  if(!key)return 1;
-  return Math.max(Number.MIN_VALUE,Math.pow(0.5,(context.today.get(key)||0)+(context.previous.has(key)?1:0)));
+function speechRepetitionFactor(observer,topic){
+  const key=speechRepeatKey(topic);if(!key)return 1;
+  const last=(observer.speechHistory||[]).filter(h=>h.day===state.day-1);
+  if(!last.some(h=>speechRepeatKey(h.semantics)===key))return 1;
+  const earlier=(observer.speechHistory||[]).filter(h=>h.day===state.day-2);
+  return earlier.some(h=>speechRepeatKey(h.semantics)===key)?.25:.5;
 }
 function buildSpeechSelectionGroups(observer,candidates){
   const groups=new Map(),repetition=buildSpeechRepetitionContext(observer);
@@ -5497,7 +5693,7 @@ function checkWin(){
   return null;
 }
 function finish(w){clearSelection();state.winner=w;state.phase="end";log(`ゲーム終了：${w}`,"system");save();renderAll()}
-function save(){refreshRoleTrust();refreshRoleHypotheses();localStorage.setItem("jinro_v04_state",JSON.stringify(state))}
+function save(){captureSocialBreakdowns();refreshRoleTrust();refreshRoleHypotheses();localStorage.setItem("jinro_v04_state",JSON.stringify(state))}
 function isValidSavedGame(value){
   return !!value&&Number.isInteger(value.day)&&value.day>=1&&
     ["day","night","end"].includes(value.phase)&&Array.isArray(value.logs)&&
@@ -5535,6 +5731,10 @@ function load(){
     migrateLegacyFullCoResponses();
     ensureWolfSeerPlan();
     commitPublicTruthProofs();
+    if(state.speechMemoryEnabled!==false&&!state.speechMemorySystem){
+      const system=ensureSpeechMemorySystem();
+      for(const [id] of getPublicBreakdowns())system.breakdowns[id]={order:socialOrder(),day:null};
+    }
     state.version=GAME_VERSION;
     refreshRoleTrust();refreshRoleHypotheses();
     showGame();
@@ -5593,6 +5793,24 @@ function openFlowMenu(){
     {id:"night",label:"夜を解決する",run:()=>state.phase==="night"?resolveNight():log("まだ夜ではありません。","system")}
   ])
 }
+
+const originalSocialDaySpeeches=runDaySpeeches;
+runDaySpeeches=()=>{
+  if(!state||state.speechMemoryEnabled===false||state.phase!=='day'||state.winner)return originalSocialDaySpeeches();
+  flushIntuitionEvents();captureSocialBreakdowns();
+  const pub=buildSpeechPublicInformation(),people={};
+  for(const observer of living().filter(p=>!p.isSelf))people[observer.id]=buildSocialReputation(observer,pub,observer.role==='wolf');
+  socialMorningBasis={day:state.day,people};
+  try{return originalSocialDaySpeeches();}finally{
+    socialMorningBasis=null;
+    for(const observer of living().filter(p=>!p.isSelf)){
+      observer.morningPolicyHistory??=[];
+      observer.morningPolicyHistory=observer.morningPolicyHistory.filter(h=>h.day!==state.day);
+      observer.morningPolicyHistory.push({day:state.day,active:!!observer.characterOutlook?.protection?.targetIds.length});
+      observer.morningPolicyHistory=observer.morningPolicyHistory.slice(-8);
+    }
+  }
+};
 
 // 同時CO・過去結果は報告関数単位で一つにまとめる。
 for(const name of ['reportTrueSeer','reportFakeSeer','reportTrueMedium','reportFakeMedium']){

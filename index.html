@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-stage1</title>
+<title>個人用人狼アプリ v2.20.0-stage2</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -116,7 +116,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.20.0-stage1</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.20.0-stage2</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -182,7 +182,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
       <button id="logToggleBtn" class="log-toggle">ログを全部見る</button>
     </div>
 
-    <div class="card compact-section"><button id="discussionBtn">議論を促す</button><div id="discussionStatus" class="muted" aria-live="polite"></div></div>
+    <div class="card compact-section"><button id="discussionBtn">議論を促す</button><button id="playerDiscussionBtn" class="secondary" style="margin-left:8px">自分の意見を話す</button><div id="discussionStatus" class="muted" aria-live="polite"></div></div>
     <div id="actionPanel" class="hidden"></div>
 
     <div id="actionSheet" class="action-sheet hidden">
@@ -218,7 +218,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </div>
 
 <script>
-const GAME_VERSION="2.20.0-stage1";
+const GAME_VERSION="2.20.0-stage2";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -1099,7 +1099,7 @@ function startGame(){
   for(let i=1;i<n;i++)ps.push(createCharacterPlayer(i,characters[i-1],roles[i-1]));
 
   state={
-    version:GAME_VERSION,discussionMode:"stage1",intuitionEnabled:true,speechMemoryEnabled:true,characterRosterVersion:CHARACTER_ROSTER_VERSION,day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
+    version:GAME_VERSION,discussionMode:"stage2",intuitionEnabled:true,speechMemoryEnabled:true,characterRosterVersion:CHARACTER_ROSTER_VERSION,day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
     publicRoleCounts:{...c},openingRulesVersion:1,firstVictimEnabled:!!$("#firstVictimEnabled").checked,
     publicRecords:{seerResults:[],mediumResults:[],guards:[],executions:[],deaths:[],catChains:[],resonatorClaims:[],fullCoRequests:[],confirmedProofs:[],coEvents:[]},
     uiSettings:{
@@ -1110,7 +1110,7 @@ function startGame(){
   };
 
 
-  discussionState();
+  discussionState();initializeAffinity();
   assignFakeClaims();
   ensureWolfSeerPlan();
 
@@ -4268,7 +4268,8 @@ function rememberSuspicionSpeech(speaker,speech,historyIndex){
     const person=outlook?.people[speech.targetId];
     const impression=relation?.affinity>=4||person?.wolfView==='wolfLeaning'||person?.intuitionSuspicion?.active||
       Object.values(outlook?.roles||{}).some(r=>r.assessments[speech.targetId]?.view==='false');
-    const rates=speechMemoryProbabilities(listener,impression);
+    const qOther=person?.wolfView==='wolfLeaning'||person?.intuitionSuspicion?.active||Object.values(outlook?.roles||{}).some(r=>r.assessments[speech.targetId]?.view==='false');
+    const rates=isAffinityVillage()?affinityMemoryRates(listener,speaker.id,qOther):speechMemoryProbabilities(listener,impression);
     if(intuitionRandom(system)>=rates.basic)continue;
     const detailed=intuitionRandom(system)<rates.details;
     listener.suspicionMemories??=[];
@@ -4452,7 +4453,7 @@ function withIntuitionPublication(p,action){
 function intuitionFeeling(observer,targetId){
   const count=(observer?.intuitionJudgments||[]).filter(j=>j.subjectId===targetId&&j.felt).length;
   const relation=personalityProfile(observer)?.relationships?.find(r=>r.targetId===byId(targetId)?.characterId);
-  const affinityFactor=relation?.affinity===5?.4:relation?.affinity===4?.75:1;
+  const affinityFactor=isAffinityVillage()?affinityIntuitionFactor(affinityFor(observer.id,targetId)):relation?.affinity===5?.4:relation?.affinity===4?.75:1;
   return {visibility:'private',count,affinityFactor,points:Math.round(-Math.min(6*count,12)*affinityFactor*100)/100};
 }
 function intuitionAssessment(observer,target,context,publicOnly,roleModel){
@@ -4499,7 +4500,7 @@ function personalityEmotion(observer,targetId){
   const profile=personalityProfile(observer),target=byId(targetId);
   if(!profile||!target||targetId===observer.id)return {affinity:0,intuition:0,total:0};
   const relation=profile.relationships?.find(r=>r.targetId===target.characterId);
-  const affinity=relation?2*(relation.affinity-3):0;
+  const affinity=relation?(isAffinityVillage()?1:2)*(relation.affinity-3):0;
   const pair=profile.id+'|'+(target.characterId??target.id);
   let hash=2166136261;for(const c of pair){hash^=c.charCodeAt(0);hash=Math.imul(hash,16777619);}
   const intuition=Math.round(((hash>>>0)/4294967296*4-2)*100)/100;
@@ -4584,7 +4585,7 @@ function buildRoleHypotheses(observer,context=roleTrustPublicContext(),publicOnl
     (observer[privateInfo.selfRole+'Results']||[]).map(r=>({targetId:r.target??r.targetId,black:r.black,day:r.day})):[];
   const stored=publicOnly?observer.outwardRoleHypotheses:observer.roleHypotheses;
   const previous=stored?.personalityVersion===PERSONALITY_EVALUATION_VERSION?stored:null;
-  const fingerprint=JSON.stringify({openingRulesVersion:state.openingRulesVersion||0,firstVictimEnabled:!!state.firstVictimEnabled,openingDeaths:openingPublicDeaths(),counts:context.counts,people:context.people,persona:observer.characterId,stats,personalityVersion:PERSONALITY_EVALUATION_VERSION,relationships:personalityProfile(observer)?.relationships,intuition:observer.intuitionJudgments||[],roster:state.players.map(p=>p.name),
+  const fingerprint=JSON.stringify({openingRulesVersion:state.openingRulesVersion||0,firstVictimEnabled:!!state.firstVictimEnabled,openingDeaths:openingPublicDeaths(),counts:context.counts,people:context.people,persona:observer.characterId,stats,personalityVersion:PERSONALITY_EVALUATION_VERSION,relationships:personalityProfile(observer)?.relationships,affinityModel:isAffinityVillage()?{version:AFFINITY_MODEL_VERSION,revision:state.affinity.revisions[observer.id]}:null,intuition:observer.intuitionJudgments||[],roster:state.players.map(p=>p.name),
     confirmed:[...context.confirmed.keys()].map(id=>[id,publiclyKnownRoleFor(id,context.confirmed)]),
     broken:[...context.broken.keys()],seer:context.seerRows,medium:context.mediumRows,
     full:state.publicRecords.fullCoRequests,privateInfo,privateRows});
@@ -4725,6 +4726,7 @@ function outlookInformation(observer,pub,publicOnly){
     deaths:{people:pub.context.people.map(p=>({id:p.id,alive:p.alive})),deaths:records.deaths||[],executions:records.executions||[],cat:records.catChains||[]},
     certainty:{confirmed:[...pub.context.confirmed].map(([id,reasons])=>({id,role:publiclyKnownRoleFor(id,pub.context.confirmed),reasons})),broken:[...pub.context.broken]},
     guards:{reports:records.guards||[],instructions:records.guardInstructions||[]},
+    affinityModel:isAffinityVillage()?{version:AFFINITY_MODEL_VERSION,revision:state.affinity.revisions[observer.id]}:null,
     intuition:observer.intuitionJudgments||[],
     speechMemory:observer.suspicionMemories||[],
     privateInfo:publicOnly?null:{...buildPrivateInfo(observer),
@@ -4770,11 +4772,8 @@ function buildCharacterOutlook(observer,pub=buildSpeechPublicInformation(),publi
             ![s.record.seerId,m.record.mediumId].includes(person.id))continue;
           publicEvidence.push({type:'hypothesisResultMatch',visibility:'public',sources:[s.source,m.source]});
         }
-      }else if(view==='false'&&(state.publicRecords.fullCoRequests||[]).some(r=>r.role===role)){
-        const claimants=pub.context.claimants.filter(p=>p.role===role);
-        if(claimants.length>pub.context.counts[role])publicEvidence.push({type:'hypothesisRoleComparison',visibility:'public',
-          snapshot:{role,claimantIds:claimants.map(p=>p.id),roleCount:pub.context.counts[role]}});
       }
+
       const roleTrust=roleTrustModel.roles[role][person.id];
       assessments[person.id]={targetId:person.id,view,certaintyScope:publicTrue||publicFalse?'public':
         roleTrust?.certaintyScope==='private'?'private':view==='unknown'?null:'inferred',
@@ -5013,7 +5012,7 @@ function morningReason(observer,topic){
     return `${name(s.seerId)}の占い結果と${name(m.mediumId)}の霊媒結果が、${name(s.targetId)}について一致している`;
   }
   const comparison=evidence.find(e=>e.type==="hypothesisRoleComparison");
-  if(comparison)return `${morningRoleLabel(comparison.snapshot.role)}の配役は${comparison.snapshot.roleCount}人なのに、COは${comparison.snapshot.claimantIds.length}人いる`;
+  if(comparison)return null;
   const fox=evidence.find(e=>e.type==="survivedPublicDivination");
   if(fox)return `${fox.roleTrust.status==="true"?"真確定した":"真寄りに見ている"}${name(fox.source.snapshot.seerId)}に占われた後も生きている`;
   const result=evidence.filter(e=>e.source?.snapshot&&(e.source.snapshot.seerId!=null||e.source.snapshot.mediumId!=null))
@@ -5830,7 +5829,7 @@ const DISCUSSION_LABELS={suspect:'疑う',trust:'信じる',propose:'提案',agr
 const COMMAND_PREFERENCES={
  joshua:[3,3,3,3,3,3,3,3,3,3],geode:[3,3,3,4,3,3,4,3,2,2],albert:[4,2,4,2,5,2,4,4,5,3],momiji:[3,4,4,4,2,5,3,4,1,1],kaede:[3,3,2,3,3,3,3,4,5,5],francois:[5,1,3,2,5,1,5,2,3,2],melbon:[3,3,3,4,3,4,4,4,4,3],milk:[4,4,2,4,2,4,4,3,1,2],max:[4,2,4,2,5,4,3,4,2,1],cortes:[3,4,3,4,4,5,3,5,5,3],zaemon:[3,2,5,2,4,2,3,4,2,2],yamato:[3,3,4,3,4,3,3,5,4,3],henry:[2,3,1,3,2,3,3,4,3,5],dominic:[4,3,5,4,3,4,2,4,1,1],pattino:[2,3,3,5,2,3,3,3,1,2],makimura:[2,5,3,4,2,5,3,5,3,3],rixis:[4,2,4,2,5,2,5,4,4,3],wanunu_iii:[4,3,3,3,4,3,4,4,4,3],naminami:[3,3,3,4,3,3,5,4,4,3]
 };
-function isDiscussionVillage(){return state?.discussionMode==='stage1';}
+function isDiscussionVillage(){return ['stage1','stage2'].includes(state?.discussionMode);}
 function discussionState(){
  if(!state.discussion)state.discussion={schemaVersion:1,nextId:1,events:[],questions:[],dayState:{},morningDays:{},positions:{},revisions:[]};
  return state.discussion;
@@ -6059,6 +6058,234 @@ isValidSavedGame=value=>{
  for(const [day,entry]of Object.entries(d.dayState))if(!/^\d+$/.test(day)||!Number.isInteger(entry.runs)||entry.runs<0||!entry.counts||!Array.isArray(entry.keys)||!Array.isArray(entry.recentSpeakers)||!entry.pairs)return false;
  return true;
 };
+
+// 第2段階：感情は所有者専用。真の陣営／直感engine分類を解釈入力にしない。
+const AFFINITY_MODEL_VERSION=1;
+let affinitySeedNonce=0;
+function isAffinityVillage(){return state?.discussionMode==='stage2';}
+function affinityHash(text){let h=2166136261;for(const ch of String(text)){h^=ch.charCodeAt(0);h=Math.imul(h,16777619);}return (h>>>0)||97531;}
+function affinityNext(rng){let x=rng.seed;x^=x<<13;x^=x>>>17;x^=x<<5;rng.seed=x>>>0;return rng.seed/4294967296;}
+function affinityRng(seed,eventId,ownerId,domain){return {seed:affinityHash(seed+'|'+eventId+'|'+ownerId+'|'+domain)};}
+function initializeAffinity(seed=null){
+ if(!isAffinityVillage()||state.affinity)return;
+ if(seed==null){if(globalThis.crypto?.getRandomValues){const a=new Uint32Array(1);globalThis.crypto.getRandomValues(a);seed=a[0];}else seed=affinityHash(Date.now()+'|'+(++affinitySeedNonce)+'|'+state.players.map(p=>p.characterId||p.name).join('|'));}
+ seed=(seed>>>0)||97531;
+ const rng=affinityRng(seed,'initial',0,'initial'),values={},origins={},revisions={};
+ const players=[...state.players].sort((a,b)=>a.id-b.id);
+ for(const a of players){values[a.id]={};origins[a.id]={};revisions[a.id]=0;for(const b of players)if(a.id!==b.id){values[a.id][b.id]=Math.round(5*(affinityNext(rng)+affinityNext(rng)-1))||0;origins[a.id][b.id]='random';}}
+ for(const a of players)for(const rel of personalityProfile(a)?.relationships||[]){const b=players.find(p=>p.characterId===rel.targetId);if(b){values[a.id][b.id]=rel.affinity;origins[a.id][b.id]='fixed';}}
+ state.affinity={schemaVersion:1,modelVersion:1,visibility:'private',seed,prng:'xorshift32-domains-v1',initialRngSeed:rng.seed,values,origins,revisions,processed:{},reasonOrigins:{},reasonCounters:{},history:[],aggregate:{events:0,direct:0,third:0,logical:{correct:0,incorrect:0,pending:0},changesByOwner:{}},checkpoint:{through:0,values:JSON.parse(JSON.stringify(values)),counters:{},reasonOrigins:{},revisions:JSON.parse(JSON.stringify(revisions)),signature:affinityHash(JSON.stringify([seed,0,values,{}, {},revisions]))},argumentMemories:{}};
+}
+function affinityFor(ownerId,targetId){if(!isAffinityVillage()||ownerId===targetId)return 0;return state.affinity?.values?.[ownerId]?.[targetId]??0;}
+function affinitySmooth(z){z=clamp(z,0,1);return 3*z*z-2*z*z*z;}
+function affinityMemoryStrength(h){return affinitySmooth(Math.abs(h)/5);}
+function affinityIntuitionFactor(h){const p=Math.log(.25/.6)/Math.log(.8);return 1-.6*(Math.max(h,0)/5)**p;}
+function affinityMemoryRates(listener,speakerId,qOther){const s=personalityProfile(listener)?.stats||{logic:3,emotionality:3};const intensity=qOther?1:affinityMemoryStrength(affinityFor(listener.id,speakerId));return {basic:Math.min(99,[50,65,80,90,99][s.logic-1]+4*(s.emotionality-1)*intensity)/100,details:[60,70,80,90,99][s.logic-1]/100};}
+function affinityCandidateFactor(observer,c){
+ const target=['agree','rebut','question','answer'].includes(c.command)||c.replyTo&&c.command==='hold'?c.recipientId:c.subjectId;
+ const x=affinityFor(observer.id,target)/5*(.10+.06*((personalityProfile(observer)?.stats.emotionality??3)-1));
+ return c.command==='defend'?1+x:c.command==='suspect'?1-x:['trust','agree'].includes(c.command)?1+.5*x:c.command==='rebut'?1-.5*x:1;
+}
+function affinityDirectTarget(e){return ['agree','rebut','question','answer'].includes(e.command)||e.command==='hold'&&e.replyTo?e.recipientId:['suspect','trust','defend','propose'].includes(e.command)?e.subjectId:null;}
+function affinityReasonKey(e){
+ const strip=v=>{if(Array.isArray(v))return v.map(strip).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));if(!v||typeof v!=='object')return v;return Object.fromEntries(Object.keys(v).sort().filter(k=>!['index','order','eventId','updatedDay','updatedOrder','observedDay','targetName','recordId'].includes(k)).map(k=>[k,strip(v[k])]));};
+ const direct=e.evidence.filter(x=>x.type!=='discussionStatement').map(strip);
+ const roots=direct.length?direct:e.evidence.filter(x=>x.type==='discussionStatement').map(x=>{const ref=state.discussion.events.find(r=>r.id===x.eventId);return ref?{subject:ref.subjectId,claim:ref.claim,roots:ref.evidence.filter(r=>r.type!=='discussionStatement').map(strip)}:null;});
+ return JSON.stringify([e.command,e.subjectId,affinityDirectTarget(e),e.claim,roots]);
+}
+function affinityLogicalAssessment(observer,e){
+ const pub=buildSpeechPublicInformation();
+ const refs=e.evidence.filter(x=>x.type==='discussionStatement');
+ const roots=e.evidence.filter(x=>x.type!=='discussionStatement');
+ // 参照元はその発言を聞いた記憶か、本人が直接応答すべき発言だけ。
+ const remembered=new Set((state.affinity.argumentMemories[observer.id]||[]).map(m=>m.eventId));
+ const direct=e.recipientId===observer.id;
+ const knownRefs=refs.filter(x=>remembered.has(x.eventId)||state.discussion.events.find(r=>r.id===x.eventId)?.speakerId===observer.id||direct);
+ let status='pending',strength=roots.length?2:1,hard=false;
+ if(e.command==='organize'){status=refs.length>=2&&knownRefs.length===refs.length?'correct':'pending';strength=2;}
+ if(e.claim&&e.subjectId!=null){
+  const decision=buildSpeechDecisionInformation(observer,pub),person=decision.people.people[e.subjectId];
+  const certainColor=person?.wolfStatus==='wolf'?true:person?.wolfStatus==='nonWolf'?false:null;
+  if(['positive','negative'].includes(e.claim)&&certainColor!==null&&!person.conflictingCertainty){status=(e.claim==='negative')===certainColor?'correct':'incorrect';hard=person.certaintyScope==='public';strength=3;}
+  if(e.topic?.variant==='roleFalse'&&pub.context.broken.has(e.subjectId)){status='correct';hard=true;strength=3;}
+  if(e.topic?.variant==='roleTruth'&&pub.context.confirmed.has(e.subjectId)){status='correct';hard=true;strength=3;}
+ }
+ if(e.command==='answer'&&knownRefs.length&&roots.length&&status==='pending'){status='correct';strength=2;}
+ if(e.variant==='limitedInference'&&knownRefs.length){status='correct';strength=2;}
+ const baseStatus=status,L=personalityProfile(observer)?.stats.logic??3;
+ const rng=affinityRng(state.affinity.seed,e.id,observer.id,'logic');
+ if(!hard&&status!=='pending'&&affinityNext(rng)<[.22,.15,.08,.03,.01][L-1])status=status==='correct'?'incorrect':'correct';
+ const publicRelation=publicCharacterRelationships().find(r=>r.speakerId===e.speakerId&&r.targetId===affinityDirectTarget(e))||null;
+ return {visibility:'private',baseStatus,status,misunderstood:baseStatus!==status,strength,hard,publicRelation,knownRefIds:knownRefs.map(r=>r.eventId)};
+}
+function affinityInterpret(observer,e,assessment,before,n,direct){
+ const E=personalityProfile(observer)?.stats.emotionality??3,M=.5+.15*E,C=1/(1+.75*(n-1)),rng=affinityRng(state.affinity.seed,e.id,observer.id,direct?'direct':'third');
+ let label='pending',V=0,fair=assessment.status==='correct'?(assessment.strength===3?.4:.2):assessment.status==='incorrect'?-.4:0;
+ const action=['trust','defend','agree'].includes(e.command)?.8:e.command==='suspect'||e.command==='propose'&&e.claim==='lynch'?-.8:e.command==='rebut'?-.6:e.command==='answer'?.4:0;
+ if(direct){
+  let options=[];
+  if(e.command==='defend')options=assessment.status==='incorrect'?[['approach',-.6,3],['reasonable',.2,1]]:assessment.status==='correct'?[['helped',.8,3],['reasonable',.2,assessment.publicRelation?.strength==='close'||assessment.publicRelation?.strength==='veryClose'?3:2]]:[];
+  else if(e.command==='rebut')options=assessment.status==='incorrect'?[['unfair',-.7,3],['understood',0,1]]:assessment.status==='correct'?[['grateful',.3,3],['understood',0,2]]:[];
+  else if(e.command==='question')options=[['interest',.2,before>=0?2:1],['interrogation',-.4,before<0?2:1]];
+  else if(e.command==='answer')options=assessment.status==='correct'?[['concreteAnswer',.2,3],['understood',0,1]]:assessment.status==='incorrect'?[['unhelpful',-.2,3],['understood',0,1]]:[];
+  else if(['trust','agree'].includes(e.command))options=assessment.status==='correct'?[['understood',.2,2],['reasonable',.1,1]]:assessment.status==='incorrect'?[['emptyAgreement',-.2,2],['understood',0,1]]:[];
+  else if(['suspect','propose'].includes(e.command))options=assessment.status==='correct'?[['accepted',.1,2],['understood',0,1]]:assessment.status==='incorrect'?[['unfair',-.3,3],['understood',0,1]]:[];
+  if(options.length){let draw=affinityNext(rng)*options.reduce((sum,o)=>sum+o[2],0),chosen=options.at(-1);for(const o of options){draw-=o[2];if(draw<0){chosen=o;break;}}[label,V]=chosen;}
+  else if(affinityNext(rng)<.05+.03*(E-1)){label='micro';V=affinityNext(rng)<.5?-.1:.1;}
+  return {direct,label,V,M,C,logical:assessment,delta:clamp(V*M*C,-2,2)};
+ }
+ const target=affinityDirectTarget(e),relation=target==null||target===observer.id?0:.30*affinityFor(observer.id,target)/5*action;
+ if(fair===0&&relation===0&&affinityNext(rng)<.05+.03*(E-1)){label='micro';fair=affinityNext(rng)<.5?-.1:.1;}
+ return {direct:false,label:label==='micro'?label:'observed',V:fair+relation,fair,relation,action,M,C,logical:assessment,delta:clamp((fair+relation)*M*C,-.6,.6)};
+}
+function prepareAffinityEvent(e,observerIds=null){
+ const a=state.affinity;if(!isAffinityVillage()||!a||a.processed[e.id])return null;
+ const directTarget=affinityDirectTarget(e),key=affinityReasonKey(e),rows=[];
+ const originKey=JSON.stringify([e.speakerId,key]);
+ if(!e.replyTo&&a.reasonOrigins[originKey])return {eventId:e.id,key,originKey,duplicate:true,day:e.day,rows:[]};
+ const observers=living().filter(p=>!p.isSelf&&p.id!==e.speakerId&&(!observerIds||observerIds.includes(p.id))).sort((x,y)=>x.id-y.id);
+ for(const observer of observers){const counterKey=JSON.stringify([observer.id,e.speakerId,key]);const n=(a.reasonCounters[counterKey]||0)+1;const before=affinityFor(observer.id,e.speakerId),assessment=affinityLogicalAssessment(observer,e),interpretation=affinityInterpret(observer,e,assessment,before,n,observer.id===directTarget),after=clamp(before+interpretation.delta,-5,5);rows.push({ownerId:observer.id,targetId:e.speakerId,counterKey,n,before,after,actualDelta:after-before,...interpretation});}
+ return {eventId:e.id,key,originKey,day:e.day,rows};
+}
+function captureArgumentMemories(e){
+ const a=state.affinity;
+ for(const listener of living().filter(p=>!p.isSelf&&p.id!==e.speakerId)){
+  let detailed=null;
+  const suspicion=(listener.suspicionMemories||[]).find(m=>m.source.speakerId===e.speakerId&&m.source.historyIndex===e.recordId.historyIndex);
+  if(e.claim==='negative'){if(!suspicion)continue;detailed=suspicion.detailed;}
+  else{const rates=affinityMemoryRates(listener,e.speakerId,false),rng=affinityRng(a.seed,e.id,listener.id,'memory');if(affinityNext(rng)>=rates.basic)continue;detailed=affinityNext(rng)<rates.details;}
+  const memories=a.argumentMemories[listener.id]??=[];if(memories.some(m=>m.eventId===e.id))continue;
+  memories.push({visibility:'private',eventId:e.id,speakerId:e.speakerId,subjectId:e.subjectId,command:e.command,claim:e.claim,day:e.day,detailed,evidence:detailed?copyPublicSpeechEvidence(e.evidence):[]});
+ }
+}
+function applyAffinityPrepared(prepared,e){
+ if(!prepared||state.affinity.processed[e.id])return false;
+ const next=JSON.parse(JSON.stringify(state.affinity));
+ for(const row of prepared.rows){next.values[row.ownerId][row.targetId]=row.after;if(row.after!==row.before)next.revisions[row.ownerId]++;next.reasonCounters[row.counterKey]=row.n;next.aggregate.logical[row.logical.status]++;next.aggregate[row.direct?'direct':'third']++;next.aggregate.changesByOwner[row.ownerId]=(next.aggregate.changesByOwner[row.ownerId]||0)+Math.abs(row.actualDelta);}
+ next.processed[e.id]=prepared.key;next.reasonOrigins[prepared.originKey]=e.id;next.aggregate.events++;prepared.signature=affinityHash(JSON.stringify([prepared.eventId,prepared.key,prepared.rows]));next.history.push(prepared);
+ if(next.history.length>64){const removed=next.history.splice(0,next.history.length-64);const values=JSON.parse(JSON.stringify(next.checkpoint.values)),counters={...next.checkpoint.counters},reasonOrigins={...next.checkpoint.reasonOrigins},revisions={...next.checkpoint.revisions};for(const item of removed){reasonOrigins[item.originKey]=item.eventId;for(const row of item.rows){values[row.ownerId][row.targetId]=row.after;counters[row.counterKey]=row.n;if(row.after!==row.before)revisions[row.ownerId]++;}}const through=Number(removed.at(-1).eventId.slice(1));next.checkpoint={through,values,counters,reasonOrigins,revisions,signature:affinityHash(JSON.stringify([next.seed,through,values,counters,reasonOrigins,revisions]))};}
+ state.affinity=next;return true;
+}
+function affinityTone(observer,c,text){
+ const target=['agree','rebut','question','answer'].includes(c.command)||c.replyTo&&c.command==='hold'?c.recipientId:c.subjectId;
+ if(target==null)return text;
+ const h=affinityFor(observer.id,target),weights=[Math.exp(.8*h/5),2,Math.exp(-.8*h/5)],rng=affinityRng(state.affinity.seed,'D'+discussionState().nextId,observer.id,'voice');
+ let draw=affinityNext(rng)*weights.reduce((a,b)=>a+b,0),tone=2;for(let i=0;i<weights.length;i++){draw-=weights[i];if(draw<0){tone=i;break;}}
+ if(tone===1)return text;
+ const close={joshua:'一緒に考えたいから、',geode:'まあ、話を合わせて考えようや。',albert:'君の話は丁寧に検討したい。',momiji:'なあ、一緒に考えようぜ！',kaede:'……ちゃんと聞きたいから。',francois:'君とは率直に話したいね。',melbon:'どうぞ遠慮なくお話しください。',milk:'ねえ、いっしょにかんがえよ！',max:'君の話なら聞いてやるよ。',cortes:'どうぞお気兼ねなく。',zaemon:'遠慮はいらぬぞ。',yamato:'互いの考えを聞こう。',henry:'君となら……話してみたい。',dominic:'よし、一緒に考えようぜ！',pattino:'気楽に話そうよ。',makimura:'無理せず話してくれ。',rixis:'君とは率直に話したい。',wanunu_iii:'いっしょに、かんがえるぞ。',naminami:'一緒に考えてみましょう！'};
+ const distant={joshua:'慎重に聞かせてもらうね。',geode:'そこは慎重に聞かせてもらおうか。',albert:'主張は慎重に検討する。',momiji:'そこはちゃんと確かめたいぞ。',kaede:'……慎重に考えたい。',francois:'まずは慎重に聞こう。',melbon:'その点は慎重に確認させてください。',milk:'そこ、ちゃんとききたい。',max:'その点はきちんと聞かせてくれ。',cortes:'慎重に確認させていただきます。',zaemon:'そこはしかと聞かせよ。',yamato:'慎重に確かめよう。',henry:'そこは……慎重に考えたい。',dominic:'そこはよく確かめたいな。',pattino:'そこはちゃんと聞いておこうかな。',makimura:'そこは慎重に聞きたいな。',rixis:'慎重に確かめたい。',wanunu_iii:'そこは、よくきくぞ。',naminami:'そこは慎重に確認します。'};
+ return (tone===0?close[observer.characterId]:distant[observer.characterId]||'')+text;
+}
+const stage1DiscussionText=discussionText;
+discussionText=(observer,c)=>{const text=stage1DiscussionText(observer,c);return isAffinityVillage()?affinityTone(observer,c,text):text;};
+const stage1DiscussionCandidates=discussionCandidates;
+discussionCandidates=observer=>{
+ const candidates=stage1DiscussionCandidates(observer);if(!isAffinityVillage())return candidates;
+ const memory=new Set((state.affinity.argumentMemories[observer.id]||[]).map(m=>m.eventId));
+ const known=c=>!c.replyTo||c.recipientId===observer.id||state.discussion.questions.some(q=>q.recipientId===observer.id&&q.eventId===c.replyTo)||memory.has(c.replyTo)||state.discussion.events.find(e=>e.id===c.replyTo)?.speakerId===observer.id;
+ const filtered=candidates.filter(known).filter(c=>!c.summaryIds||c.summaryIds.every(id=>memory.has(id)||state.discussion.events.find(e=>e.id===id)?.speakerId===observer.id));
+ // 覚えた根拠を伴う意見だけを再検討する。信用点の加算や根拠票の増殖はしない。
+ const seenRoots=new Set();
+ for(const m of state.affinity.argumentMemories[observer.id]||[]){
+  const event=state.discussion.events.find(e=>e.id===m.eventId);if(!event||!m.detailed||!['positive','negative'].includes(m.claim)||event.subjectId===observer.id||!byId(event.subjectId)?.alive||!byId(event.speakerId)?.alive)continue;
+  if(state.discussion.events.some(e=>e.speakerId===observer.id&&e.replyTo===event.id))continue;
+  const assessment=state.affinity.history.flatMap(h=>h.eventId===event.id?h.rows:[]).find(r=>r.ownerId===observer.id)?.logical;if(assessment?.status!=='correct')continue;
+  const pub=buildSpeechPublicInformation(),view=buildCharacterOutlook(observer,pub,observer.role==='wolf').people[event.subjectId];
+  if(view?.conflictingInformation||m.claim==='positive'&&view?.wolfView==='wolfLeaning'||m.claim==='negative'&&view?.wolfView==='nonWolfLeaning')continue;
+  const roots=m.evidence.filter(e=>e.type!=='discussionStatement');if(!roots.length||!discussionEvidenceValid(roots))continue;const decision=buildSpeechDecisionInformation(observer,pub);if(roots.some(e=>{const row=e.source?.snapshot,id=row?.seerId??row?.mediumId;return id!=null&&decision.roles.roles[row.seerId!=null?'seer':'medium'][id]?.status==='false';}))continue;
+  const rootKey=JSON.stringify([event.subjectId,m.claim,roots]);if(seenRoots.has(rootKey))continue;seenRoots.add(rootKey);
+  if(filtered.some(c=>c.command==='agree'&&c.subjectId===event.subjectId))continue;
+  const c={command:'agree',subjectId:event.subjectId,recipientId:event.speakerId,replyTo:event.id,originEventId:event.originEventId,claim:m.claim,evidence:[...roots,discussionRef(event)],weight:.18,topicForReason:event.topic||null,variant:'rememberedAgreement'};c.semanticReasonKey=discussionSemanticKey(c);if(!discussionDay().keys.includes(c.semanticReasonKey))filtered.push(c);
+ }
+ return filtered.map(c=>({...c,weight:c.weight*affinityCandidateFactor(observer,c)}));
+};
+const stage1CommitDiscussion=commitDiscussionSpeech;
+commitDiscussionSpeech=(observer,c)=>{
+ if(!isAffinityVillage())return stage1CommitDiscussion(observer,c);
+ if(!observer?.alive||observer.isSelf||state.phase!=='day'||state.winner||!discussionEvidenceValid(c.evidence)||discussionDay().keys.includes(c.semanticReasonKey))return null;
+ const saved=JSON.parse(JSON.stringify(state));
+ try{
+  const expected={...c,id:'D'+discussionState().nextId,speakerId:observer.id,day:state.day,phase:state.phase};
+  const substantive=c.command!=='hold'||!!c.replyTo;
+  const prepared=substantive?prepareAffinityEvent(expected):null;
+  const event=stage1CommitDiscussion(observer,c);if(!event)return null;
+  captureArgumentMemories(event);applyAffinityPrepared(prepared,event);
+  return event;
+ }catch(error){state=saved;throw error;}
+};
+function validateAffinitySaved(value){
+ const a=value.affinity,ids=value.players.map(p=>p.id);
+ if(!a||a.schemaVersion!==1||a.modelVersion!==1||a.prng!=='xorshift32-domains-v1'||!Number.isInteger(a.seed)||a.seed<=0||a.seed>4294967295||!a.values||!a.processed||!a.reasonOrigins||!a.reasonCounters||!Array.isArray(a.history)||!a.argumentMemories||!a.aggregate||!a.aggregate.logical||!a.revisions||!a.checkpoint)return false;
+ const cp=a.checkpoint;
+ if(!Number.isInteger(cp.through)||cp.through<0||!cp.counters||!cp.reasonOrigins||!cp.revisions||cp.signature!==affinityHash(JSON.stringify([a.seed,cp.through,cp.values,cp.counters,cp.reasonOrigins,cp.revisions])))return false;
+ const validMatrix=matrix=>matrix&&Object.keys(matrix).length===ids.length&&ids.every(id=>matrix[id]&&Object.keys(matrix[id]).length===ids.length-1&&Object.keys(matrix[id]).every(k=>+k!==id&&ids.includes(+k)&&Number.isFinite(matrix[id][k])&&matrix[id][k]>=-5&&matrix[id][k]<=5));
+ if(!validMatrix(cp.values))return false;
+ const eventIds=new Set(value.discussion.events.map(e=>e.id));
+ if(!Number.isInteger(a.aggregate.events)||a.aggregate.events!==Object.keys(a.processed).length)return false;
+ for(const key of Object.keys(a.processed))if(!eventIds.has(key))return false;
+ const tail=Object.keys(a.processed).filter(id=>Number(id.slice(1))>cp.through).sort((x,y)=>Number(x.slice(1))-Number(y.slice(1)));
+ if(JSON.stringify(tail)!==JSON.stringify(a.history.map(item=>item.eventId)))return false;
+ const rebuilt=JSON.parse(JSON.stringify(cp.values)),rebuiltCounters={...cp.counters},rebuiltOrigins={...cp.reasonOrigins},rebuiltRevisions={...cp.revisions};
+ for(const item of a.history){
+  if(!Array.isArray(item.rows)||item.signature!==affinityHash(JSON.stringify([item.eventId,item.key,item.rows]))||a.processed[item.eventId]!==item.key)return false;
+  rebuiltOrigins[item.originKey]=item.eventId;
+  const owners=new Set();
+  for(const row of item.rows){if(!ids.includes(row.ownerId)||!ids.includes(row.targetId)||row.ownerId===row.targetId||owners.has(row.ownerId)||!Number.isFinite(row.before)||!Number.isFinite(row.after)||row.after<-5||row.after>5||rebuilt[row.ownerId][row.targetId]!==row.before||Math.abs((row.after-row.before)-row.actualDelta)>1e-9)return false;if(row.n!==(rebuiltCounters[row.counterKey]||0)+1)return false;owners.add(row.ownerId);rebuilt[row.ownerId][row.targetId]=row.after;rebuiltCounters[row.counterKey]=row.n;if(row.after!==row.before)rebuiltRevisions[row.ownerId]++;}
+ }
+ const sorted=o=>JSON.stringify(Object.entries(o).sort(([a],[b])=>a.localeCompare(b)));
+ if(sorted(a.reasonCounters)!==sorted(rebuiltCounters)||sorted(a.reasonOrigins)!==sorted(rebuiltOrigins)||sorted(a.revisions)!==sorted(rebuiltRevisions))return false;
+ const repairs=[];
+ for(const id of ids){
+  if(!Number.isInteger(a.revisions[id])||a.revisions[id]<0)return false;
+  if(!a.values[id]){a.values[id]={};repairs.push('row:'+id);}
+  for(const other of ids)if(other!==id){const saved=a.values[id][other];if(saved===undefined){a.values[id][other]=rebuilt[id][other];repairs.push(id+':'+other);}else if(!Number.isFinite(saved)||saved<-5||saved>5||saved!==rebuilt[id][other])return false;}
+ }
+ if(!validMatrix(a.values))return false;
+ for(const n of Object.values(a.reasonCounters))if(!Number.isInteger(n)||n<1)return false;
+ for(const [id,mems]of Object.entries(a.argumentMemories)){if(!ids.includes(+id)||!Array.isArray(mems)||mems.some(m=>!eventIds.has(m.eventId)||!ids.includes(m.speakerId)||hasPrivateSpeechData(m.evidence)))return false;}
+ if(repairs.length)a.repairNotice={kind:'checkpointReplay',keys:repairs};
+ return true;
+}
+function publicCharacterRelationships(){return state.players.flatMap(p=>(personalityProfile(p)?.relationships||[]).flatMap(rel=>{const target=state.players.find(x=>x.characterId===rel.targetId);return target?[{speakerId:p.id,targetId:target.id,kind:rel.kind,strength:rel.affinity>=5?'veryClose':rel.affinity>=4?'close':rel.affinity===3?'professional':'reserved'}]:[]}));}
+
+const stage1ValidSavedGame=isValidSavedGame;
+isValidSavedGame=value=>{
+ if(value?.discussionMode!=='stage2')return stage1ValidSavedGame(value);
+ return stage1ValidSavedGame({...value,discussionMode:'stage1'})&&validateAffinitySaved(value);
+};
+
+
+function playerDiscussionCandidate(subjectId,command){
+ if(!isAffinityVillage()||state.phase!=='day'||state.winner||subjectId!=null&&(!byId(subjectId)?.alive||byId(subjectId).isSelf))return null;
+ const player=state.players.find(p=>p.isSelf);
+ const candidates=stage1DiscussionCandidates(player);
+ return candidates.find(c=>c.command===command&&c.subjectId===subjectId&&(c.evidence.length||command==='hold'))||null;
+}
+function submitPlayerDiscussion(subjectId,command){
+ const c=playerDiscussionCandidate(subjectId,command);if(!c)return false;
+ const self=state.players.find(p=>p.isSelf),before=JSON.parse(JSON.stringify(state));
+ try{
+  const d=discussionState(),id='D'+d.nextId,prepared=prepareAffinityEvent({...c,id,speakerId:self.id,day:state.day,phase:state.phase});
+  const text=stage1DiscussionText(self,c),semantics=c.topic?describeComSpeech(self,c.topic):{schemaVersion:1,variant:c.command,evidence:copyPublicSpeechEvidence(c.evidence),claim:c.claim?{type:'evaluation',certainty:'inferred',strength:'tentative'}:null,intent:c.command==='question'?'informationGathering':'informationSharing',target:subjectId==null?null:{type:'individual',playerId:subjectId},relatedPlayerIds:[],replyTo:c.replyTo,influence:null};
+  if(c.claim==='negative')semantics.suspicionType=c.topic?.variant==='roleFalse'?'fake':'vague';
+  const primary=['agree','rebut','question','answer'].includes(c.command)||c.command==='hold'&&c.replyTo?c.recipientId:subjectId;
+  const event={id,command:c.command,speakerId:self.id,subjectId,recipientId:c.recipientId,primaryTargetId:primary,affinityWeightTargetId:primary,secondaryIds:[...new Set([subjectId,c.recipientId].filter(x=>x!=null&&x!==primary))],replyTo:c.replyTo,originEventId:c.originEventId||id,semanticReasonKey:c.semanticReasonKey,evidence:copyPublicSpeechEvidence(c.evidence),text,day:state.day,phase:state.phase,claim:c.claim,certainty:c.topic?.details.certainty||'inferred',depth:c.replyTo?(d.events.find(e=>e.id===c.replyTo)?.depth||0)+1:0,recordId:{speakerId:self.id,historyIndex:self.speechHistory.length},topicKey:c.topic?speechRepeatKey(c.topic):null,topic:c.topic||null,variant:c.variant||null};
+  Object.assign(semantics,{eventId:id,command:c.command,subjectId,primaryTargetId:subjectId,semanticReasonKey:c.semanticReasonKey,stage:2});
+  const last=self.lastSpeechDay;recordComSpeech(self,{kind:c.topic?.kind||c.command,targetId:subjectId,text,fullText:`${self.name}：「${text}」`,semantics});self.lastSpeechDay=last;
+  d.nextId++;d.events.push(event);discussionDay().keys.push(c.semanticReasonKey);if(c.command==='question')d.questions.push({eventId:id,aboutId:c.replyTo,recipientId:c.recipientId,day:state.day,status:'open'});if(c.command==='answer'||c.command==='hold'&&c.replyTo){const q=d.questions.find(q=>q.eventId===c.replyTo);if(q){q.status=c.command==='answer'?'answered':'held';q.responseId=id;}}captureArgumentMemories(event);applyAffinityPrepared(c.command==='hold'&&!c.replyTo?null:prepared,event);
+  log(`${self.name}【${DISCUSSION_LABELS[c.command]}】：「${text}」`,'talk');save();renderAll();return true;
+ }catch(error){state=before;throw error;}
+}
+function openPlayerDiscussionMenu(){
+ if(!isAffinityVillage()||state.phase!=='day'||state.winner)return;
+ const items=[];
+ const self=state.players.find(p=>p.isSelf),seen=new Set();for(const c of stage1DiscussionCandidates(self)){if(c.subjectId===self.id||c.subjectId!=null&&!byId(c.subjectId)?.alive)continue;const key=c.command+':'+(c.subjectId??'all');if(seen.has(key))continue;seen.add(key);const label=c.recipientId!=null?`${byId(c.recipientId)?.name}へ：${DISCUSSION_LABELS[c.command]}（${byId(c.subjectId)?.name||'全体'}）`:`${byId(c.subjectId)?.name||'全体'}：${DISCUSSION_LABELS[c.command]}`;items.push({id:key,label,run:()=>submitPlayerDiscussion(c.subjectId,c.command)});}
+ if(!items.length){log('自分の意見として出せる公開材料がまだありません。','system');return;}
+ openActionSheet('公開材料を使って発言',items);
+}
+const affinityRenderAll=renderAll;
+renderAll=()=>{affinityRenderAll();const b=$('#playerDiscussionBtn');if(b){b.disabled=!isAffinityVillage()||state.phase!=='day'||!!state.winner;}};
+$('#playerDiscussionBtn').onclick=openPlayerDiscussionMenu;
 
 $("#discussionBtn").onclick=encourageDiscussion;
 $("#playerCount").addEventListener("input",()=>{selectedRolePreset=null;renderRoleConfig()});

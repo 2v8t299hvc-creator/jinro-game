@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-stage2</title>
+<title>個人用人狼アプリ v2.20.0-stage3</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -116,7 +116,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.20.0-stage2</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.20.0-stage3</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -218,7 +218,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </div>
 
 <script>
-const GAME_VERSION="2.20.0-stage2";
+const GAME_VERSION="2.20.0-stage3";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -1099,7 +1099,7 @@ function startGame(){
   for(let i=1;i<n;i++)ps.push(createCharacterPlayer(i,characters[i-1],roles[i-1]));
 
   state={
-    version:GAME_VERSION,discussionMode:"stage2",intuitionEnabled:true,speechMemoryEnabled:true,characterRosterVersion:CHARACTER_ROSTER_VERSION,day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
+    version:GAME_VERSION,discussionMode:"stage3",intuitionEnabled:true,speechMemoryEnabled:true,characterRosterVersion:CHARACTER_ROSTER_VERSION,day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
     publicRoleCounts:{...c},openingRulesVersion:1,firstVictimEnabled:!!$("#firstVictimEnabled").checked,
     publicRecords:{seerResults:[],mediumResults:[],guards:[],executions:[],deaths:[],catChains:[],resonatorClaims:[],fullCoRequests:[],confirmedProofs:[],coEvents:[]},
     uiSettings:{
@@ -1110,7 +1110,7 @@ function startGame(){
   };
 
 
-  discussionState();initializeAffinity();
+  discussionState();initializeAffinity();initializeStrategicDiscussion();
   assignFakeClaims();
   ensureWolfSeerPlan();
 
@@ -5829,7 +5829,7 @@ const DISCUSSION_LABELS={suspect:'疑う',trust:'信じる',propose:'提案',agr
 const COMMAND_PREFERENCES={
  joshua:[3,3,3,3,3,3,3,3,3,3],geode:[3,3,3,4,3,3,4,3,2,2],albert:[4,2,4,2,5,2,4,4,5,3],momiji:[3,4,4,4,2,5,3,4,1,1],kaede:[3,3,2,3,3,3,3,4,5,5],francois:[5,1,3,2,5,1,5,2,3,2],melbon:[3,3,3,4,3,4,4,4,4,3],milk:[4,4,2,4,2,4,4,3,1,2],max:[4,2,4,2,5,4,3,4,2,1],cortes:[3,4,3,4,4,5,3,5,5,3],zaemon:[3,2,5,2,4,2,3,4,2,2],yamato:[3,3,4,3,4,3,3,5,4,3],henry:[2,3,1,3,2,3,3,4,3,5],dominic:[4,3,5,4,3,4,2,4,1,1],pattino:[2,3,3,5,2,3,3,3,1,2],makimura:[2,5,3,4,2,5,3,5,3,3],rixis:[4,2,4,2,5,2,5,4,4,3],wanunu_iii:[4,3,3,3,4,3,4,4,4,3],naminami:[3,3,3,4,3,3,5,4,4,3]
 };
-function isDiscussionVillage(){return ['stage1','stage2'].includes(state?.discussionMode);}
+function isDiscussionVillage(){return ['stage1','stage2','stage3'].includes(state?.discussionMode);}
 function discussionState(){
  if(!state.discussion)state.discussion={schemaVersion:1,nextId:1,events:[],questions:[],dayState:{},morningDays:{},positions:{},revisions:[]};
  return state.discussion;
@@ -5967,7 +5967,7 @@ function commitDiscussionSpeech(observer,c){
  const id='D'+d.nextId++,source=c.replyTo?d.events.find(e=>e.id===c.replyTo):null;
  const semantics=c.topic?describeComSpeech(observer,c.topic):{schemaVersion:1,variant:c.command,target:c.subjectId==null?null:{type:c.subjectId===observer.id?'self':'individual',playerId:c.subjectId},relatedPlayerIds:c.recipientId==null?[]:[c.recipientId],claim:c.claim?{type:'evaluation',certainty:'inferred',strength:'tentative'}:null,evidence:copyPublicSpeechEvidence(c.evidence),evidenceCoverage:c.evidence.length?'complete':'unresolved',intent:c.command==='question'?'informationGathering':c.command==='defend'?'defense':'informationSharing',replyTo:c.replyTo,influence:null};
  // 会話型の疑いも従来の記憶へ保存する。反論それ自体を白/狼判定にしない。
- if(c.claim==='negative')semantics.suspicionType=c.topic?.variant==='roleFalse'?'fake':'vague';
+ if(c.claim==='negative')semantics.suspicionType=c.topic?.variant==='roleFalse'||c.variant==='reportedRoleComparison'?'fake':'vague';
  Object.assign(semantics,{eventId:id,command:c.command,replyTo:c.replyTo,originEventId:c.originEventId||id,semanticReasonKey:c.semanticReasonKey,recipientId:c.recipientId,subjectId:c.subjectId,stage:1});
  const primaryTargetId=['agree','rebut','question','answer'].includes(c.command)||c.replyTo&&c.command==='hold'?c.recipientId:c.subjectId;
  Object.assign(semantics,{primaryTargetId,secondaryTargetIds:[...new Set([c.subjectId,c.recipientId].filter(x=>x!=null&&x!==primaryTargetId))],affinityWeightTargetId:primaryTargetId});
@@ -6062,7 +6062,7 @@ isValidSavedGame=value=>{
 // 第2段階：感情は所有者専用。真の陣営／直感engine分類を解釈入力にしない。
 const AFFINITY_MODEL_VERSION=1;
 let affinitySeedNonce=0;
-function isAffinityVillage(){return state?.discussionMode==='stage2';}
+function isAffinityVillage(){return ['stage2','stage3'].includes(state?.discussionMode);}
 function affinityHash(text){let h=2166136261;for(const ch of String(text)){h^=ch.charCodeAt(0);h=Math.imul(h,16777619);}return (h>>>0)||97531;}
 function affinityNext(rng){let x=rng.seed;x^=x<<13;x^=x>>>17;x^=x<<5;rng.seed=x>>>0;return rng.seed/4294967296;}
 function affinityRng(seed,eventId,ownerId,domain){return {seed:affinityHash(seed+'|'+eventId+'|'+ownerId+'|'+domain)};}
@@ -6267,7 +6267,7 @@ function submitPlayerDiscussion(subjectId,command){
  try{
   const d=discussionState(),id='D'+d.nextId,prepared=prepareAffinityEvent({...c,id,speakerId:self.id,day:state.day,phase:state.phase});
   const text=stage1DiscussionText(self,c),semantics=c.topic?describeComSpeech(self,c.topic):{schemaVersion:1,variant:c.command,evidence:copyPublicSpeechEvidence(c.evidence),claim:c.claim?{type:'evaluation',certainty:'inferred',strength:'tentative'}:null,intent:c.command==='question'?'informationGathering':'informationSharing',target:subjectId==null?null:{type:'individual',playerId:subjectId},relatedPlayerIds:[],replyTo:c.replyTo,influence:null};
-  if(c.claim==='negative')semantics.suspicionType=c.topic?.variant==='roleFalse'?'fake':'vague';
+  if(c.claim==='negative')semantics.suspicionType=c.topic?.variant==='roleFalse'||c.variant==='reportedRoleComparison'?'fake':'vague';
   const primary=['agree','rebut','question','answer'].includes(c.command)||c.command==='hold'&&c.replyTo?c.recipientId:subjectId;
   const event={id,command:c.command,speakerId:self.id,subjectId,recipientId:c.recipientId,primaryTargetId:primary,affinityWeightTargetId:primary,secondaryIds:[...new Set([subjectId,c.recipientId].filter(x=>x!=null&&x!==primary))],replyTo:c.replyTo,originEventId:c.originEventId||id,semanticReasonKey:c.semanticReasonKey,evidence:copyPublicSpeechEvidence(c.evidence),text,day:state.day,phase:state.phase,claim:c.claim,certainty:c.topic?.details.certainty||'inferred',depth:c.replyTo?(d.events.find(e=>e.id===c.replyTo)?.depth||0)+1:0,recordId:{speakerId:self.id,historyIndex:self.speechHistory.length},topicKey:c.topic?speechRepeatKey(c.topic):null,topic:c.topic||null,variant:c.variant||null};
   Object.assign(semantics,{eventId:id,command:c.command,subjectId,primaryTargetId:subjectId,semanticReasonKey:c.semanticReasonKey,stage:2});
@@ -6286,6 +6286,184 @@ function openPlayerDiscussionMenu(){
 const affinityRenderAll=renderAll;
 renderAll=()=>{affinityRenderAll();const b=$('#playerDiscussionBtn');if(b){b.disabled=!isAffinityVillage()||state.phase!=='day'||!!state.winner;}};
 $('#playerDiscussionBtn').onclick=openPlayerDiscussionMenu;
+
+// 第3段階。方針・目的・的中分類はprivate。公開イベントには公開材料だけ。
+function isStrategicDiscussionVillage(){return state?.discussionMode==='stage3';}
+function initializeStrategicDiscussion(){
+ if(!isStrategicDiscussionVillage()||state.strategicDiscussion)return;
+ state.strategicDiscussion={schemaVersion:1,visibility:'private',seed:affinityHash(state.affinity.seed+'|strategy'),plans:{},intentions:{},intuitionEvents:{}};
+}
+function strategyPublicKey(pub){return JSON.stringify([state.day,pub.context.people,pub.context.seerRows.map(x=>x.record),pub.context.mediumRows.map(x=>x.record),[...pub.context.broken],[...pub.context.confirmed]]);}
+function discussionPublicRisk(pub,id){const person=pub.people.people[id];return pub.context.broken.has(id)?1:person?.wolfStatus==='wolf'&&!person.conflictingCertainty?1:clamp((50-(person?.score??50))/50,0,1);}
+function buildDiscussionPlan(observer,pub=buildSpeechPublicInformation()){
+ initializeStrategicDiscussion();const system=state.strategicDiscussion,old=system.plans[observer.id],key=strategyPublicKey(pub);
+ if(old?.informationKey===key)return old;
+ const stats=personalityProfile(observer)?.stats||{logic:3,emotionality:3,willingnessToCut:3,coordination:3};
+ const others=pub.context.people.filter(p=>p.alive&&p.id!==observer.id),info=buildPrivateInfo(observer);
+ let route='compare',protectId=null,pressureId=null,cutId=null,reason='publicDeliberation';
+ if(observer.role==='wolf'){
+  const allies=others.filter(p=>info.knownWolfAllies.includes(p.id)).sort((a,b)=>discussionPublicRisk(pub,b.id)-discussionPublicRisk(pub,a.id)||a.id-b.id);
+  const ally=allies[0],risk=ally?discussionPublicRisk(pub,ally.id):0;
+  if(ally&&(pub.context.broken.has(ally.id)||risk>=.90-.08*stats.willingnessToCut)){cutId=ally.id;reason='allyUnderPublicPressure';}else protectId=ally?.id??null;
+  const routeEvaluation=buildStrategicWolfAttack();route=routeEvaluation.strategy.route;reason=cutId?'allyUnderPublicPressure':'wolfAttackRoute'; // 昼の読み取り。夜の襲撃抽選やroute保存は変更しない。
+  const threats=computeWolfThreat(observer,pub.context,pub.roles,computeObserverRoleTrust(observer,pub.context));
+  pressureId=others.filter(p=>!info.knownWolfAllies.includes(p.id)&&!pub.context.confirmed.has(p.id)).sort((a,b)=>(threats.people[b.id]?.score??0)-(threats.people[a.id]?.score??0)||discussionPublicRisk(pub,b.id)-discussionPublicRisk(pub,a.id)||a.id-b.id)[0]?.id??null;
+ }else if(observer.role==='madman'){
+  // 狂人が知る狼一覧は使わない。自分の推理で狼寄りと見た人物のみ。
+  const view=buildCharacterOutlook(observer,pub,false);
+  protectId=others.filter(p=>view.people[p.id]?.wolfView==='wolfLeaning'&&!pub.context.broken.has(p.id)).sort((a,b)=>discussionPublicRisk(pub,b.id)-discussionPublicRisk(pub,a.id)||a.id-b.id)[0]?.id??null;
+  route='supportSuspectedWolf';reason='personalWolfPrediction';
+  pressureId=others.filter(p=>p.id!==protectId&&!pub.context.confirmed.has(p.id)&&pub.context.seerRows.some(x=>x.record.targetId===p.id&&x.record.black)).sort((a,b)=>discussionPublicRisk(pub,b.id)-discussionPublicRisk(pub,a.id)||a.id-b.id)[0]?.id??null;
+ }else if(observer.role==='fox'){
+  const policy=buildPublicExecutionEvaluation(observer);route=policy.keep.active?'preserveLastWolf':'avoidAttention';reason=policy.keep.active?'publicLastWolfPolicy':'survival';
+  protectId=policy.keep.active?policy.keep.keepId:null;
+  pressureId=others.filter(p=>p.id!==protectId&&!pub.context.confirmed.has(p.id)&&pub.context.seerRows.some(x=>x.record.targetId===p.id&&x.record.black)).sort((a,b)=>discussionPublicRisk(pub,b.id)-discussionPublicRisk(pub,a.id)||a.id-b.id)[0]?.id??null;
+ }else route=stats.logic>=stats.emotionality?'compare':'listen';
+ // 実行可能な対象・硬い新事実の変更以外は最低2日、以前の対象を維持。
+ const validOld=id=>id==null||others.some(p=>p.id===id)&&!pub.context.broken.has(id)&&!pub.context.confirmed.has(id);
+ if(old&&state.day-old.changedDay<2&&old.route===route&&validOld(old.pressureId)&&validOld(old.protectId)&&cutId===old.cutId){protectId=old.protectId;pressureId=old.pressureId;reason='maintainPlan';}
+ const changed=!old||JSON.stringify([route,protectId,pressureId,cutId])!==JSON.stringify([old.route,old.protectId,old.pressureId,old.cutId]);
+ const plan={schemaVersion:1,visibility:'private',ownerId:observer.id,route,protectId,pressureId,cutId,reason,day:state.day,changedDay:changed?state.day:old.changedDay,informationKey:key,history:changed?[...(old?.history||[]),{day:state.day,route,protectId,pressureId,cutId,reason}].slice(-16):old.history};
+ system.plans[observer.id]=plan;return plan;
+}
+function discussionSelfConsideration(observer,c){return c.subjectId===observer.id&&!(c.replyTo&&['answer','rebut','hold'].includes(c.command));}
+function strategyPublicAlternatives(observer,pub){
+ const out=[],seen=new Set();
+ for(const row of pub.context.seerRows){const r=row.record,target=byId(r.targetId),source=pub.roles.roles.seer[r.seerId];
+  if(!target?.alive||target.id===observer.id||pub.context.broken.has(r.seerId)||source?.status==='false'||source?.conflictingCertainty)continue;
+  const person=pub.people.people[target.id];if(pub.context.confirmed.has(target.id)||person?.conflictingCertainty)continue;
+  if(person?.certaintyScope==='public'&&((person.wolfStatus==='wolf'&&!r.black)||(person.wolfStatus==='nonWolf'&&r.black)))continue;
+  const claim=r.black?'negative':'positive',key=target.id+':'+claim;if(seen.has(key))continue;seen.add(key);
+  out.push({command:r.black?'suspect':'trust',subjectId:target.id,recipientId:null,replyTo:null,claim,evidence:[{type:'reportedResult',visibility:'public',source:JSON.parse(JSON.stringify(row.source))}],variant:'reportedPossibility',weight:.12});
+ }
+ for(const row of pub.context.seerRows){const r=row.record,source=byId(r.seerId),opposite=pub.context.seerRows.find(x=>x.record.targetId===r.targetId&&x.record.seerId!==r.seerId&&x.record.black!==r.black&&!pub.context.broken.has(x.record.seerId));
+  if(!source?.alive||source.id===observer.id||!opposite||pub.context.broken.has(source.id)||pub.context.confirmed.has(source.id))continue;
+  for(const claim of ['positive','negative']){const key='role:'+source.id+':'+claim;if(seen.has(key))continue;seen.add(key);out.push({command:claim==='positive'?'trust':'suspect',subjectId:source.id,recipientId:null,replyTo:null,claim,evidence:[row,opposite].map(x=>({type:'reportedResult',visibility:'public',source:JSON.parse(JSON.stringify(x.source))})),variant:'reportedRoleComparison',weight:.10});}
+ }
+ return out;
+}
+function strategicRepeatedClaim(c){
+ if(c.replyTo)return false;
+ const sources=c.evidence.filter(e=>e.source?.snapshot).map(e=>JSON.stringify(e.source.snapshot));if(!sources.length)return false;
+ return discussionState().events.some(e=>!e.replyTo&&e.subjectId===c.subjectId&&e.claim===c.claim&&sources.every(s=>e.evidence.some(x=>x.source?.snapshot&&JSON.stringify(x.source.snapshot)===s)));
+}
+function strategyCandidateGoal(observer,c,plan){
+ const negative=c.claim==='negative'||c.claim==='lynch',positive=c.claim==='positive'||c.claim==='keep'||c.command==='defend'||c.command==='rebut'&&c.claim==null;
+ if(observer.role==='wolf'){
+  const allies=buildPrivateInfo(observer).knownWolfAllies;
+  if(allies.includes(c.subjectId))return negative?(c.subjectId===plan.cutId?'cutAlly':'avoidAllyPressure'):positive?(c.subjectId===plan.cutId?'avoidDoomedDefense':'protectAlly'):'neutral';
+  if(c.subjectId===plan.pressureId&&negative)return 'redirectPressure';
+ }else if(observer.role==='madman'){
+  if(c.subjectId===plan.protectId)return positive?'protectPredictedWolf':negative?'avoidPredictedWolfPressure':'neutral';
+  if(c.subjectId===plan.pressureId&&negative)return 'redirectPressure';
+ }else if(observer.role==='fox'){
+  if(c.subjectId===plan.protectId)return positive?'preserveWolf':negative?'avoidLastWolfPressure':'neutral';
+  if(c.subjectId===plan.pressureId&&negative)return 'redirectPressure';
+ }
+ return 'neutral';
+}
+function strategicCandidateFactor(observer,c,plan){
+ const goal=strategyCandidateGoal(observer,c,plan),stats=personalityProfile(observer)?.stats||{coordination:3,willingnessToCut:3};
+ const factors={cutAlly:1.2+.2*stats.willingnessToCut,protectAlly:1.3+.2*stats.coordination,protectPredictedWolf:1.7,preserveWolf:1.8,redirectPressure:1.8,avoidAllyPressure:.2,avoidDoomedDefense:.25,avoidPredictedWolfPressure:.3,avoidLastWolfPressure:.2};
+ let f=factors[goal]??1;
+ if(plan.route==='credit'&&c.claim==='positive'&&byId(c.subjectId)?.claimed==='seer'&&goal==='protectAlly')f*=1.25;
+ if(plan.route==='challenge'&&c.command==='question'&&byId(c.recipientId)?.claimed==='seer')f*=1.2;
+ if(plan.route==='listen'&&['question','answer','hold'].includes(c.command))f*=1.15;
+ if(plan.route==='compare'&&['organize','rebut'].includes(c.command))f*=1.15;
+ return f;
+}
+const affinityDiscussionCandidates=discussionCandidates;
+function normalizeNonFoxDiscussionCandidate(c){
+ if(!c||c.topic?.variant!=='nonFox')return c;
+ const copy={...c,claim:null,topic:{...c.topic,kind:'trust'}};copy.semanticReasonKey=discussionSemanticKey(copy);return copy;
+}
+discussionCandidates=observer=>{
+ let base=affinityDiscussionCandidates(observer);if(!isStrategicDiscussionVillage())return base;
+ // 「非狐」は非狼や白評価とは別。旧見立てのkind書換えに伴う負のclaimを引き継がない。
+ base=base.map(normalizeNonFoxDiscussionCandidate);
+ const pub=buildSpeechPublicInformation(),plan=buildDiscussionPlan(observer,pub),hostile=['wolf','madman','fox'].includes(observer.role),all=[...base];
+ {
+  // 文型そのものを人外専用にしない。村側は本人の既知情報・見立てに反する候補を除く。
+  const personal=hostile?null:buildSpeechDecisionInformation(observer,pub),view=hostile?null:buildCharacterOutlook(observer,pub,false);
+  const alternatives=strategyPublicAlternatives(observer,pub).filter(c=>{
+   if(hostile)return true;
+   const person=personal.people.people[c.subjectId];
+   if(person?.conflictingCertainty)return false;
+   if(person?.wolfStatus==='wolf'&&c.claim==='positive'||person?.wolfStatus==='nonWolf'&&c.claim==='negative')return false;
+   if(c.variant==='reportedRoleComparison'){const assessment=view.roles.seer?.assessments[c.subjectId];return assessment?.view===(c.claim==='positive'?'true':'false');}
+   return c.evidence.every(e=>personal.roles.roles.seer[e.source.snapshot.seerId]?.status!=='false');
+  });
+  for(const c of alternatives){c.semanticReasonKey=discussionSemanticKey(c);if(!discussionDay().keys.includes(c.semanticReasonKey)&&!base.some(b=>b.subjectId===c.subjectId&&b.claim===c.claim))all.push({...c,weight:c.weight*affinityCandidateFactor(observer,c)});}
+  const remembered=new Set((state.affinity.argumentMemories[observer.id]||[]).map(m=>m.eventId));
+  for(const e of discussionState().events.slice(-18)){
+   if(!remembered.has(e.id)||e.speakerId===observer.id||!byId(e.speakerId)?.alive||!byId(e.subjectId)?.alive||(e.depth||0)>=3||!['negative','lynch'].includes(e.claim)||discussionState().events.some(x=>x.speakerId===observer.id&&x.replyTo===e.id))continue;
+   const pair=[observer.id,e.speakerId].sort((a,b)=>a-b).join(':');if((discussionDay().pairs[pair]||0)>=3)continue;
+   const counter=alternatives.find(c=>c.subjectId===e.subjectId&&c.claim==='positive');if(!counter)continue;
+   const c={...counter,command:'defend',recipientId:e.speakerId,replyTo:e.id,originEventId:e.id,variant:counter.variant==='reportedRoleComparison'?'reportedRoleDefense':'reportedDefense',evidence:[...counter.evidence,discussionRef(e)],weight:.20};c.semanticReasonKey=discussionSemanticKey(c);
+   if(!discussionDay().keys.includes(c.semanticReasonKey)&&!all.some(x=>x.command===c.command&&x.replyTo===e.id))all.push({...c,weight:c.weight*affinityCandidateFactor(observer,c)});
+  }
+ }
+ return all.filter(c=>!discussionSelfConsideration(observer,c)&&!strategicRepeatedClaim(c)).map(c=>({...c,weight:c.weight*strategicCandidateFactor(observer,c,plan)}));
+};
+const affinityDiscussionText=discussionText;
+discussionText=(observer,c)=>{
+ if(!isStrategicDiscussionVillage()||!['reportedPossibility','reportedDefense','reportedRoleComparison','reportedRoleDefense'].includes(c.variant))return affinityDiscussionText(observer,c);
+ const row=c.evidence.find(e=>e.type==='reportedResult')?.source.snapshot;
+ if(!row)return affinityDiscussionText(observer,c);
+ if(['reportedRoleComparison','reportedRoleDefense'].includes(c.variant)){
+  const other=c.evidence.filter(e=>e.type==='reportedResult')[1].source.snapshot;
+  const text=`${morningName(observer,row.seerId)}と${morningName(observer,other.seerId)}の${morningName(observer,row.targetId)}についての結果が割れている。今は${morningName(observer,c.subjectId)}を${c.claim==='positive'?'真':'偽'}寄りに見ている。結果が割れただけでどちらかが偽と確定するわけではない`;
+  return affinityTone(observer,c,discussionVoice(observer,(c.command==='defend'?`${morningName(observer,c.recipientId)}の疑いには、その見方から擁護を加えたい。`:'')+text));
+ }
+ const basis=`${morningName(observer,row.seerId)}が${morningName(observer,row.targetId)}に${row.black?'黒':'白'}を報告している。この結果を材料の一つとして、${morningName(observer,row.targetId)}を${row.black?'疑う方向':'白寄り'}で考えたい。占い師が真かどうかで変わる予想だ`;
+ return affinityTone(observer,c,discussionVoice(observer,c.command==='defend'?`${morningName(observer,c.recipientId)}の疑いには、別の結果も踏まえて擁護したい。${basis}`:basis));
+};
+function strategicIntuitionCategory(observer,c,goal){
+ // 的中情報はここだけ。COM候補／感情解釈／公開projectionへ渡さない。
+ if(goal==='neutral'||goal.startsWith('avoid'))return 'true';
+ const target=byId(c.subjectId);if(!target||!c.claim)return 'fakeCorrect';
+ if(['positive','negative','lynch'].includes(c.claim)){const actualPositive=['seer','medium'].includes(target.claimed)?target.role===target.claimed:target.role!=='wolf';return ((c.claim==='positive')===actualPositive)?'fakeCorrect':'fakeWrong';}
+ return 'fakeCorrect';
+}
+function captureStrategicIntuition(observer,c,event,plan){
+ const system=state.strategicDiscussion;if(system.intuitionEvents[event.id])return;
+ const goal=strategyCandidateGoal(observer,c,plan),hostile=['wolf','madman','fox'].includes(observer.role),strategic=hostile&&goal!=='neutral'&&!goal.startsWith('avoid');
+ system.intentions[event.id]={visibility:'private',ownerId:observer.id,goal,route:plan.route,strategic};
+ // 根拠のある通常の擁護／反論も誤検知対象。question/answerには新機会を作らない。
+ if(!['defend','rebut'].includes(c.command)||state.intuitionEnabled===false)return;
+ const category=strategic?strategicIntuitionCategory(observer,c,goal):'true',deception=personalityProfile(observer)?.stats.deception??3;
+ const judgments=[];
+ for(const listener of living().filter(p=>!p.isSelf&&p.id!==observer.id)){
+  const observation=personalityProfile(listener)?.stats.observation??3,p=intuitionDetectionProbability(observation,deception,category),rng=affinityRng(system.seed,event.id,listener.id,'strategicIntuition');
+  const felt=affinityNext(rng)<p;listener.intuitionJudgments??=[];listener.intuitionJudgments.push({schemaVersion:1,eventId:'S:'+event.id,subjectId:observer.id,day:state.day,felt});judgments.push({ownerId:listener.id,felt});
+ }
+ system.intuitionEvents[event.id]={visibility:'private',category,deception,judgments};
+}
+const affinityCommitDiscussion=commitDiscussionSpeech;
+commitDiscussionSpeech=(observer,c)=>{
+ if(!isStrategicDiscussionVillage())return affinityCommitDiscussion(observer,c);
+ if(!observer?.alive||observer.isSelf||state.phase!=='day'||state.winner||discussionSelfConsideration(observer,c)||!discussionEvidenceValid(c.evidence)||discussionDay().keys.includes(c.semanticReasonKey))return null;
+ const saved=JSON.parse(JSON.stringify(state));
+ try{const plan=buildDiscussionPlan(observer),event=affinityCommitDiscussion(observer,c);if(event)captureStrategicIntuition(observer,c,event,plan);return event;}catch(error){state=saved;throw error;}
+};
+function validateStrategicDiscussion(value){
+ const s=value.strategicDiscussion,ids=new Set(value.players.map(p=>p.id)),events=new Set(value.discussion.events.map(e=>e.id));
+ if(!s||s.schemaVersion!==1||s.visibility!=='private'||!Number.isInteger(s.seed)||s.seed!==affinityHash(value.affinity.seed+'|strategy')||!s.plans||!s.intentions||!s.intuitionEvents)return false;
+ const routes=['compare','listen','credit','challenge','wait','supportSuspectedWolf','preserveLastWolf','avoidAttention'];
+ for(const [id,p]of Object.entries(s.plans))if(!ids.has(+id)||p.ownerId!==+id||p.visibility!=='private'||!routes.includes(p.route)||!Number.isInteger(p.day)||p.day<1||p.day>value.day||!Number.isInteger(p.changedDay)||p.changedDay<1||p.changedDay>p.day||typeof p.informationKey!=='string'||!Array.isArray(p.history)||[p.protectId,p.pressureId,p.cutId].some(x=>x!=null&&(!ids.has(x)||x===+id)))return false;
+ for(const [id,i]of Object.entries(s.intentions))if(!events.has(id)||i.visibility!=='private'||!ids.has(i.ownerId)||value.discussion.events.find(e=>e.id===id).speakerId!==i.ownerId||typeof i.strategic!=='boolean')return false;
+ for(const [id,e]of Object.entries(s.intuitionEvents)){
+  if(!events.has(id)||!s.intentions[id]||e.visibility!=='private'||!['true','fakeCorrect','fakeWrong'].includes(e.category)||!Number.isInteger(e.deception)||e.deception<1||e.deception>5||!Array.isArray(e.judgments)||new Set(e.judgments.map(j=>j.ownerId)).size!==e.judgments.length)return false;
+  const event=value.discussion.events.find(x=>x.id===id);
+  if(!['defend','rebut'].includes(event.command))return false;
+  for(const j of e.judgments){const owner=value.players.find(p=>p.id===j.ownerId),felt=(owner?.intuitionJudgments||[]).filter(x=>x.eventId==='S:'+id);if(!owner||owner.isSelf||owner.id===event.speakerId||typeof j.felt!=='boolean'||felt.length!==1||felt[0].felt!==j.felt||felt[0].subjectId!==event.speakerId)return false;}
+ }
+ return true;
+}
+const affinityValidSavedGame=isValidSavedGame;
+isValidSavedGame=value=>value?.discussionMode==='stage3'?affinityValidSavedGame({...value,discussionMode:'stage2'})&&validateStrategicDiscussion(value):affinityValidSavedGame(value);
+const affinityPlayerDiscussionCandidate=playerDiscussionCandidate;
+playerDiscussionCandidate=(subjectId,command)=>{const c=affinityPlayerDiscussionCandidate(subjectId,command);return isStrategicDiscussionVillage()?normalizeNonFoxDiscussionCandidate(c):c;};
 
 $("#discussionBtn").onclick=encourageDiscussion;
 $("#playerCount").addEventListener("input",()=>{selectedRolePreset=null;renderRoleConfig()});

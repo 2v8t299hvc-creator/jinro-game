@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-quality1</title>
+<title>個人用人狼アプリ v2.20.0-quality2</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -130,7 +130,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.20.0-quality1</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.20.0-quality2</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -239,7 +239,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
 </section>
 <script>
-const GAME_VERSION="2.20.0-quality1";
+const GAME_VERSION="2.20.0-quality2";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -5903,36 +5903,36 @@ function discussionCandidates(observer){
  for(const q of pending){
   const question=d.events.find(e=>e.id===q.eventId),original=d.events.find(e=>e.id===q.aboutId);if(!question||!original)continue;
   const own=d.events.find(e=>e.id===original.id&&e.speakerId===observer.id);
-  const current=raw.find(t=>t.targetId===original.subjectId&&['positive','negative','lynch','keep'].includes(discussionClaim(t))&&t.details?.evidence?.length);
+  const current=raw.find(t=>topicMatchesDiscussionQuestion(t,question,original)&&t.details?.evidence?.length);
   const decision=buildSpeechDecisionInformation(observer,pub);
   const oldRoots=(own?.evidence||[]).filter(e=>e.type!=='discussionStatement').filter(e=>{const row=e.source?.snapshot;const id=row?.seerId??row?.mediumId;return id==null||decision.roles.roles[row.seerId!=null?'seer':'medium'][id]?.status!=='false';});
   const roots=current?.details.evidence||oldRoots;
   const answerClaim=current?discussionClaim(current):original.claim;
-  if(roots.length&&discussionEvidenceValid(roots))add({command:'answer',recipientId:question.speakerId,subjectId:original.subjectId,replyTo:question.id,originEventId:original.id,claim:answerClaim,evidence:[...roots,discussionRef(question)],answerAbout:original.id,topicForReason:current,reconsider:answerClaim!==original.claim,weight:2.4});
+  if(roots.length&&discussionEvidenceValid(roots))add({command:'answer',recipientId:question.speakerId,subjectId:original.subjectId,replyTo:question.id,originEventId:original.id,claim:answerClaim,evidence:[...roots,discussionRef(question)],answerAbout:original.id,topicForReason:current,reconsider:discussionAnswerReconsider(current,original),weight:2.4});
   add({command:'hold',recipientId:question.speakerId,subjectId:original.subjectId,replyTo:question.id,originEventId:original.id,evidence:[discussionRef(question)],variant:'answerHold',weight:.2});
   if(personalityWeights(observer).assertiveness>=4)add({command:'hold',recipientId:question.speakerId,subjectId:original.subjectId,replyTo:question.id,originEventId:original.id,evidence:[discussionRef(question)],variant:'answerRefusal',weight:.1});
  }
  const recent=d.events.filter(e=>e.day>=state.day-1&&e.phase==='day').slice(-18);
  const views=buildCharacterOutlook(observer,pub,observer.role==='wolf');
  for(const e of recent){
-  if(e.speakerId===observer.id||!byId(e.speakerId)?.alive||!['suspect','trust','propose','answer'].includes(e.command)||e.subjectId==null)continue;
+  if(e.speakerId===observer.id||!byId(e.speakerId)?.alive||!['suspect','trust','propose','answer','agree','rebut','defend'].includes(e.command)||e.subjectId==null)continue;
   const depth=e.depth||0;if(depth>=3)continue;
   const repeatedReply=d.events.some(x=>x.speakerId===observer.id&&x.replyTo===e.id);if(repeatedReply)continue;
   const pair=[observer.id,e.speakerId].sort((a,b)=>a-b).join(':');if((day.pairs[pair]||0)>=3)continue;
-  const same=out.filter(c=>c.topic&&c.subjectId===e.subjectId&&c.claim===e.claim&&c.evidence.length);
+  const same=out.filter(c=>c.topic&&discussionTopicRelation(c.topic,e)==='support'&&c.evidence.length);
   // 再発言票の除外で基本候補が消えていても、見立てと公開材料を照合する。
-  const support=raw.filter(t=>t.targetId===e.subjectId&&discussionClaim(t)===e.claim&&t.details?.evidence?.length);
+  const support=raw.filter(t=>discussionTopicRelation(t,e)==='support'&&t.details?.evidence?.length);
   const supported=same[0]?.topic||support[0];
   const negative=['negative','lynch'].includes(e.claim);
   const positive=e.claim==='positive';
   if(supported&&discussionEvidenceValid(supported.details.evidence))add({command:'agree',recipientId:e.speakerId,subjectId:e.subjectId,replyTo:e.id,claim:e.claim,evidence:[...supported.details.evidence,discussionRef(e)],topicForReason:supported,weight:.3});
-  const counter=raw.find(t=>t.targetId===e.subjectId&&t.details?.evidence?.length&&((negative&&discussionClaim(t)==='positive')||(positive&&discussionClaim(t)==='negative')));
+  const counter=raw.find(t=>t.details?.evidence?.length&&discussionTopicRelation(t,e)==='rebut');
   if(counter&&discussionEvidenceValid(counter.details.evidence)){
    add({command:'rebut',recipientId:e.speakerId,subjectId:e.subjectId,replyTo:e.id,claim:discussionClaim(counter),evidence:[...counter.details.evidence,discussionRef(e)],topicForReason:counter,weight:.4});
    if(negative&&e.subjectId!==observer.id)add({command:'defend',recipientId:e.speakerId,subjectId:e.subjectId,replyTo:e.id,claim:'positive',evidence:[...counter.details.evidence,discussionRef(e)],topicForReason:counter,weight:.4});
   }
   // 論理の範囲への反論。対象が白いという結論は作らない。
-  if(negative&&e.certainty==='inferred'&&e.evidence.length&&!pub.context.broken.has(e.subjectId)&&!pub.context.confirmed.has(e.subjectId))
+  if(negative&&canChallengeDiscussionInference(e)&&e.evidence.length&&!pub.context.broken.has(e.subjectId)&&!pub.context.confirmed.has(e.subjectId))
    add({command:'rebut',recipientId:e.speakerId,subjectId:e.subjectId,replyTo:e.id,claim:null,variant:'limitedInference',evidence:[discussionRef(e)],weight:.22});
   if(e.command!=='answer'&&!d.questions.some(q=>q.aboutId===e.id)&&d.questions.filter(q=>q.status==='open').length<3)
    add({command:'question',recipientId:e.speakerId,subjectId:e.subjectId,replyTo:e.id,evidence:[discussionRef(e)],weight:.35});
@@ -5989,14 +5989,14 @@ function commitDiscussionSpeech(observer,c){
  const semantics=c.topic?describeComSpeech(observer,c.topic):{schemaVersion:1,variant:c.command,target:c.subjectId==null?null:{type:c.subjectId===observer.id?'self':'individual',playerId:c.subjectId},relatedPlayerIds:c.recipientId==null?[]:[c.recipientId],claim:c.claim?{type:'evaluation',certainty:'inferred',strength:'tentative'}:null,evidence:copyPublicSpeechEvidence(c.evidence),evidenceCoverage:c.evidence.length?'complete':'unresolved',intent:c.command==='question'?'informationGathering':c.command==='defend'?'defense':'informationSharing',replyTo:c.replyTo,influence:null};
  // 会話型の疑いも従来の記憶へ保存する。反論それ自体を白/狼判定にしない。
  if(c.claim==='negative')semantics.suspicionType=c.topic?.variant==='roleFalse'||c.variant==='reportedRoleComparison'?'fake':'vague';
- Object.assign(semantics,{eventId:id,command:c.command,replyTo:c.replyTo,originEventId:c.originEventId||id,semanticReasonKey:c.semanticReasonKey,recipientId:c.recipientId,subjectId:c.subjectId,stage:1});
+ Object.assign(semantics,{eventId:id,command:c.command,replyTo:c.replyTo,originEventId:c.originEventId||id,semanticReasonKey:c.semanticReasonKey,recipientId:c.recipientId,subjectId:c.subjectId,stage:1,proposition:c.proposition,relation:c.relation,participants:c.participants,questionRequest:c.questionRequest,semanticVersion:c.semanticVersion});
  const primaryTargetId=['agree','rebut','question','answer'].includes(c.command)||c.replyTo&&c.command==='hold'?c.recipientId:c.subjectId;
  Object.assign(semantics,{primaryTargetId,secondaryTargetIds:[...new Set([c.subjectId,c.recipientId].filter(x=>x!=null&&x!==primaryTargetId))],affinityWeightTargetId:primaryTargetId});
  const historyIndex=observer.speechHistory?.length||0;
  const previousMorningDay=observer.lastSpeechDay;
  recordComSpeech(observer,{kind:c.topic?.kind||c.command,targetId:c.subjectId,text,fullText:`${observer.name}：「${text}」`,semantics});
  observer.lastSpeechDay=previousMorningDay;
- const event={id,command:c.command,primaryTargetId,affinityWeightTargetId:primaryTargetId,speakerId:observer.id,subjectId:c.subjectId,recipientId:c.recipientId,secondaryIds:[...new Set([c.subjectId,c.recipientId].filter(x=>x!=null&&x!==primaryTargetId))],replyTo:c.replyTo,originEventId:c.originEventId||id,semanticReasonKey:c.semanticReasonKey,evidence:copyPublicSpeechEvidence(c.evidence),text,day:state.day,phase:state.phase,claim:c.claim||null,certainty:c.topic?.details.certainty||'inferred',depth:source?(source.depth||0)+1:0,recordId:{speakerId:observer.id,historyIndex},topicKey:c.topic?speechRepeatKey(c.topic):null,topic:c.topic?JSON.parse(JSON.stringify(c.topic)):null,variant:c.variant||null};
+ const event={id,command:c.command,primaryTargetId,affinityWeightTargetId:primaryTargetId,speakerId:observer.id,subjectId:c.subjectId,recipientId:c.recipientId,secondaryIds:[...new Set([c.subjectId,c.recipientId].filter(x=>x!=null&&x!==primaryTargetId))],replyTo:c.replyTo,originEventId:c.originEventId||id,semanticReasonKey:c.semanticReasonKey,evidence:copyPublicSpeechEvidence(c.evidence),text,day:state.day,phase:state.phase,claim:c.claim||null,certainty:c.topic?.details.certainty||'inferred',depth:source?(source.depth||0)+1:0,recordId:{speakerId:observer.id,historyIndex},topicKey:c.topic?speechRepeatKey(c.topic):null,topic:c.topic?JSON.parse(JSON.stringify(c.topic)):null,variant:c.variant||null,semanticVersion:c.semanticVersion,proposition:c.proposition,relation:c.relation,participants:c.participants,questionRequest:c.questionRequest,topicForReason:c.topicForReason?JSON.parse(JSON.stringify(c.topicForReason)):null};
  d.events.push(event);day.keys.push(c.semanticReasonKey);day.counts[observer.id]=(day.counts[observer.id]||0)+1;day.recentSpeakers.push(observer.id);day.recentSpeakers=day.recentSpeakers.slice(-8);
  if(c.recipientId!=null){const pair=[observer.id,c.recipientId].sort((a,b)=>a-b).join(':');day.pairs[pair]=(day.pairs[pair]||0)+1;}
  if(c.command==='question')d.questions.push({eventId:id,aboutId:c.replyTo,recipientId:c.recipientId,day:state.day,status:'open'});
@@ -6619,8 +6619,8 @@ function discussionLogEvent(row,legacyMap){
 function discussionLogHTML(e){
  const speaker=byId(e.speakerId);if(!speaker)return '';
  const recipient=discussionLogRecipient(e),target=recipient!=null?` » ${escapeHtml(byId(recipient).name)}`:'';
- const command=LOG_COMMAND_LABELS[e.command]||'発言';
- const about=['question','answer','agree','rebut'].includes(e.command)&&e.subjectId!=null&&byId(e.subjectId)&&e.subjectId!==recipient?`<div class="discussion-context">話題：${escapeHtml(byId(e.subjectId).name)}</div>`:'';
+ const command=e.relation?.type==='supplement'?'補足':LOG_COMMAND_LABELS[e.command]||'発言';
+ const about=(['question','answer','agree','rebut'].includes(e.command)||e.relation?.type==='supplement')&&e.subjectId!=null&&byId(e.subjectId)&&e.subjectId!==recipient?`<div class="discussion-context">話題：${escapeHtml(byId(e.subjectId).name)}</div>`:'';
  const source=state.discussion?.events.find(x=>x.id===e.replyTo),question=source?.command==='question'?source:null;
  const reference=question?`<details class="discussion-reference"><summary>元の質問</summary><div>${escapeHtml(byId(question.speakerId)?.name||'')}：${escapeHtml(question.text)}</div></details>`:'';
  return `<div class="discussion-row"><div class="discussion-head"><span class="discussion-speaker">${escapeHtml(speaker.name)}</span><span class="discussion-command">${command}${target}</span></div>${about}<div class="discussion-body">${escapeHtml(e.text)}</div>${reference}</div>`;
@@ -6682,6 +6682,215 @@ isValidSavedGame=value=>{
  const notes=value.playerNotes;if(notes==null)return true;
  return notes.schemaVersion===1&&typeof notes.notebook==='string'&&notes.people&&typeof notes.people==='object'&&!Array.isArray(notes.people)&&Object.entries(notes.people).every(([id,text])=>value.players.some(p=>String(p.id)===id)&&typeof text==='string');
 };
+
+// quality2 修正A。公開された主張の論点で照合し、真の配役から関係を決めない。
+const DISCUSSION_ISSUES=['wolf','fox','villageTeam','roleTrust','execution','resultConsistency','reason','statementConsistency','personReliability','unknown'];
+function discussionEvidenceReferences(evidence){
+ return (evidence||[]).map(e=>({type:e.type,collection:e.source?.collection??null,index:e.source?.index??null,eventId:e.eventId??e.sourceStatementId??null}));
+}
+function discussionProposition(e,context=state,useStored=true){
+ if(useStored&&e.proposition?.schemaVersion===1)return e.proposition;
+ const getEvent=id=>context?.discussion?.events.find(x=>x.id===id),getPlayer=id=>context?.players.find(x=>x.id===id);
+ const t=e.topic||e.topicForReason,v=t?.variant||e.variant,d=t?.details||{},subjectId=e.subjectId??t?.targetId??null;
+ let issue='unknown',role=null,direction='unknown';
+ const claim=e.claim??(t?discussionClaim(t):null);
+ if(v==='nonFox'){issue='fox';direction='deny';}
+ else if(v==='pastReliable'){issue='personReliability';direction='affirm';}
+ else if(['roleTruth','roleFalse','reportedRoleComparison','reportedRoleDefense'].includes(v)){issue='roleTrust';role=d.role||getPlayer(subjectId)?.claimed||null;direction=v==='roleFalse'||claim==='negative'?'deny':'affirm';}
+ else if(['lynchProposal','gutLynch','wolfKeep'].includes(v)||['lynch','keep'].includes(claim)){issue='execution';direction=v==='wolfKeep'||claim==='keep'?'keep':'execute';}
+ else if(v==='semanticSupplement'){issue='fox';direction='possible';}
+ else if(['basicSuspect','gutSuspect','basicTrust','pastWhite','reportedPossibility','reportedDefense'].includes(v)){issue='wolf';direction=['basicSuspect','gutSuspect'].includes(v)||claim==='negative'?'affirm':'deny';}
+ else if(v==='limitedInference'){
+  const original=getEvent(e.replyTo);const p=original?discussionProposition(original,context):null;issue=p?.issue||'unknown';role=p?.role||null;
+ }else if(e.command==='question'){issue='reason';direction='unknown';}
+ else if(['answer','hold'].includes(e.command)&&e.replyTo){
+  const question=getEvent(e.replyTo),original=getEvent(e.answerAbout||question?.replyTo),p=original?discussionProposition(original,context):null;
+  issue=p?.issue||'unknown';role=p?.role||null;
+  direction=e.command==='hold'?'unknown':issue==='wolf'?(claim==='negative'?'affirm':claim==='positive'?'deny':'unknown'):issue==='roleTrust'?(claim==='negative'?'deny':claim==='positive'?'affirm':'unknown'):issue==='execution'?(claim==='keep'?'keep':claim==='lynch'?'execute':'unknown'):p?.direction||'unknown';
+ }else if(e.evidence?.some(x=>x.type==='survivedPublicDivination')){issue='fox';direction='deny';}
+ else if(['positive','negative'].includes(claim)){
+  // 旧会話の直接根拠でしか解釈しない。曖昧な根拠を「白」に丸めない。
+  const source=e.evidence?.find(x=>x.type==='publicBreakdown'||x.type==='publicRoleConfirmation');
+  if(source){issue='roleTrust';role=source.snapshot?.role||getPlayer(subjectId)?.claimed||null;direction=claim==='negative'?'deny':'affirm';}
+  else if(e.evidence?.some(x=>x.source?.snapshot?.targetId===subjectId&&x.source.snapshot.seerId!=null||x.type==='subjectiveIntuition')){issue='wolf';direction=claim==='negative'?'affirm':'deny';}
+ }
+ const certainty=d.certainty||e.certainty;
+ const confidence=certainty==='asserted'||certainty==='certain'||String(certainty||'').startsWith('confirmed')?'certain':issue==='unknown'||direction==='unknown'?'unknown':'inferred';
+ return {schemaVersion:1,issue,role,subjectId,direction,confidence,evidenceRefs:discussionEvidenceReferences(e.evidence||d.evidence||[])};
+}
+function sameDiscussionIssue(a,b){return a.subjectId===b.subjectId&&a.issue!=='unknown'&&a.issue===b.issue&&a.role===b.role;}
+function classifyDiscussionRelation(original,response,context=state){
+ const a=discussionProposition(original,context),b=discussionProposition(response,context);
+ if(a.subjectId!==b.subjectId||a.issue==='unknown'||b.issue==='unknown')return 'independent';
+ if(response.variant==='limitedInference'&&sameDiscussionIssue(a,b)&&a.confidence==='certain')return 'rebut';
+ if(response.variant==='semanticSupplement'&&a.issue==='wolf'&&a.direction==='deny'&&b.issue==='fox'&&b.direction==='possible')return 'supplement';
+ if(!sameDiscussionIssue(a,b))return 'independent';
+ if(a.direction===b.direction&&a.direction!=='unknown')return 'support';
+ const opposites={affirm:'deny',deny:'affirm',execute:'keep',keep:'execute'};
+ return opposites[a.direction]===b.direction?'rebut':'independent';
+}
+function discussionTopicRelation(topic,event){return classifyDiscussionRelation(event,{topic,subjectId:topic.targetId,claim:discussionClaim(topic),evidence:topic.details?.evidence||[]});}
+function topicMatchesDiscussionQuestion(topic,question,original){
+ const asked=question.questionRequest||discussionQuestionRequest(question),p=discussionProposition({topic,subjectId:topic.targetId,claim:discussionClaim(topic),evidence:topic.details?.evidence||[]});
+ return p.subjectId===asked?.subjectId&&p.issue===asked?.issue&&p.role===asked?.role&&p.direction!=='unknown';
+}
+function discussionAnswerReconsider(topic,original){if(!topic)return false;const p=discussionProposition({topic,subjectId:topic.targetId,claim:discussionClaim(topic)}),a=discussionProposition(original);return sameDiscussionIssue(p,a)&&p.direction!==a.direction;}
+function discussionQuestionRequest(question,context=state){
+ if(question.questionRequest)return question.questionRequest;
+ const original=context?.discussion?.events.find(e=>e.id===question.replyTo);if(!original)return null;
+ const p=discussionProposition(original,context);
+ return {schemaVersion:1,kind:'reason',aboutStatementId:original.id,subjectId:original.subjectId,issue:p.issue,role:p.role,direction:p.direction,questionerId:question.speakerId??null,respondentId:question.recipientId??original.speakerId};
+}
+function canChallengeDiscussionInference(event){
+ const p=discussionProposition(event);if(p.confidence!=='certain')return false;
+ const pub=buildSpeechPublicInformation();
+ if(p.issue==='roleTrust')return !pub.context.confirmed.has(p.subjectId)&&!pub.context.broken.has(p.subjectId);
+ if(p.issue==='wolf'){const person=pub.people.people[p.subjectId];return person?.certaintyScope!=='public'||!['wolf','nonWolf'].includes(person.wolfStatus);}
+ return false;
+}
+function publicFoxPossibility(subjectId,pub){
+ if((pub.context.counts.fox||0)<=0||!byId(subjectId)?.alive)return false;
+ if(pub.context.confirmed.has(subjectId))return false;
+ return !pub.context.seerRows.some(row=>row.record.targetId===subjectId&&!row.record.black&&divinationKillsFox(row.record.day)&&pub.roles.roles.seer[row.record.seerId]?.status==='true');
+}
+function semanticReplyAllowed(observer,c,context=state){
+ const source=context?.discussion?.events.find(e=>e.id===c.replyTo);
+ if(!c.replyTo)return !['agree','rebut','defend','question','answer'].includes(c.command);
+ if(!source||source.speakerId===observer.id&&c.command!=='answer'&&c.command!=='hold')return false;
+ if((source.depth||0)>=3||c.command==='question'&&(source.depth||0)>=2)return false;
+ const p=discussionProposition(c,context),s=discussionProposition(source,context);
+ if(c.subjectId!==source.subjectId)return false;
+ if(c.command==='question')return source.speakerId===c.recipientId&&s.issue!=='unknown'&&source.command!=='question';
+ if(c.command==='answer'||c.command==='hold'&&source.command==='question'){
+  const q=discussionQuestionRequest(source,context);return q&&(c.command!=='answer'||q.issue!=='unknown')&&q.respondentId===observer.id&&q.questionerId===c.recipientId&&p.issue===q.issue&&p.role===q.role;
+ }
+ const relation=classifyDiscussionRelation(source,c,context);
+ if(c.command==='agree')return relation==='support'&&c.recipientId===source.speakerId;
+ if(c.command==='rebut')return relation==='rebut'&&c.recipientId===source.speakerId;
+ if(c.command==='defend')return relation==='rebut'&&['affirm','execute','deny'].includes(s.direction)&&c.recipientId===source.speakerId;
+ if(c.variant==='semanticSupplement')return relation==='supplement'&&c.command==='hold'&&c.recipientId===source.speakerId;
+ return false;
+}
+function describeDiscussionSemantics(observer,c){
+ const source=state.discussion?.events.find(e=>e.id===c.replyTo),p=discussionProposition(c,state,false);
+ let type=source?classifyDiscussionRelation(source,{...c,proposition:p}):'independent';
+ if(c.command==='question')type='question';
+ if(c.command==='answer')type='answer';
+ if(c.command==='hold'&&source?.command==='question')type='deferredAnswer';
+ return {...c,semanticVersion:1,proposition:p,relation:{schemaVersion:1,type,sourceStatementId:source?.id??null,sourceSpeakerId:source?.speakerId??null,subtype:c.variant==='limitedInference'?'inferenceBounds':null},participants:{speakerId:observer.id,subjectId:c.subjectId??null,replySpeakerId:source?.speakerId??null,questionerId:c.command==='question'?observer.id:['answer','hold'].includes(c.command)&&source?.command==='question'?source.speakerId:null,respondentId:c.command==='question'?c.recipientId:['answer','hold'].includes(c.command)&&source?.command==='question'?observer.id:null},questionRequest:c.command==='question'?discussionQuestionRequest({...c,speakerId:observer.id}):null};
+}
+const quality1SemanticKey=discussionSemanticKey;
+discussionSemanticKey=c=>{const p=discussionProposition(c);return JSON.stringify([quality1SemanticKey(c),p.issue,p.role,p.direction]);};
+const quality1SemanticCandidates=discussionCandidates;
+discussionCandidates=observer=>{
+ const out=quality1SemanticCandidates(observer).filter(c=>semanticReplyAllowed(observer,c));
+ // 異なる論点の別意見は返信へ付け替えず、元から存在する独立候補として残す。
+ const remembered=new Set((state.affinity?.argumentMemories[observer.id]||[]).map(m=>m.eventId)),pub=buildSpeechPublicInformation();
+ const independent=out.filter(c=>!c.replyTo&&c.evidence.length&&discussionProposition(c).issue!=='unknown');
+ for(const e of state.discussion?.events.slice(-18)||[]){
+  if(e.day<state.day-1||!remembered.has(e.id)||e.speakerId===observer.id||!byId(e.speakerId)?.alive||!['suspect','trust','propose','answer','agree','rebut','defend'].includes(e.command)||(e.depth||0)>=3||state.discussion.events.some(x=>x.speakerId===observer.id&&x.replyTo===e.id))continue;
+  const pair=[observer.id,e.speakerId].sort((a,b)=>a-b).join(':');if((discussionDay().pairs[pair]||0)>=3)continue;
+  for(const [relation,command,baseWeight]of [['support','agree',.3],['rebut','rebut',.4]]){
+   if(out.some(c=>c.replyTo===e.id&&c.command===command))continue;
+   const own=independent.find(c=>classifyDiscussionRelation(e,c)===relation);if(!own)continue;
+   const c={command,subjectId:e.subjectId,recipientId:e.speakerId,replyTo:e.id,originEventId:e.originEventId||e.id,claim:own.claim,topicForReason:own.topic||own.topicForReason||null,variant:own.variant||null,evidence:[...own.evidence.filter(x=>x.type!=='discussionStatement'),discussionRef(e)],weight:baseWeight};
+   c.weight*=isAffinityVillage()?affinityCandidateFactor(observer,c):1;
+   if(isStrategicDiscussionVillage())c.weight*=strategicCandidateFactor(observer,c,buildDiscussionPlan(observer,pub));
+   c.semanticReasonKey=discussionSemanticKey(c);if(!discussionDay().keys.includes(c.semanticReasonKey))out.push(c);
+  }
+ }
+ for(const e of state.discussion?.events.slice(-18)||[]){
+  const p=discussionProposition(e);
+  if(p.issue!=='wolf'||p.direction!=='deny'||e.day<state.day-1||!remembered.has(e.id)||e.speakerId===observer.id||e.subjectId===observer.id||!byId(e.speakerId)?.alive||(e.depth||0)>=3||!publicFoxPossibility(e.subjectId,pub))continue;
+  if(state.discussion.events.some(x=>x.speakerId===observer.id&&x.replyTo===e.id))continue;
+  const pair=[observer.id,e.speakerId].sort((a,b)=>a-b).join(':');if((discussionDay().pairs[pair]||0)>=3)continue;
+  const view=buildCharacterOutlook(observer,pub,observer.role==='wolf').people[e.subjectId];if(view?.foxView==='unlikely'&&['private','public'].includes(view.foxCertaintyScope))continue;
+  const c={command:'hold',subjectId:e.subjectId,recipientId:e.speakerId,replyTo:e.id,originEventId:e.id,variant:'semanticSupplement',claim:null,evidence:[discussionRef(e),{type:'publicLogicalQualification',visibility:'public',sourceStatementId:e.id,snapshot:{subjectId:e.subjectId,fromIssue:'wolf',addedIssue:'fox',direction:'possible'}}],weight:.12*affinityCandidateFactor(observer,{command:'hold',subjectId:e.subjectId,recipientId:e.speakerId,replyTo:e.id})};
+  c.semanticReasonKey=discussionSemanticKey(c);if(!discussionDay().keys.includes(c.semanticReasonKey))out.push(c);
+ }
+ return out.map(c=>{
+  const result=describeDiscussionSemantics(observer,c);
+  if(result.proposition.issue==='fox'||result.proposition.issue==='personReliability')result.claim=null;
+  result.semanticReasonKey=discussionSemanticKey(result);return result;
+ });
+};
+const quality1LogicalAssessment=affinityLogicalAssessment;
+affinityLogicalAssessment=(observer,e)=>{
+ const p=discussionProposition(e);
+ if(['fox','villageTeam','roleTrust','personReliability','resultConsistency','statementConsistency'].includes(p.issue))return quality1LogicalAssessment(observer,{...e,claim:null});
+ return quality1LogicalAssessment(observer,e);
+};
+const quality1SemanticCommit=commitDiscussionSpeech;
+commitDiscussionSpeech=(observer,c)=>{
+ if(!observer?.alive||observer.isSelf||state.phase!=='day'||state.winner||!discussionEvidenceValid(c.evidence)||hasPrivateSpeechData(c.topicForReason))return null;
+ if(c.replyTo&&!c.evidence.some(e=>e.type==='discussionStatement'&&e.eventId===c.replyTo))return null;
+ if(['agree','rebut','defend'].includes(c.command)&&c.variant!=='limitedInference'&&!c.evidence.some(e=>e.type!=='discussionStatement'))return null;
+ const prepared=describeDiscussionSemantics(observer,c);if(!semanticReplyAllowed(observer,prepared))return null;
+ if(c.variant==='limitedInference'&&!canChallengeDiscussionInference(state.discussion.events.find(e=>e.id===c.replyTo)))return null;
+ if(c.variant==='semanticSupplement'&&!publicFoxPossibility(c.subjectId,buildSpeechPublicInformation()))return null;
+ if(prepared.proposition.issue==='fox'||prepared.proposition.issue==='personReliability')prepared.claim=null;
+ prepared.semanticReasonKey=discussionSemanticKey(prepared);
+ // 新しい補足を旧「反論」や旧感情解釈へ渡さない。修正Bの評価対象として記録だけ残す。
+ const event=prepared.relation.type==='supplement'?stage1CommitDiscussion(observer,prepared):quality1SemanticCommit(observer,prepared);
+ if(!event)return null;
+ if(prepared.relation.type==='supplement')event.evaluationCompatibility={policy:'deferredToB',affinityApplied:false,intuitionApplied:false};
+ if(event.command==='question'){const q=state.discussion.questions.find(q=>q.eventId===event.id);if(q)q.request=event.questionRequest;}
+ return event;
+};
+const quality1SemanticText=discussionText;
+const quality1QuestionAbout=conversationQuestionAbout;
+conversationQuestionAbout=(observer,e,subjectId)=>{
+ const p=e?discussionProposition(e):null,name=morningName(observer,subjectId);
+ if(p?.issue==='roleTrust')return `${name}を${p.direction==='deny'?'偽物':'本物'}寄りに見たのは`;
+ if(p?.issue==='wolf')return `${name}を${p.direction==='deny'?'人狼ではなさそうと見た':'疑った'}のは`;
+ if(p?.issue==='fox')return `${name}を狐ではなさそうと見たのは`;
+ return quality1QuestionAbout(observer,e,subjectId);
+};
+discussionText=(observer,c)=>{
+ if(c.command==='answer'&&c.reconsider){
+  const question=state.discussion.events.find(e=>e.id===c.replyTo),original=state.discussion.events.find(e=>e.id===(c.answerAbout||question?.replyTo));
+  if(original){
+   const p=discussionProposition(original),row=original.evidence.find(e=>e.source?.snapshot?.targetId===original.subjectId&&e.source.snapshot.seerId!=null)?.source.snapshot;
+   let previous=null;
+   if(p.issue==='wolf'&&row)previous=`最初は、${morningName(observer,row.seerId)}が${morningName(observer,row.targetId)}に${row.black?'黒':'白'}を出したことを理由に${p.direction==='affirm'?'疑っていた':'人狼ではなさそうと見ていた'}。`;
+   else {const reason=conversationReason(observer,{subjectId:original.subjectId,topicForReason:original.topic||original.topicForReason,evidence:original.evidence});if(reason)previous=`最初は、${reason}という点を重く見ていた。`;}
+   if(previous)return previous+quality1SemanticText(observer,c);
+  }
+ }
+ if(c.variant!=='semanticSupplement')return quality1SemanticText(observer,c);
+ const subject=morningName(observer,c.subjectId),to=morningName(observer,c.recipientId),id=observer.characterId;
+ const lines={albert:`${to}、人狼ではないという話だけでは、${subject}が妖狐でないとは言えない。`,momiji:`${to}、狼じゃなくても、${subject}が狐ってことはまだあるよな！`,milk:`${to}、${subject}がおおかみじゃなくても、きつねかもしれないよね？`,wanunu_iii:`${to}、${subject}、おおかみじゃなくても、きつねのこと、まだわからないぞ。`,francois:`${to}、${subject}が狼ではないとしても、狐の可能性は別に考えたいね。`,melbon:`${to}、${subject}が人狼でないとしても、妖狐かどうかは別に考えたいですね。`,cortes:`${to}、${subject}が人狼でないとしても、妖狐の可能性までは否定できませんね。`,zaemon:`${to}、${subject}が狼でなくとも、狐かどうかは別じゃぞ。`,yamato:`${to}、${subject}が狼でないとしても、狐かどうかは別に考えるべきだ。`};
+ const text=lines[id]||`${to}、${subject}が人狼じゃなさそうという話とは別に、妖狐の可能性までは否定できないよね。`;
+ return isAffinityVillage()?affinityTone(observer,c,text):text;
+};
+const quality1LogRecipient=discussionLogRecipient;
+discussionLogRecipient=e=>e.relation?.type==='supplement'?(byId(e.relation.sourceSpeakerId)?.id??null):quality1LogRecipient(e);
+const quality1PublicEvent=discussionPublicEvent;
+discussionPublicEvent=e=>({...quality1PublicEvent(e),semanticVersion:e.semanticVersion,proposition:e.proposition||discussionProposition(e),relation:e.relation||{type:'legacyUnclassified'},participants:e.participants,questionRequest:e.questionRequest});
+function validStoredDiscussionSemantics(value){
+ const d=value.discussion;if(!d)return true;const ids=new Set(value.players.map(p=>p.id));
+ for(const e of d.events){
+  if(e.semanticVersion==null)continue;
+  const p=e.proposition,r=e.relation,parts=e.participants;
+  if(e.semanticVersion!==1||p?.schemaVersion!==1||!DISCUSSION_ISSUES.includes(p.issue)||!['affirm','deny','possible','unknown','execute','keep'].includes(p.direction)||!['certain','inferred','unknown'].includes(p.confidence)||p.subjectId!==(e.subjectId??null)||!Array.isArray(p.evidenceRefs)||JSON.stringify(p.evidenceRefs)!==JSON.stringify(discussionEvidenceReferences(e.evidence))||hasPrivateSpeechData(e.topicForReason)||r?.schemaVersion!==1||!parts||parts.speakerId!==e.speakerId||parts.subjectId!==(e.subjectId??null))return false;
+  const derived=discussionProposition(e,value,false);if(['issue','role','direction','subjectId','confidence'].some(k=>p[k]!==derived[k]))return false;
+  const source=d.events.find(x=>x.id===e.replyTo);
+  if(r.sourceStatementId!==(e.replyTo??null)||r.sourceSpeakerId!==(source?.speakerId??null)||parts.replySpeakerId!==(source?.speakerId??null))return false;
+  if(e.command==='question'){
+   const q=e.questionRequest,original=source?discussionProposition(source,value):null;
+   if(!q||q.schemaVersion!==1||r.type!=='question'||q.aboutStatementId!==e.replyTo||q.questionerId!==e.speakerId||q.respondentId!==e.recipientId||q.subjectId!==e.subjectId||q.issue!==original?.issue||q.role!==original?.role||q.direction!==original?.direction)return false;
+   const entry=d.questions.find(x=>x.eventId===e.id);if(!entry||JSON.stringify(entry.request)!==JSON.stringify(q))return false;
+  }else if(e.command==='answer'||e.command==='hold'&&source?.command==='question'){
+   const q=discussionQuestionRequest(source,value);if(!q||!['answer','deferredAnswer'].includes(r.type)||q.respondentId!==e.speakerId||q.questionerId!==e.recipientId||q.subjectId!==e.subjectId||q.issue!==p.issue||q.role!==p.role)return false;
+  }else if(source){
+   const relation=classifyDiscussionRelation(source,e,value);if(r.type!==relation||e.command==='agree'&&relation!=='support'||['rebut','defend'].includes(e.command)&&relation!=='rebut'||relation==='supplement'&&e.command!=='hold')return false;
+  }else if(r.type!=='independent')return false;
+  if(Object.values(parts).some(id=>id!=null&&!ids.has(id)))return false;
+ }
+ return true;
+}
+const quality1SemanticValidGame=isValidSavedGame;
+isValidSavedGame=value=>quality1SemanticValidGame(value)&&validStoredDiscussionSemantics(value);
 
 $("#discussionBtn").onclick=encourageDiscussion;
 $("#playerCount").addEventListener("input",()=>{selectedRolePreset=null;renderRoleConfig()});

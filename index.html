@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-stage3</title>
+<title>個人用人狼アプリ v2.20.0-quality1</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -112,11 +112,25 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 .role-summary{font-size:11px;line-height:1.6;opacity:.72;margin-top:5px;word-break:keep-all}
 
 .preset-list{display:flex;flex-wrap:wrap;gap:7px;margin:8px 0 12px}.preset-list button{padding:7px 11px;font-size:13px}.preset-list .preset-active{outline:2px solid currentColor}
+
+/* 小画面の会話・個人メモ */
+.discussion-row{padding:8px 0;border-bottom:1px solid var(--line);margin:0!important}
+.discussion-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px 8px;font-size:12px;line-height:1.4}
+.discussion-speaker{font-weight:800;color:#f2f5ff}.discussion-command{color:var(--accent);font-weight:600}
+.discussion-body{font-size:14px;line-height:1.65;margin-top:3px;overflow-wrap:anywhere}
+.discussion-context{font-size:11px;opacity:.65;margin-top:2px}
+.discussion-reference{font-size:11px;margin-top:4px;opacity:.8}.discussion-reference summary{cursor:pointer}
+.system-log{font-size:12px;line-height:1.6;padding:3px 0;white-space:pre-wrap}
+.person-note-btn{grid-column:1/-1;justify-self:end;min-height:30px;padding:4px 10px;font-size:11px;background:transparent;border:1px solid var(--line)}
+.player-row.dead .person-note-btn{opacity:1}.notes-sheet{position:fixed;z-index:110;left:10px;right:10px;top:calc(12px + env(safe-area-inset-top));max-width:700px;max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);margin:0 auto;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:0 8px 40px #000a;overflow:auto}
+.notes-sheet textarea{display:block;box-sizing:border-box;width:100%;margin:8px 0;padding:12px;border:1px solid var(--line);border-radius:8px;background:#0d1016;color:var(--text);font:16px/1.6 sans-serif;resize:vertical;min-height:100px;max-height:55vh;max-height:55dvh;touch-action:manipulation}
+.notes-sheet label{font-size:12px;color:#b8c3d9}.notes-sheet button{min-height:44px}.notes-sheet.hidden,.notes-backdrop.hidden{display:none}.notes-backdrop{position:fixed;inset:0;z-index:105;background:#0005}.notes-sheet{top:var(--notes-top,calc(12px + env(safe-area-inset-top)));max-height:var(--notes-max-height,calc(100dvh - 24px))}.notes-sheet textarea{max-height:var(--notes-input-height,55dvh)}
+@media(max-width:520px){.discussion-body{font-size:13px}.discussion-head{font-size:12px}#notebookBtn{font-size:12px;padding:7px 12px;min-height:36px}}
 </style>
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.20.0-stage3</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.20.0-quality1</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -167,7 +181,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
     </div>
 
     <div class="card compact-section">
-      <h2>全プレイヤー</h2>
+      <div class="log-head-row"><h2>全プレイヤー</h2><button id="notebookBtn" class="secondary">メモ帳</button></div>
       <div id="players" class="player-list"></div>
     </div>
 
@@ -182,7 +196,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
       <button id="logToggleBtn" class="log-toggle">ログを全部見る</button>
     </div>
 
-    <div class="card compact-section"><button id="discussionBtn">議論を促す</button><button id="playerDiscussionBtn" class="secondary" style="margin-left:8px">自分の意見を話す</button><div id="discussionStatus" class="muted" aria-live="polite"></div></div>
+    <div class="card compact-section"><button id="discussionBtn">議論を促す</button><button id="playerDiscussionBtn" class="secondary" hidden disabled style="display:none">自分の意見を話す</button><div id="discussionStatus" class="muted" aria-live="polite"></div></div>
     <div id="actionPanel" class="hidden"></div>
 
     <div id="actionSheet" class="action-sheet hidden">
@@ -217,8 +231,15 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div class="footer">端末内保存。サーバー通信なし。</div>
 </div>
 
+<div id="notesBackdrop" class="notes-backdrop hidden"></div>
+<section id="notesSheet" class="notes-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="notesTitle">
+  <div class="log-head-row"><h2 id="notesTitle">メモ帳</h2><button id="notesClose" class="secondary">閉じる</button></div>
+  <label id="notesLabel" for="notesInput">自分用のメモ</label>
+  <textarea id="notesInput" rows="8" placeholder="気になることを自由に書いてね" aria-describedby="notesStatus"></textarea>
+  <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
+</section>
 <script>
-const GAME_VERSION="2.20.0-stage3";
+const GAME_VERSION="2.20.0-quality1";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -1099,7 +1120,7 @@ function startGame(){
   for(let i=1;i<n;i++)ps.push(createCharacterPlayer(i,characters[i-1],roles[i-1]));
 
   state={
-    version:GAME_VERSION,discussionMode:"stage3",intuitionEnabled:true,speechMemoryEnabled:true,characterRosterVersion:CHARACTER_ROSTER_VERSION,day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
+    version:GAME_VERSION,discussionMode:"stage3",intuitionEnabled:true,speechMemoryEnabled:true,playerNotes:{schemaVersion:1,people:{},notebook:''},characterRosterVersion:CHARACTER_ROSTER_VERSION,day:1,phase:"day",players:ps,logs:[],winner:null,lastExecuted:null,
     publicRoleCounts:{...c},openingRulesVersion:1,firstVictimEnabled:!!$("#firstVictimEnabled").checked,
     publicRecords:{seerResults:[],mediumResults:[],guards:[],executions:[],deaths:[],catChains:[],resonatorClaims:[],fullCoRequests:[],confirmedProofs:[],coEvents:[]},
     uiSettings:{
@@ -1205,7 +1226,7 @@ function publishedResonatorClaim(p,partnerIds){
 function publicRoleCount(role){
   return state.publicRoleCounts?.[role] ?? null;
 }
-function log(msg,cls=""){state.logs.push({msg,cls});renderLog()}
+function log(msg,cls="",metadata=null){state.logs.push({msg,cls,...(metadata||{})});renderLog()}
 function renderLogFilterOptions(){
   const sel=$("#logPersonFilter");
   if(!sel||!state)return;
@@ -1363,7 +1384,7 @@ function renderAll(){
     return `<div class="player-row ${p.alive?"":"dead"} ${selectable?"selectable":""} ${dimmed?"dimmed":""}" data-player-id="${p.id}">
       <div class="player-name"><span class="player-number">${String(p.id+1).padStart(2,"0")}</span>${escapeHtml(p.name)}${p.isSelf?"（あなた）":""}${state.winner?`<div class="role-reveal">${roleName(p.role)}</div>`:""}</div>
       <div class="player-co">${p.claimed?roleName(p.claimed)+"CO":(p.villagerClaim===true?"村人CO":(p.villagerClaim===false?"非村人":(p.coCheckedNone?"COなし":"未CO")))}${showBrokenAssist()&&isPubliclyBroken(p.id)?` <span class="broken-badge">破綻</span>`:""}${showConfirmedAssist()&&isPubliclyConfirmedTrue(p.id)?` <span class="confirmed-badge">真確定</span>`:""}</div>
-      <div class="player-life">${p.alive?"生存":"死亡"}</div>
+      <div class="player-life">${p.alive?"生存":"死亡"}</div><button class="person-note-btn" data-note-player="${p.id}" aria-label="${escapeHtml(p.name)}のメモ">メモ</button>
     </div>`;
   }).join("");
   document.querySelectorAll("[data-player-id]").forEach(row=>{
@@ -5984,7 +6005,7 @@ function commitDiscussionSpeech(observer,c){
   const key=observer.id+':'+c.subjectId,old=d.positions[key];d.positions[key]={claim:c.claim,eventId:id,day:state.day};
   if(old&&old.claim!==c.claim){d.revisions.push({speakerId:observer.id,subjectId:c.subjectId,before:old.claim,after:c.claim,eventId:id,replyTo:c.replyTo,day:state.day});d.revisions=d.revisions.slice(-100);}
  }
- log(`${observer.name}【${DISCUSSION_LABELS[c.command]}】：「${text}」`,'talk');return event;
+ log(`${observer.name}【${DISCUSSION_LABELS[c.command]}】：「${text}」`,'talk',{discussionId:event.id});return event;
 }
 function chooseDiscussionPair(allowedSpeakers=null,batchCounts={}){
  const day=discussionDay(),pending=discussionState().questions;
@@ -6464,6 +6485,203 @@ const affinityValidSavedGame=isValidSavedGame;
 isValidSavedGame=value=>value?.discussionMode==='stage3'?affinityValidSavedGame({...value,discussionMode:'stage2'})&&validateStrategicDiscussion(value):affinityValidSavedGame(value);
 const affinityPlayerDiscussionCandidate=playerDiscussionCandidate;
 playerDiscussionCandidate=(subjectId,command)=>{const c=affinityPlayerDiscussionCandidate(subjectId,command);return isStrategicDiscussionVillage()?normalizeNonFoxDiscussionCandidate(c):c;};
+
+// 表現・補助UIだけ。候補点・H・推理・直感・戦略の計算は変更しない。
+const CONVERSATION_VOICES={
+ joshua:{q:['{to}、{about}どうして？','{to}、{subject}について、理由を聞かせて。'],agree:'{to}の考えに賛成だよ。',rebut:'{to}、その見方には賛成できないな。',limited:'{to}、それだけで{subject}が人外とは決められないよ。白いと言いたいわけでもないけど。',defend:'{subject}への疑いには、別の見方もあると思う。',answer:'{to}、{reason}。そこを重く見たんだ。',organize:'一度話をまとめよう。{summary}',hold:'今は決めずに、もう少し話を聞きたいな。',answerHold:'{to}、まだうまく説明できない。少し考えさせて。',refuse:'{to}、今はそれ以上答えるのを控えたい。',change:'さっきの考えは変えるよ。'},
+ geode:{q:['{to}、{about}どうしてかねえ？','{to}、{subject}のどこが気になった？'],agree:'{to}の見方、おじさんも賛成だねえ。',rebut:'{to}、そこはちょいと違う見方をしてるよ。',limited:'{to}、それだけで{subject}を人外と決めるのは早くないかねえ。白だって話でもないけどさ。',defend:'{subject}を疑う前に、こっちも見てほしいねえ。',answer:'{to}、{reason}。おじさんはそこを見たのさ。',organize:'ちょいと話を整理しようや。{summary}',hold:'今はもう少し様子を見たいねえ。',answerHold:'{to}、もうちょい考えさせてくれや。',refuse:'{to}、今はそこまでにさせてくれ。',change:'そこは考え直したよ。'},
+ albert:{q:['{to}、{about}なぜだ？','{to}、{subject}についての理由を聞きたい。'],agree:'{to}の見方に賛成だ。',rebut:'{to}、その見方には反論がある。',limited:'{to}、その理由では{subject}の人外までは断定できない。白だと主張するつもりもない。',defend:'{subject}への疑いには、別の結果も考慮したい。',answer:'{to}、{reason}。判断した理由はそこだ。',organize:'論点を整理する。{summary}',hold:'結論は保留する。続きの話を聞きたい。',answerHold:'{to}、今はそれ以上説明できない。考える時間がほしい。',refuse:'{to}、今は回答を控える。',change:'見方を変更する。'},
+ momiji:{q:['{to}、{about}なんでだ？','{to}、{subject}のどこが気になったんだ？'],agree:'{to}の話、俺もそう思うぞ！',rebut:'{to}、俺はそこ、違うと思う！',limited:'{to}、それだけで{subject}を人外に決めるのは早いぞ！白いって言ってるわけじゃないけどな。',defend:'{subject}を疑うなら、こっちの話も聞いてくれ！',answer:'{to}、{reason}。俺はそこが大事だと思ったんだ！',organize:'いったん話をまとめようぜ！{summary}',hold:'もうちょっとみんなの話を聞いてから決めたい！',answerHold:'{to}、まだまとまってないんだ。ちょっと待ってくれ！',refuse:'{to}、今はそれ以上話せない。悪いな。',change:'考え直したぞ！'},
+ kaede:{q:['{to}、{about}どうして……？','{to}、{subject}について……理由、聞いてもいい？'],agree:'……{to}の見方、僕もそう思う。',rebut:'{to}、そこは……少し違うと思う。',limited:'{to}、それだけで{subject}が人外とは……まだ言えない。白いと言いたいわけでもないけど。',defend:'{subject}には……別の見方もあると思う。',answer:'{to}、{reason}。……僕はそこを見ていた。',organize:'……一度、まとめてみるね。{summary}',hold:'……もう少し考えたい。',answerHold:'{to}、まだ言葉にできなくて……少し待って。',refuse:'{to}、今は……答えるのを控えたい。',change:'……考え直した。'},
+ francois:{q:['{to}、{about}なぜかな？','{to}、{subject}についての理由も聞かせていただこうか。'],agree:'{to}の見方には、私も賛成だね。',rebut:'{to}、その見方をそのまま受け取るのは難しいね。',limited:'{to}、それだけで{subject}を人外と決めるとは、少々急ぎすぎではないかな。白だとも言っていないがね。',defend:'{subject}を疑うなら、こちらも見ておくべきだね。',answer:'{to}、{reason}。私が見ていたのは、そこだよ。',organize:'話を整理しておこうか。{summary}',hold:'結論を急ぐこともあるまい。もう少し聞こう。',answerHold:'{to}、今は答えをまとめる時間をいただきたいね。',refuse:'{to}、その質問には今は答えを控えさせてもらうよ。',change:'そこは見方を改めよう。'},
+ melbon:{q:['{to}、{about}なぜでしょうか？','{to}、{subject}について、理由を伺ってもよろしいですか？'],agree:'{to}のお考えに、私も賛成です。',rebut:'{to}、その点は別の見方をしております。',limited:'{to}、その理由だけで{subject}を人外と決めるのは早いかと存じます。白だと申し上げているわけではございません。',defend:'{subject}への疑いには、こちらの話も踏まえたいですね。',answer:'{to}、{reason}。私はその点を重く見ております。',organize:'一度、お話を整理いたしましょう。{summary}',hold:'もう少し皆様のお話を伺ってから考えたいですね。',answerHold:'{to}、まだ考えがまとまっておりません。少々お時間をください。',refuse:'{to}、今はこれ以上のお答えを控えさせてください。',change:'先ほどの見方を改めます。'},
+ milk:{q:['{to}、{about}なんで？','{to}、{subject}のどこがへんだった？'],agree:'{to}の話、ぼくもそう思う！',rebut:'{to}、ぼくはちがうと思うよ。',limited:'{to}、それだけで{subject}が人外とは決められないよ。白いって言ってるんじゃないけど。',defend:'{subject}のこと、こっちの話も聞いてからにしよ？',answer:'{to}、{reason}。ぼくはそこを見たんだよ。',organize:'えっと、話をまとめてみるね。{summary}',hold:'ぼく、まだ決められない。もう少し聞く！',answerHold:'{to}、うまく言えない。ちょっと待って。',refuse:'{to}、今はそれ以上言いたくない。',change:'あ、考え直した！'},
+ max:{q:['{to}、{about}どうしてだい？','{to}、{subject}についての理由くらい聞かせてくれよ。'],agree:'{to}の見方なら、僕も賛成してやるよ。',rebut:'{to}、僕はその見方には賛成できないね。',limited:'{to}、それだけで{subject}を人外と決めるのかい？僕は白いとも言っていないけどね。',defend:'{subject}を疑うなら、こっちもちゃんと見てくれよ。',answer:'{to}、{reason}。僕が重く見たのはそこだよ。',organize:'少し話を整理しよう。{summary}',hold:'まだ決めない。君たちの話をもう少し聞いておくよ。',answerHold:'{to}、まだ考えがまとまっていないんだ。急かさないでくれ。',refuse:'{to}、今はそれ以上答えるつもりはない。',change:'そこは考え直してやるよ。'},
+ cortes:{q:['{to}、{about}なぜでしょうか？','{to}、{subject}についてのお考えを、少しお聞かせくださいませ。'],agree:'{to}の見方には、私も賛成でございます。',rebut:'{to}、その点には別の見方もあるかと存じます。',limited:'{to}、その理由だけで{subject}を人外と決めるのは早いかと。白だと申し上げているわけでもございません。',defend:'{subject}への疑いには、こちらもお確かめくださいませ。',answer:'{to}、{reason}。私が重く見たのは、その点でございます。',organize:'皆様のお話を整理いたしましょう。{summary}',hold:'もう少しお話を伺ってから考えたく存じます。',answerHold:'{to}、まだ考えをまとめられておりません。少々お待ちくださいませ。',refuse:'{to}、今はこれ以上のお答えを控えさせていただきます。',change:'先ほどの見方は改めさせていただきます。'},
+ zaemon:{q:['{to}、{about}なぜじゃ？','{to}、{subject}についての理由を申してみよ。'],agree:'{to}の見方、儂も賛成じゃ。',rebut:'{to}、儂はその見方には賛成できぬ。',limited:'{to}、それだけで{subject}を人外と決めるでない。白だと言っておるわけでもないぞ。',defend:'{subject}を疑うなら、こちらも見るがよい。',answer:'{to}、{reason}。儂はそこを見ておったのじゃ。',organize:'話をまとめておこうぞ。{summary}',hold:'結論はまだ出さぬ。皆の話を続けよ。',answerHold:'{to}、まだ考えておる。少し待つがよい。',refuse:'{to}、今はこれ以上答えるのを控えるぞ。',change:'そこは考えを改めよう。'},
+ yamato:{q:['{to}、{about}なぜだ？','{to}、{subject}についての理由を聞かせてくれ。'],agree:'{to}の見方に拙者も賛成する。',rebut:'{to}、その見方には異議がある。',limited:'{to}、その理由だけで{subject}を人外と決めることはできぬ。白だと申しているわけでもない。',defend:'{subject}への疑いには、こちらも考えるべきだ。',answer:'{to}、{reason}。拙者はそこを重く見た。',organize:'一度、話を整理しよう。{summary}',hold:'まだ結論は出さぬ。皆の話を聞こう。',answerHold:'{to}、今は考えがまとまらぬ。少し時間をくれ。',refuse:'{to}、今はそれ以上の回答を控える。',change:'先ほどの見方は改める。'},
+ henry:{q:['{to}、{about}どうしてなの……？','{to}、{subject}について、理由を聞いてもいいかな。'],agree:'……{to}の見方、僕もそう思うよ。',rebut:'{to}、僕は……少し違う見方をしているんだ。',limited:'{to}、それだけで{subject}が人外とは……まだ分からないと思う。白いと言いたいわけでもないよ。',defend:'{subject}のこと、こちらも見てから考えたいな。',answer:'{to}、{reason}。……僕はそこを見ていたんだ。',organize:'あの……一度まとめてみるね。{summary}',hold:'……もう少し話を聞いてから考えたいな。',answerHold:'{to}、まだうまく言えなくて……少し待ってもらえる？',refuse:'{to}、今はそれ以上話すのを控えたい……。',change:'……考え直したよ。'},
+ dominic:{q:['{to}、{about}なんでだ？','{to}、{subject}の何が気になったんだ？'],agree:'{to}の話、俺も賛成だ！',rebut:'{to}、そこは俺、違うと思うぜ！',limited:'{to}、それだけで{subject}を人外と決めるのは早いぜ！白だって話でもねえけどな。',defend:'{subject}を疑うなら、こっちの話も聞いてくれよ！',answer:'{to}、{reason}。俺はそこを重く見たんだ！',organize:'よし、いったん話をまとめようぜ！{summary}',hold:'もう少しみんなの話を聞いてから決めるぜ！',answerHold:'{to}、まだまとまってねえんだ。ちょっと待ってくれ！',refuse:'{to}、今はそれ以上話せねえ。',change:'考え直したぜ！'},
+ pattino:{q:['{to}、{about}なんで？','{to}、{subject}のどこが気になった感じ？'],agree:'{to}の話、俺もそんな感じ。',rebut:'{to}、俺はそこ、ちょっと違うかな。',limited:'{to}、それだけで{subject}を人外って決めるのは早くね？白いって話でもないけどさ。',defend:'{subject}のこと、こっちも見てからでよくね？',answer:'{to}、{reason}。俺はそこを見てた感じ。',organize:'いったん話まとめよっか。{summary}',hold:'もうちょい話聞いてからでいいかな。',answerHold:'{to}、まだまとまってないんだわ。ちょい待って。',refuse:'{to}、今はそれ以上話すのやめとく。',change:'あー、そこは考え直した。'},
+ makimura:{q:['{to}、{about}どうしてだ？','{to}、{subject}について、気になったところを聞かせてくれ。'],agree:'{to}の見方には、俺も賛成だな。',rebut:'{to}、俺はその点を少し違って見てる。',limited:'{to}、その理由だけで{subject}を人外と決めるのは早いと思う。白だって言ってるわけでもないが。',defend:'{subject}を疑う前に、こっちの話も聞いてやってくれ。',answer:'{to}、{reason}。俺はそこを大事に考えたんだ。',organize:'いったん話をまとめよう。{summary}',hold:'もう少し皆の話を聞いてから考えたいな。',answerHold:'{to}、まだ考えがまとまらない。少し待ってくれ。',refuse:'{to}、今はそれ以上答えるのを控えたい。',change:'そこは考え直したよ。'},
+ rixis:{q:['{to}、{about}どうしてだ？','{to}、{subject}について、理由を詳しく聞かせてくれ。'],agree:'{to}の見方には、俺も賛成だ。',rebut:'{to}、その見方には別の材料がある。',limited:'{to}、その理由だけで{subject}の人外までは決まらない。白だと言いたいわけでもないがな。',defend:'{subject}への疑いには、こっちの結果も合わせて考えたい。',answer:'{to}、{reason}。俺が重く見たのはそこだ。',organize:'一度、話を整理しておく。{summary}',hold:'結論はまだ出さない。もう少し話を聞くよ。',answerHold:'{to}、今はそれ以上説明できない。少し考えさせてくれ。',refuse:'{to}、今はそれ以上答えるのを控える。',change:'先ほどの見方は改める。'},
+ wanunu_iii:{q:['{to}、{about}なんでだ？','{to}、{subject}のこと、りゆうをききたいぞ。'],agree:'{to}のはなし、ぼくもそうおもうぞ。',rebut:'{to}、ぼくはちがうとおもうぞ。',limited:'{to}、それだけで{subject}がじんがいとは、きまらないぞ。しろいっていってるのでもないぞ。',defend:'{subject}のこと、こっちのはなしもきいてくれ。',answer:'{to}、{reason}。ぼく、そこをみたぞ。',organize:'はなし、まとめるぞ。{summary}',hold:'まだきめないぞ。もっときくぞ。',answerHold:'{to}、まだうまくいえないぞ。まってくれ。',refuse:'{to}、いまはそれいじょう、はなさないぞ。',change:'かんがえなおしたぞ。'},
+ naminami:{q:['{to}、{about}なぜですか？','{to}、{subject}について、理由を教えてください！'],agree:'{to}の考えに、私も賛成です！',rebut:'{to}、そこは別の見方をしています！',limited:'{to}、その理由だけで{subject}が人外とは決まりません！白いと言いたいわけでもありませんが。',defend:'{subject}への疑いには、こちらの話も考えてみてください！',answer:'{to}、{reason}。私はそこを見ていました！',organize:'いったん話を整理します！{summary}',hold:'もう少し皆さんの話を聞いてから考えたいです！',answerHold:'{to}、まだ考えがまとまっていません。少し待ってください！',refuse:'{to}、今はそれ以上の回答を控えます。',change:'考え直しました！'}
+};
+function conversationVoice(observer){return CONVERSATION_VOICES[observer.characterId]||CONVERSATION_VOICES.joshua;}
+const CONVERSATION_FIRST_PERSON={joshua:'僕',geode:'俺',albert:'僕',momiji:'俺',kaede:'僕',francois:'私',melbon:'私',milk:'ぼく',max:'僕',cortes:'私',zaemon:'儂',yamato:'拙者',henry:'僕',dominic:'俺',pattino:'俺',makimura:'俺',rixis:'俺',wanunu_iii:'ぼく',naminami:'私'};
+const beforeQualityMorningReason=morningReason;
+morningReason=(observer,topic)=>{
+ const reason=beforeQualityMorningReason(observer,topic);if(!reason)return reason;
+ const rows=(topic.details?.evidence||[]).filter(e=>e.source?.snapshot&&(e.source.snapshot.seerId!=null||e.source.snapshot.mediumId!=null)).sort((a,b)=>Math.abs(b.delta||0)-Math.abs(a.delta||0));
+ const row=rows[0]?.source.snapshot,id=row?.seerId??row?.mediumId;
+ if(id===observer.id&&reason.endsWith(`から${row.black?'黒':'白'}が出ている`))return `${CONVERSATION_FIRST_PERSON[observer.characterId]||'僕'}の${row.seerId!=null?'占い':'霊媒'}結果では、${morningName(observer,row.targetId)}に${row.black?'黒':'白'}が出ている`;
+ return reason;
+};
+// Hによる親しさ／距離の抽選は維持し、導入句だけ同じ口癖に固定しない。
+const beforeQualityAffinityTone=affinityTone;
+const AFFINITY_SHORT_ADDRESS={joshua:['ねえ、','その点は、'],geode:['なあ、','さて、'],albert:['君の話を聞こう。','その点を確認したい。'],momiji:['なあ、','ちょっと聞かせてくれ！'],kaede:['……ねえ、','……確認したい。'],francois:['君の話を聞こうか。','さて、'],melbon:['どうぞお聞かせください。','その点を伺いたいのですが。'],milk:['ねえ、','ちょっときいていい？'],max:['君の話を聞こうか。','そこは確かめたいね。'],cortes:['お話を伺います。','その点をお確かめしたく。'],zaemon:['話してみよ。','さて、'],yamato:['話を聞こう。','その点を確かめたい。'],henry:['……ねえ、','あの……、'],dominic:['なあ、','ちょっと聞かせてくれ！'],pattino:['ねえ、','そこ聞いていい？'],makimura:['なあ、','その点は聞かせてくれ。'],rixis:['話を聞かせてくれ。','そこは確かめたい。'],wanunu_iii:['なあ、','ちょっと、きくぞ。'],naminami:['お話を聞きます！','そこを確かめたいです！']};
+affinityTone=(observer,c,text)=>{
+ const toned=beforeQualityAffinityTone(observer,c,text);if(toned===text)return text;
+ const naturalTone=toned.replace(/^……ちゃんと聞きたいから。/,'……ちゃんと聞きたい。').replace(/^一緒に考えたいから、/,'一緒に考えよう。');
+ const key=[state.affinity.seed,discussionState().nextId,observer.id,c.command].join('|');if(affinityHash(key)%2===0)return naturalTone;
+ const h=affinityFor(observer.id,['agree','rebut','question','answer'].includes(c.command)||c.replyTo&&c.command==='hold'?c.recipientId:c.subjectId);
+ // close/distantを本文から推測せず、元の同じ抽選を再現（専用のローカル乱数のみ）。
+ const weights=[Math.exp(.8*h/5),2,Math.exp(-.8*h/5)],rng=affinityRng(state.affinity.seed,'D'+discussionState().nextId,observer.id,'voice');let draw=affinityNext(rng)*weights.reduce((a,b)=>a+b,0),tone=2;for(let i=0;i<weights.length;i++){draw-=weights[i];if(draw<0){tone=i;break;}}
+ return (AFFINITY_SHORT_ADDRESS[observer.characterId]||AFFINITY_SHORT_ADDRESS.joshua)[tone===0?0:1]+text;
+};
+function naturalConversationText(text){
+ const names=[];let t=String(text);
+ for(const name of [...new Set((state?.players||[]).map(p=>p.name))].filter(Boolean).sort((a,b)=>b.length-a.length)){
+  const token='\uE000'+names.length+'\uE001';if(t.includes(name)){t=t.split(name).join(token);names.push({name,token});}
+ }
+ t=t.replaceAll('公開情報で','これまでの結果から').replaceAll('公開情報','分かっていること').replaceAll('公開材料','今ある話').replaceAll('公開した結果','出した結果').replaceAll('公開の矛盾','結果の食い違い').replaceAll('公開の証拠','証拠').replaceAll('評価対象','相手').replaceAll('発言意図','考え');
+ t=t.replace(/と思う(?:と)?と思う/g,'と思う').replace(/僕は、僕は、/g,'僕は、').replace(/。と思(?:う|います)。/g,'。').replace(/とこれまでの結果から確定している/g,'と分かっている').replace(/とこれまでの結果から確定してる/g,'と分かってる');
+ t=t.replace(/(怪しい|あやしい|本物っぽい|偽物っぽい)だと/g,'$1と').replace(/なさそうと(?=思|考)/g,'なさそうだと').replace(/(本物|偽物)と(?=思|考)/g,'$1だと');
+ for(const {name,token}of names)t=t.split(token).join(name);
+ return t;
+}
+function conversationFill(template,values){return template.replace(/\{(\w+)\}/g,(_,key)=>values[key]??'');}
+function conversationReason(observer,c){
+ const topic=c.topicForReason||c.topic||{targetId:c.subjectId,details:{evidence:c.evidence||[]}};
+ let reason=morningReason(observer,topic);
+ if(!reason){
+  const memory=(c.evidence||[]).find(e=>e.type==='rememberedSuspicion')?.snapshot;
+  if(memory){const who=morningName(observer,topic.targetId??c.subjectId),target=morningName(observer,memory.targetId);reason=`${who}は${target}が疑われる前から疑いを口にしていた`; // 下で実在の判明事実に合わせて限定。
+   const broken=(c.evidence||[]).some(e=>e.type==='publicBreakdown');const medium=(c.evidence||[]).find(e=>e.type==='memoryMediumBlack')?.snapshot;
+   reason=broken?`${who}は${target}が破綻する前から疑っていた`:medium?`${who}は${target}に霊媒の黒が出る前から疑っていた`:null;
+  }
+ }
+ if(!reason&&(c.evidence||[]).some(e=>e.type==='subjectiveIntuition'))reason='証拠ではなく、なんとなく引っかかった';
+ return reason?naturalConversationText(reason):null;
+}
+function conversationQuestionAbout(observer,e,subjectId){
+ const name=morningName(observer,subjectId);
+ if(e?.topic?.variant==='nonFox')return `${name}が狐ではなさそうと思ったのは`;
+ if(e?.claim==='negative')return `${name}を疑ったのは`;
+ if(e?.claim==='positive')return `${name}を信じるのは`;
+ if(e?.claim==='lynch')return `${name}を吊りたいのは`;
+ if(e?.claim==='keep')return `${name}を残したいのは`;
+ return `${name}についてそう考えたのは`;
+}
+const beforeQualityDiscussionText=discussionText;
+discussionText=(observer,c)=>{
+ const voice=conversationVoice(observer),ref=state.discussion?.events.find(e=>e.id===c.replyTo);
+ const values={to:morningName(observer,c.recipientId),subject:morningName(observer,c.subjectId),about:conversationQuestionAbout(observer,ref,c.subjectId),reason:conversationReason(observer,c)};
+ let text;
+ if(c.topic)text=naturalConversationText(formatMorningConsideration(observer,c.topic));
+ else if(['reportedPossibility','reportedDefense','reportedRoleComparison','reportedRoleDefense'].includes(c.variant)){
+  const rows=c.evidence.filter(e=>e.type==='reportedResult').map(e=>e.source.snapshot),r=rows[0];
+  if(['reportedRoleComparison','reportedRoleDefense'].includes(c.variant)){
+   const fact=`${morningName(observer,r.seerId)}と${morningName(observer,rows[1].seerId)}は、${morningName(observer,r.targetId)}の結果が割れている。`;
+   const topic={targetId:c.subjectId,variant:c.claim==='positive'?'roleTruth':'roleFalse',details:{roleLabel:'占い師',hypothesis:true,evidence:[]}};
+   text=(c.command==='defend'?conversationFill(voice.defend,values):'')+fact+formatMorningConsideration(observer,topic)+'どちらが本物かで変わる予想だけど。';
+  }else{
+   const fact=`${morningName(observer,r.seerId)}から${values.subject}に${r.black?'黒':'白'}が出ている。`;
+   const topic={targetId:c.subjectId,variant:r.black?'basicSuspect':'basicTrust',details:{hypothesis:true,evidence:[]}};
+   text=(c.command==='defend'?conversationFill(voice.defend,values):'')+fact+formatMorningConsideration(observer,topic)+'その占いが本物なら、という見方だけど。';
+  }
+ }else switch(c.command){
+  case 'question':{const index=ref?.claim==='negative'?affinityHash([observer.id,c.replyTo,state.day].join('|'))%voice.q.length:0;text=conversationFill(voice.q[index],values);break;}
+  case 'answer':text=(c.reconsider?voice.change:'')+conversationFill(values.reason?voice.answer:voice.answerHold,values);break;
+  case 'agree':text=(c.variant==='reconsider'?voice.change:'')+conversationFill(voice.agree,values)+(values.reason?`${values.reason}。`:'');break;
+  case 'rebut':text=conversationFill(c.variant==='limitedInference'?voice.limited:voice.rebut,values)+(c.variant!=='limitedInference'&&values.reason?`${values.reason}。`:'');break;
+  case 'defend':text=conversationFill(voice.defend,values)+(values.reason?`${values.reason}。`:'');break;
+  case 'organize':{
+   const summary=(c.summaryIds||[]).map(id=>state.discussion.events.find(e=>e.id===id)).filter(Boolean).map(e=>{
+    const who=morningName(observer,e.speakerId),subject=morningName(observer,e.subjectId);
+    const role=['roleTruth','roleFalse'].includes(e.topic?.variant)||['reportedRoleComparison','reportedRoleDefense'].includes(e.variant);
+    const position=e.topic?.variant==='nonFox'?`${subject}は狐ではなさそうと見ている`:e.claim==='lynch'?`${subject}を吊りたいと考えている`:e.claim==='keep'?`${subject}を残したいと考えている`:e.claim==='negative'?`${subject}を${role?'偽寄りに見ている':'疑っている'}`:e.claim==='positive'?`${subject}を${role?'真寄りに見ている':'信じている'}`:`${subject}について話している`;
+    return `${who}は${position}。`;
+   }).join('');
+   text=conversationFill(voice.organize,{summary});break;
+  }
+  case 'hold':text=conversationFill(c.variant==='answerRefusal'?voice.refuse:c.replyTo?voice.answerHold:voice.hold,values);break;
+  default:return naturalConversationText(beforeQualityDiscussionText(observer,c));
+ }
+ text=naturalConversationText(text);
+ return isAffinityVillage()?affinityTone(observer,c,text):text;
+};
+
+const LOG_COMMAND_LABELS={suspect:'疑い',trust:'信頼',propose:'提案',agree:'賛成',rebut:'反論',defend:'擁護',question:'質問',answer:'回答',organize:'議論整理',hold:'判断保留'};
+function discussionLogRecipient(e){
+ const source=state.discussion?.events.find(x=>x.id===e.replyTo);let id=null;
+ if(e.command==='question')id=e.recipientId??source?.speakerId;
+ if(['answer','agree','rebut'].includes(e.command))id=source?.speakerId??e.recipientId;
+ if(['suspect','trust','defend','propose'].includes(e.command))id=e.subjectId;
+ return id!=null&&byId(id)?id:null;
+}
+function discussionLogEvent(row,legacyMap){
+ if(row.discussionId)return state.discussion?.events.find(e=>e.id===row.discussionId)||null;
+ // 旧ログは保存されたイベントと完全一致する場合だけ結び付ける。本文から名前を推測しない。
+ const matches=legacyMap.get(row.msg);return matches?.length===1?matches[0]:null;
+}
+function discussionLogHTML(e){
+ const speaker=byId(e.speakerId);if(!speaker)return '';
+ const recipient=discussionLogRecipient(e),target=recipient!=null?` » ${escapeHtml(byId(recipient).name)}`:'';
+ const command=LOG_COMMAND_LABELS[e.command]||'発言';
+ const about=['question','answer','agree','rebut'].includes(e.command)&&e.subjectId!=null&&byId(e.subjectId)&&e.subjectId!==recipient?`<div class="discussion-context">話題：${escapeHtml(byId(e.subjectId).name)}</div>`:'';
+ const source=state.discussion?.events.find(x=>x.id===e.replyTo),question=source?.command==='question'?source:null;
+ const reference=question?`<details class="discussion-reference"><summary>元の質問</summary><div>${escapeHtml(byId(question.speakerId)?.name||'')}：${escapeHtml(question.text)}</div></details>`:'';
+ return `<div class="discussion-row"><div class="discussion-head"><span class="discussion-speaker">${escapeHtml(speaker.name)}</span><span class="discussion-command">${command}${target}</span></div>${about}<div class="discussion-body">${escapeHtml(e.text)}</div>${reference}</div>`;
+}
+renderLog=()=>{
+ if(!state)return;renderLogFilterOptions();const legacy=new Map();
+ for(const e of state.discussion?.events||[]){const speaker=byId(e.speakerId);if(!speaker)continue;const key=`${speaker.name}【${DISCUSSION_LABELS[e.command]}】：「${e.text}」`;if(!legacy.has(key))legacy.set(key,[]);legacy.get(key).push(e);}
+ const filter=state.logPersonFilterId,person=filter!=null&&filter!==''?byId(+filter):null;
+ const rows=state.logs.map(row=>({row,event:discussionLogEvent(row,legacy)})).filter(({row,event})=>{
+  if(!person)return true;
+  return event?[event.speakerId,event.subjectId,event.recipientId,...(event.secondaryIds||[])].includes(person.id):String(row.msg||'').includes(person.name);
+ });
+ $('#log').innerHTML=rows.length?rows.map(({row,event})=>event?discussionLogHTML(event):`<p class="system-log ${escapeHtml(row.cls||'')}">${escapeHtml(row.msg)}</p>`).join(''):'<p class="muted">この人物に関するログはまだありません。</p>';
+ $('#log').scrollTop=$('#log').scrollHeight;
+};
+
+let notesEditor=null;
+function fitPlayerNotes(){
+ const viewport=globalThis.visualViewport;if(!viewport)return;
+ const sheet=$('#notesSheet');if(!sheet.style?.setProperty)return;
+ sheet.style.setProperty('--notes-top',Math.max(12,(viewport.offsetTop||0)+12)+'px');
+ sheet.style.setProperty('--notes-max-height',Math.max(160,viewport.height-24)+'px');
+ sheet.style.setProperty('--notes-input-height',Math.max(72,viewport.height-160)+'px');
+}
+globalThis.visualViewport?.addEventListener('resize',fitPlayerNotes);
+globalThis.visualViewport?.addEventListener('scroll',fitPlayerNotes);
+function ensurePlayerNotes(){return state.playerNotes??={schemaVersion:1,people:{},notebook:''};}
+function persistPlayerNotes(){try{localStorage.setItem('jinro_v04_state',JSON.stringify(state));$('#notesStatus').textContent='保存したよ。';return true;}catch{$('#notesStatus').textContent='保存できなかったよ。入力はこの画面に残っているので、文字量を減らしてもう一度試してね。';return false;}}
+function editPlayerNote(targetId,text){
+ if(!state||targetId!=null&&!byId(targetId))return false;
+ const notes=ensurePlayerNotes();if(targetId==null)notes.notebook=String(text);else notes.people[targetId]=String(text);
+ return persistPlayerNotes();
+}
+function openPlayerNotes(targetId=null){
+ if(!state||targetId!=null&&!byId(targetId))return false;
+ const notes=ensurePlayerNotes();notesEditor={game:state,targetId};
+ $('#notesTitle').textContent=targetId==null?'自分のメモ帳':`${byId(targetId).name}のメモ`;
+ $('#notesLabel').textContent=targetId==null?'COMには見えない、自分だけのメモ':'ひとことメモ（死亡後も編集できるよ）';
+ const input=$('#notesInput');input.rows=targetId==null?10:3;input.value=targetId==null?notes.notebook:notes.people[targetId]||'';
+ $('#notesStatus').textContent='入力は自動で保存されます。';$('#notesSheet').classList.remove('hidden');$('#notesBackdrop').classList.remove('hidden');fitPlayerNotes();input.focus?.();return true;
+}
+function closePlayerNotes(){$('#notesInput').blur?.();if(notesEditor?.game===state)editPlayerNote(notesEditor.targetId,$('#notesInput').value);notesEditor=null;$('#notesSheet').classList.add('hidden');$('#notesBackdrop').classList.add('hidden');}
+$('#notesInput').oninput=()=>{if(notesEditor?.game===state)editPlayerNote(notesEditor.targetId,$('#notesInput').value);};
+$('#notesClose').onclick=closePlayerNotes;$('#notesBackdrop').onclick=closePlayerNotes;$('#notebookBtn').onclick=()=>openPlayerNotes();
+$('#notesInput').onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();closePlayerNotes();}};
+const beforeQualityRenderAll=renderAll;
+renderAll=()=>{
+ beforeQualityRenderAll();if(!state)return;
+ if(notesEditor&&notesEditor.game!==state){notesEditor=null;$('#notesSheet').classList.add('hidden');$('#notesBackdrop').classList.add('hidden');}
+ document.querySelectorAll('[data-note-player]').forEach(button=>{button.onclick=event=>{event?.stopPropagation();openPlayerNotes(+button.dataset.notePlayer);};});
+ const button=$('#playerDiscussionBtn');button.hidden=true;button.disabled=true;button.style&&(button.style.display='none');button.onclick=null;
+};
+// 旧内部関数と履歴は残し、UI・公開操作入口だけ休止する。
+const archivedSubmitPlayerDiscussion=submitPlayerDiscussion,archivedOpenPlayerDiscussionMenu=openPlayerDiscussionMenu;
+submitPlayerDiscussion=()=>false;openPlayerDiscussionMenu=()=>false;$('#playerDiscussionBtn').onclick=null;
+const beforeQualityValidSavedGame=isValidSavedGame;
+isValidSavedGame=value=>{
+ if(!beforeQualityValidSavedGame(value))return false;
+ const notes=value.playerNotes;if(notes==null)return true;
+ return notes.schemaVersion===1&&typeof notes.notebook==='string'&&notes.people&&typeof notes.people==='object'&&!Array.isArray(notes.people)&&Object.entries(notes.people).every(([id,text])=>value.players.some(p=>String(p.id)===id)&&typeof text==='string');
+};
 
 $("#discussionBtn").onclick=encourageDiscussion;
 $("#playerCount").addEventListener("input",()=>{selectedRolePreset=null;renderRoleConfig()});

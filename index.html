@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-quality2</title>
+<title>個人用人狼アプリ v2.20.0-quality3</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -130,7 +130,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.20.0-quality2</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.20.0-quality3</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -239,7 +239,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
 </section>
 <script>
-const GAME_VERSION="2.20.0-quality2";
+const GAME_VERSION="2.20.0-quality3";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -5901,7 +5901,13 @@ function discussionCandidates(observer){
  }}
  const pending=d.questions.filter(q=>q.status==='open'&&q.recipientId===observer.id&&q.day>=state.day-1);
  for(const q of pending){
-  const question=d.events.find(e=>e.id===q.eventId),original=d.events.find(e=>e.id===q.aboutId);if(!question||!original)continue;
+  const question=d.events.find(e=>e.id===q.eventId),original=d.events.find(e=>e.id===q.aboutId);if(!question)continue;
+  if(question.variant==='positionQuestion'){
+   const view=raw.find(t=>t.targetId!==observer.id&&t.targetId!=null&&t.details?.evidence?.length&&['suspect','trust','propose'].includes(discussionBaseCommand(t)));
+   if(view)add({command:'answer',recipientId:question.speakerId,subjectId:question.subjectId,replyTo:question.id,originEventId:question.id,evidence:[...view.details.evidence,discussionRef(question)],topicForReason:view,variant:'positionAnswer',weight:2.4});
+   add({command:'hold',recipientId:question.speakerId,subjectId:question.subjectId,replyTo:question.id,originEventId:question.id,evidence:[discussionRef(question)],variant:'positionHold',weight:view?.2:2.4});continue;}
+
+  if(!original)continue;
   const own=d.events.find(e=>e.id===original.id&&e.speakerId===observer.id);
   const current=raw.find(t=>topicMatchesDiscussionQuestion(t,question,original)&&t.details?.evidence?.length);
   const decision=buildSpeechDecisionInformation(observer,pub);
@@ -6075,7 +6081,7 @@ isValidSavedGame=value=>{
  const ids=new Set(value.players.map(p=>p.id)),events=new Set();
  for(const e of d.events){if(!/^D\d+$/.test(e.id)||events.has(e.id)||!ids.has(e.speakerId)||!DISCUSSION_COMMANDS.includes(e.command)||e.subjectId!=null&&!ids.has(e.subjectId)||e.recipientId!=null&&!ids.has(e.recipientId)||e.replyTo&&!events.has(e.replyTo)||!Array.isArray(e.evidence)||hasPrivateSpeechData(e.evidence))return false;events.add(e.id);}
  if(d.events.some(e=>Number(e.id.slice(1))>=d.nextId))return false;
- for(const q of d.questions)if(!events.has(q.eventId)||!events.has(q.aboutId)||!ids.has(q.recipientId))return false;
+ for(const q of d.questions)if(!events.has(q.eventId)||q.aboutId!=null&&!events.has(q.aboutId)||!ids.has(q.recipientId))return false;
  for(const [day,entry]of Object.entries(d.dayState))if(!/^\d+$/.test(day)||!Number.isInteger(entry.runs)||entry.runs<0||!entry.counts||!Array.isArray(entry.keys)||!Array.isArray(entry.recentSpeakers)||!entry.pairs)return false;
  return true;
 };
@@ -6686,15 +6692,18 @@ isValidSavedGame=value=>{
 // quality2 修正A。公開された主張の論点で照合し、真の配役から関係を決めない。
 const DISCUSSION_ISSUES=['wolf','fox','villageTeam','roleTrust','execution','resultConsistency','reason','statementConsistency','personReliability','unknown'];
 function discussionEvidenceReferences(evidence){
- return (evidence||[]).map(e=>({type:e.type,collection:e.source?.collection??null,index:e.source?.index??null,eventId:e.eventId??e.sourceStatementId??null}));
+ return (evidence||[]).map(e=>({type:e.type,collection:e.source?.collection??null,index:e.source?.index??null,eventId:e.eventId??e.sourceStatementId??null,...(e.type==='publicBehaviorObservation'?{observationId:e.observationId}:{} )}));
 }
 function discussionProposition(e,context=state,useStored=true){
  if(useStored&&e.proposition?.schemaVersion===1)return e.proposition;
  const getEvent=id=>context?.discussion?.events.find(x=>x.id===id),getPlayer=id=>context?.players.find(x=>x.id===id);
- const t=e.topic||e.topicForReason,v=t?.variant||e.variant,d=t?.details||{},subjectId=e.subjectId??t?.targetId??null;
+ const t=e.topic||e.topicForReason,v=['positionAnswer','positionHold','selfDefense'].includes(e.variant)?e.variant:t?.variant||e.variant,d=t?.details||{},subjectId=e.subjectId??t?.targetId??null;
  let issue='unknown',role=null,direction='unknown';
  const claim=e.claim??(t?discussionClaim(t):null);
- if(v==='nonFox'){issue='fox';direction='deny';}
+ if(v==='selfDefense'){const p=getEvent(e.replyTo)?discussionProposition(getEvent(e.replyTo),context):null;issue=p?.issue||'unknown';role=p?.role||null;direction=p?.issue==='wolf'?'deny':p?.issue==='execution'?'keep':p?.issue==='roleTrust'?'affirm':'unknown';}
+ else if(v==='positionAnswer'||v==='positionHold'){issue='reason';direction='unknown';}
+ else if(v==='grayBehavior'){issue='personReliability';direction=d.behaviorDirection||'unknown';}
+ else if(v==='nonFox'){issue='fox';direction='deny';}
  else if(v==='pastReliable'){issue='personReliability';direction='affirm';}
  else if(['roleTruth','roleFalse','reportedRoleComparison','reportedRoleDefense'].includes(v)){issue='roleTrust';role=d.role||getPlayer(subjectId)?.claimed||null;direction=v==='roleFalse'||claim==='negative'?'deny':'affirm';}
  else if(['lynchProposal','gutLynch','wolfKeep'].includes(v)||['lynch','keep'].includes(claim)){issue='execution';direction=v==='wolfKeep'||claim==='keep'?'keep':'execute';}
@@ -6715,7 +6724,7 @@ function discussionProposition(e,context=state,useStored=true){
   else if(e.evidence?.some(x=>x.source?.snapshot?.targetId===subjectId&&x.source.snapshot.seerId!=null||x.type==='subjectiveIntuition')){issue='wolf';direction=claim==='negative'?'affirm':'deny';}
  }
  const certainty=d.certainty||e.certainty;
- const confidence=certainty==='asserted'||certainty==='certain'||String(certainty||'').startsWith('confirmed')?'certain':issue==='unknown'||direction==='unknown'?'unknown':'inferred';
+ const confidence=['positionAnswer','positionHold'].includes(v)?'unknown':certainty==='asserted'||certainty==='certain'||String(certainty||'').startsWith('confirmed')?'certain':issue==='unknown'||direction==='unknown'?'unknown':'inferred';
  return {schemaVersion:1,issue,role,subjectId,direction,confidence,evidenceRefs:discussionEvidenceReferences(e.evidence||d.evidence||[])};
 }
 function sameDiscussionIssue(a,b){return a.subjectId===b.subjectId&&a.issue!=='unknown'&&a.issue===b.issue&&a.role===b.role;}
@@ -6737,6 +6746,7 @@ function topicMatchesDiscussionQuestion(topic,question,original){
 function discussionAnswerReconsider(topic,original){if(!topic)return false;const p=discussionProposition({topic,subjectId:topic.targetId,claim:discussionClaim(topic)}),a=discussionProposition(original);return sameDiscussionIssue(p,a)&&p.direction!==a.direction;}
 function discussionQuestionRequest(question,context=state){
  if(question.questionRequest)return question.questionRequest;
+ if(question.variant==='positionQuestion')return {schemaVersion:1,kind:'currentView',aboutStatementId:null,subjectId:question.subjectId,issue:'reason',role:null,direction:'unknown',questionerId:question.speakerId??null,respondentId:question.recipientId};
  const original=context?.discussion?.events.find(e=>e.id===question.replyTo);if(!original)return null;
  const p=discussionProposition(original,context);
  return {schemaVersion:1,kind:'reason',aboutStatementId:original.id,subjectId:original.subjectId,issue:p.issue,role:p.role,direction:p.direction,questionerId:question.speakerId??null,respondentId:question.recipientId??original.speakerId};
@@ -6755,7 +6765,7 @@ function publicFoxPossibility(subjectId,pub){
 }
 function semanticReplyAllowed(observer,c,context=state){
  const source=context?.discussion?.events.find(e=>e.id===c.replyTo);
- if(!c.replyTo)return !['agree','rebut','defend','question','answer'].includes(c.command);
+ if(!c.replyTo)return c.command==='question'&&c.variant==='positionQuestion'?c.subjectId===c.recipientId&&c.recipientId!==observer.id:!['agree','rebut','defend','question','answer'].includes(c.command);
  if(!source||source.speakerId===observer.id&&c.command!=='answer'&&c.command!=='hold')return false;
  if((source.depth||0)>=3||c.command==='question'&&(source.depth||0)>=2)return false;
  const p=discussionProposition(c,context),s=discussionProposition(source,context);
@@ -6854,6 +6864,7 @@ discussionText=(observer,c)=>{
    let previous=null;
    if(p.issue==='wolf'&&row)previous=`最初は、${morningName(observer,row.seerId)}が${morningName(observer,row.targetId)}に${row.black?'黒':'白'}を出したことを理由に${p.direction==='affirm'?'疑っていた':'人狼ではなさそうと見ていた'}。`;
    else {const reason=conversationReason(observer,{subjectId:original.subjectId,topicForReason:original.topic||original.topicForReason,evidence:original.evidence});if(reason)previous=`最初は、${reason}という点を重く見ていた。`;}
+   if(!previous&&!original.evidence?.length)previous=`最初は、${morningName(observer,original.subjectId)}への見方を話しただけで、理由を詳しく説明していなかった。`;
    if(previous)return previous+quality1SemanticText(observer,c);
   }
  }
@@ -6878,6 +6889,7 @@ function validStoredDiscussionSemantics(value){
   if(r.sourceStatementId!==(e.replyTo??null)||r.sourceSpeakerId!==(source?.speakerId??null)||parts.replySpeakerId!==(source?.speakerId??null))return false;
   if(e.command==='question'){
    const q=e.questionRequest,original=source?discussionProposition(source,value):null;
+   if(e.variant==='positionQuestion'){if(source||q?.kind!=='currentView'||q.subjectId!==e.subjectId||q.questionerId!==e.speakerId||q.respondentId!==e.recipientId||q.issue!=='reason'||q.role!==null||q.direction!=='unknown'||q.aboutStatementId!==null)return false;const entry=d.questions.find(x=>x.eventId===e.id);if(!entry||JSON.stringify(entry.request)!==JSON.stringify(q))return false;continue;}
    if(!q||q.schemaVersion!==1||r.type!=='question'||q.aboutStatementId!==e.replyTo||q.questionerId!==e.speakerId||q.respondentId!==e.recipientId||q.subjectId!==e.subjectId||q.issue!==original?.issue||q.role!==original?.role||q.direction!==original?.direction)return false;
    const entry=d.questions.find(x=>x.eventId===e.id);if(!entry||JSON.stringify(entry.request)!==JSON.stringify(q))return false;
   }else if(e.command==='answer'||e.command==='hold'&&source?.command==='question'){
@@ -6891,6 +6903,254 @@ function validStoredDiscussionSemantics(value){
 }
 const quality1SemanticValidGame=isValidSavedGame;
 isValidSavedGame=value=>quality1SemanticValidGame(value)&&validStoredDiscussionSemantics(value);
+
+
+// quality3: public conduct observations; no truth lookup and no extra trust-score writes.
+const GRAY_BEHAVIOR_VERSION=1;
+function grayState(){return discussionState().gray??={schemaVersion:1,used:{},observations:{}};}
+function grayCoreEvents(context=state){return (context.discussion?.events||[]).filter(e=>e.phase==='day'&&e.variant!=='grayBehavior'&&e.topic?.variant!=='grayBehavior'&&e.topicForReason?.variant!=='grayBehavior'&&e.variant!=='semanticSupplement');}
+function grayMaterialRoots(e){
+ const roots=(e.evidence||[]).filter(x=>!['discussionStatement','publicBehaviorObservation'].includes(x.type));
+ return [...new Set(roots.flatMap(x=>x.source?.collection?[JSON.stringify(['record',x.source.collection,x.source.index])]:x.sources?.some(s=>s.collection)?x.sources.filter(s=>s.collection).map(s=>JSON.stringify(['record',s.collection,s.index])):[JSON.stringify([x.type,x.snapshot??null])]))].sort();
+}
+function graySpecificReason(e){
+ const roots=(e.evidence||[]).filter(x=>x.type!=='discussionStatement');
+ return roots.some(x=>x.source?.snapshot||['publicBreakdown','publicRoleConfirmation','publicConfirmedVillage','confirmedResultMatch','hypothesisResultMatch','publicBehaviorObservation','survivedPublicDivination','rememberedSuspicion'].includes(x.type));
+}
+function grayQuestionGap(e,context=state){
+ if(!e||!['suspect','trust','propose','agree','rebut','defend'].includes(e.command))return null;
+ if(graySpecificReason(e))return null;
+ // A feeling has no hidden factual detail to extract by repeating the question.
+ if(e.evidence?.some(x=>x.type==='subjectiveIntuition'||x.type==='selfTestimony'))return null;
+ const refs=(e.evidence||[]).filter(x=>x.type==='discussionStatement');
+ if(refs.length){
+  const source=context.discussion?.events.find(x=>x.id===refs[0].eventId);
+  if(source&&graySpecificReason(source))return null;
+  // A bare citation is incomplete: ask which part, not for the entire reason again.
+  if(source)return {kind:'statementDetail',sourceEventId:source.id,key:JSON.stringify([e.speakerId,e.subjectId,discussionProposition(e,context).issue,'statementDetail',source.id])};
+ }
+ return {kind:'missingReason',sourceEventId:e.id,key:JSON.stringify([e.speakerId,e.subjectId,discussionProposition(e,context).issue,'missingReason',grayMaterialRoots(e)])};
+}
+function grayQuestionUsed(gap,context=state){return (context.discussion?.events||[]).some(e=>e.command==='question'&&e.informationRequest?.key===gap.key);}
+function deriveGrayObservationRows(context=state){
+ const events=grayCoreEvents(context),rows=[],ids=new Set(context.players.map(p=>p.id));
+ const add=(kind,actorId,targetId,sources,direction,dimension)=>{
+  const ordered=[...new Set(sources.map(e=>e.id))];if(!ordered.length||!ids.has(actorId)||targetId!=null&&!ids.has(targetId))return;
+  const rootKey=JSON.stringify([kind,actorId,targetId,ordered]);
+  rows.push({schemaVersion:1,id:'G'+affinityHash(rootKey).toString(16),rootKey,visibility:'public',kind,actorId,targetId,sourceEventIds:ordered,day:sources.at(-1).day,phase:'day',fact:{eventIds:ordered},interpretation:{direction,dimension,certainty:'inferred'}});
+ };
+ // Compare the same semantic issue only. Wolf vs fox is never an opinion reversal.
+ const last=new Map();
+ for(const e of events){
+  const p=discussionProposition(e,context);if(e.subjectId==null||!['affirm','deny','execute','keep'].includes(p.direction)||['question','hold','organize'].includes(e.command))continue;
+  const key=JSON.stringify([e.speakerId,p.subjectId,p.issue,p.role]),prior=last.get(key);
+  if(prior){const a=discussionProposition(prior,context),opposite={affirm:'deny',deny:'affirm',execute:'keep',keep:'execute'};
+   if(opposite[a.direction]===p.direction){
+    const old=new Set(grayMaterialRoots(prior)),fresh=grayMaterialRoots(e).some(x=>!old.has(x));
+    const explained=graySpecificReason(e)&&(fresh||e.command==='answer'&&e.reconsider);
+    add(explained?'explainedChange':'unexplainedChange',e.speakerId,e.subjectId,[prior,e],explained?'affirm':'deny','logic');
+   }
+  }
+  last.set(key,e);
+ }
+ const actors=[...new Set(events.map(e=>e.speakerId))];
+ for(const actor of actors){
+  const own=events.filter(e=>e.speakerId===actor),groups=new Map();
+  for(const e of own){
+   if(e.variant==='positionHold'){const q=events.find(x=>x.id===e.replyTo);if(q?.variant==='positionQuestion')add('candidUncertainty',actor,null,[q,e],'unknown','reaction');}
+   if(e.command==='answer'){
+    const q=events.find(x=>x.id===e.replyTo),request=q&&discussionQuestionRequest(q,context);
+    if(request&&request.respondentId===actor&&request.subjectId===e.subjectId&&topicMatchesStoredGrayQuestion(e,request,context)&&graySpecificReason(e)){if(request.kind==='currentView'&&e.topicForReason?.targetId!=null)add('openViewAnswer',actor,e.topicForReason.targetId,[q,e],'affirm','reaction');else if(request.kind!=='currentView')add('responsiveAnswer',actor,e.subjectId,[q,e],'affirm','reaction');}
+   }
+   if(e.command==='organize'&&e.evidence?.filter(x=>x.type==='discussionStatement').length>=2)add('discussionOrganizer',actor,null,[...e.evidence.filter(x=>x.type==='discussionStatement').map(x=>events.find(y=>y.id===x.eventId)).filter(Boolean),e],'affirm','coordination');
+   if(!['suspect','defend','agree','rebut','propose'].includes(e.command)||e.subjectId==null)continue;
+   const source=events.find(x=>x.id===e.replyTo),target=e.command==='agree'?source?.speakerId:e.subjectId;
+   const key=JSON.stringify([e.command,target]);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(e);
+  }
+  for(const group of groups.values()){
+   const distinct=[];const keys=new Set();for(const e of group){const p=discussionProposition(e,context),key=JSON.stringify([p.issue,p.direction,e.subjectId,grayMaterialRoots(e),e.command==='agree'?e.replyTo:null]);if(!keys.has(key)){keys.add(key);distinct.push(e);}}
+   if(distinct.length<2)continue;for(let end=2;end<=distinct.length;end++){const e=distinct[end-1],sources=distinct.slice(Math.max(0,end-3),end);
+   if(e.command==='defend')add('focusedDefense',actor,e.subjectId,sources,'unknown','emotion');
+   if(e.command==='suspect'||e.command==='propose')add('focusedPressure',actor,e.subjectId,sources,'unknown','reaction');
+   if(e.command==='agree')add('repeatedAgreement',actor,events.find(x=>x.id===e.replyTo)?.speakerId,sources,'unknown','coordination');
+  }}
+  const held=own.filter(e=>e.command==='hold'&&e.replyTo&&e.variant!=='positionHold'&&events.find(q=>q.id===e.replyTo)?.command==='question');
+  for(let end=2;end<=held.length;end++)add('repeatedDeferral',actor,null,held.slice(Math.max(0,end-3),end),'unknown','reaction');
+  // Factual, modest inference: a concrete reason, not a certificate of innocence.
+  const specific=own.filter(e=>['suspect','trust','propose','rebut','defend'].includes(e.command)&&graySpecificReason(e));
+  const unique=[];const keys=new Set();for(const e of specific){const key=JSON.stringify(grayMaterialRoots(e));if(!keys.has(key)){keys.add(key);unique.push(e);}}
+  for(let end=2;end<=unique.length;end++)add('concreteReasoning',actor,null,unique.slice(end-2,end),'affirm','logic');
+ }
+ return rows;
+}
+const grayObservationCache=new WeakMap();
+function grayObservationRows(context=state){
+ const d=context?.discussion;if(!d)return [];
+ const events=grayCoreEvents(context);
+ const key=JSON.stringify(events.map(e=>[e.id,e.day,e.phase,e.command,e.speakerId,e.subjectId,e.replyTo,e.claim,e.variant,e.proposition,e.topic?.variant,e.topicForReason?.variant,e.topicForReason?.targetId,e.evidence,e.questionRequest]));
+ const old=grayObservationCache.get(d);if(old?.key===key)return old.rows;
+ const rows=deriveGrayObservationRows(context);grayObservationCache.set(d,{key,rows});return rows;
+}
+function topicMatchesStoredGrayQuestion(e,q,context){const p=discussionProposition(e,context);return p.subjectId===q.subjectId&&p.issue===q.issue&&p.role===q.role;}
+function grayKnownEventIds(observer){
+ const events=state.discussion?.events||[],ids=new Set(events.filter(e=>e.speakerId===observer.id||e.recipientId===observer.id).map(e=>e.id));
+ for(const m of state.affinity?.argumentMemories?.[observer.id]||[])if(m.detailed)ids.add(m.eventId);
+ // stage1 has no probabilistic detailed memories; public records remain visible.
+ if(!isAffinityVillage())for(const e of events)ids.add(e.id);
+ return ids;
+}
+function grayObservationEvidence(row){return {type:'publicBehaviorObservation',visibility:'public',observationId:row.id,snapshot:JSON.parse(JSON.stringify(row))};}
+const quality2EvidenceValid=discussionEvidenceValid;
+discussionEvidenceValid=evidence=>{
+ if(!quality2EvidenceValid(evidence))return false;
+ if(!evidence.some(e=>e.type==='publicBehaviorObservation'))return true;
+ const observations=grayObservationRows();
+ return (evidence||[]).every(e=>e.type!=='publicBehaviorObservation'||observations.some(row=>row.id===e.observationId&&JSON.stringify(row)===JSON.stringify(e.snapshot)));
+};
+function grayCandidateSelfAllowed(observer,c){
+ if(c.subjectId!==observer?.id)return true;
+ const source=state.discussion?.events.find(e=>e.id===c.replyTo);
+ if(c.command==='answer'||c.command==='hold')return source?.command==='question'&&source.recipientId===observer.id;
+ const p=source?discussionProposition(source):null;
+ return c.command==='rebut'&&source?.subjectId===observer.id&&source.speakerId!==observer.id&&(['wolf','execution'].includes(p.issue)&&['affirm','execute'].includes(p.direction)||p.issue==='roleTrust'&&p.direction==='deny');
+}
+function grayCandidateUsed(c){
+ const row=(c.evidence||[]).find(e=>e.type==='publicBehaviorObservation')?.snapshot;if(!row)return false;
+ // Global semantic root reuse, not a per-speaker loophole. A genuine reply may cite it.
+ return !c.replyTo&&!!state.discussion?.gray?.used[row.rootKey];
+}
+function grayObservationWeight(observer,row){
+ const stats=personalityProfile(observer)?.stats||{logic:3,observation:3,emotionality:3,coordination:3};
+ const scale=row.interpretation.dimension==='logic'?stats.logic:row.interpretation.dimension==='emotion'?stats.emotionality:row.interpretation.dimension==='coordination'?stats.coordination:stats.observation;
+ return .10*(.6+.2*scale);
+}
+function grayCandidates(observer){
+ const known=grayKnownEventIds(observer),out=[],plan=isStrategicDiscussionVillage()?buildDiscussionPlan(observer):null;
+ for(const row of grayObservationRows()){
+  if(row.actorId===observer.id||!byId(row.actorId)?.alive||row.day<state.day-2||!row.sourceEventIds.every(id=>known.has(id)))continue;
+  const evidence=[grayObservationEvidence(row),...row.sourceEventIds.map(id=>discussionRef(state.discussion.events.find(e=>e.id===id)))];
+  const direction=row.interpretation.direction,command=direction==='affirm'?'trust':direction==='deny'?'suspect':'organize';
+  const topic={kind:command==='trust'?'trust':command==='suspect'?'suspect':'information',variant:'grayBehavior',targetId:row.actorId,details:{certainty:'inferred',behaviorDirection:direction,evidence}};
+  const c={command,subjectId:row.actorId,recipientId:null,replyTo:null,claim:null,topic,evidence,weight:grayObservationWeight(observer,row),variant:'grayBehavior'};
+  if(grayCandidateUsed(c))continue;
+  c.weight*=isAffinityVillage()?affinityCandidateFactor(observer,c):1;
+  if(isStrategicDiscussionVillage())c.weight*=strategicCandidateFactor(observer,{...c,claim:direction==='affirm'?'positive':direction==='deny'?'negative':null},plan);
+  c.semanticReasonKey=discussionSemanticKey(c);if(!discussionDay().keys.includes(c.semanticReasonKey))out.push(describeDiscussionSemantics(observer,c));
+ }
+ return out;
+}
+function dGrayRecent(){return (state.discussion?.events||[]).filter(e=>e.day>=state.day-1&&e.topic?.variant==='grayBehavior').slice(-12);}
+const quality2GrayCandidates=discussionCandidates;
+discussionCandidates=observer=>{
+ let out=quality2GrayCandidates(observer).filter(c=>grayCandidateSelfAllowed(observer,c)&&!grayCandidateUsed(c));
+ out=out.filter(c=>{if(c.command!=='answer')return true;const q=state.discussion.events.find(e=>e.id===c.replyTo);return q?.informationRequest?.kind!=='statementDetail';});
+ out=out.filter(c=>{
+  if(c.command!=='question')return true;
+  const original=state.discussion.events.find(e=>e.id===c.replyTo),gap=grayQuestionGap(original);
+  if(!gap||grayQuestionUsed(gap))return false;
+  c.informationRequest=gap;return true;
+ });
+ const gray=grayCandidates(observer);out.push(...gray);
+ for(const e of state.discussion.events.slice(-18)){const p=discussionProposition(e);if(e.subjectId!==observer.id||e.speakerId===observer.id||!byId(e.speakerId)?.alive||e.day<state.day-1||!(['wolf','execution'].includes(p.issue)&&['affirm','execute'].includes(p.direction)||p.issue==='roleTrust'&&p.direction==='deny')||(e.depth||0)>=3||state.discussion.events.some(x=>x.speakerId===observer.id&&x.replyTo===e.id))continue;const pair=[observer.id,e.speakerId].sort((a,b)=>a-b).join(':');if((discussionDay().pairs[pair]||0)>=3)continue;const c={command:'rebut',subjectId:observer.id,recipientId:e.speakerId,replyTo:e.id,variant:'selfDefense',claim:null,evidence:[discussionRef(e),{type:'selfTestimony',visibility:'public',snapshot:{speakerId:observer.id,issue:p.issue,direction:p.issue==='wolf'?'deny':p.issue==='execution'?'keep':'affirm'}}],weight:.20};c.weight*=affinityCandidateFactor(observer,c);if(isStrategicDiscussionVillage())c.weight*=strategicCandidateFactor(observer,c,buildDiscussionPlan(observer));c.semanticReasonKey=discussionSemanticKey(c);if(!discussionDay().keys.includes(c.semanticReasonKey))out.push(describeDiscussionSemantics(observer,c));}
+ // Behavior judgements can themselves be discussed, with the same issue checks.
+ const known=grayKnownEventIds(observer);
+ for(const e of dGrayRecent()){if(e.speakerId===observer.id||!known.has(e.id)||!byId(e.speakerId)?.alive||e.subjectId===observer.id||(e.depth||0)>=3||state.discussion.events.some(x=>x.speakerId===observer.id&&x.replyTo===e.id))continue;
+  const pair=[observer.id,e.speakerId].sort((a,b)=>a-b).join(':');if((discussionDay().pairs[pair]||0)>=3)continue;
+  for(const [relationship,command,weight]of [['support','agree',.3],['rebut','rebut',.4]]){const own=gray.find(c=>classifyDiscussionRelation(e,c)===relationship);if(!own)continue;
+   const c={command,subjectId:e.subjectId,recipientId:e.speakerId,replyTo:e.id,originEventId:e.id,claim:null,topicForReason:own.topic,evidence:[...own.evidence,discussionRef(e)],weight:weight*affinityCandidateFactor(observer,{command,subjectId:e.subjectId,recipientId:e.speakerId,replyTo:e.id})};if(isStrategicDiscussionVillage())c.weight*=strategicCandidateFactor(observer,c,buildDiscussionPlan(observer));c.semanticReasonKey=discussionSemanticKey(c);if(!discussionDay().keys.includes(c.semanticReasonKey))out.push(describeDiscussionSemantics(observer,c));
+  }
+ }
+
+ // Public statements can start a conversation even when there are no role results.
+ // This asks for a view, never invents a suspect or a reason for the addressee.
+ const d=discussionState(),today=d.events.filter(e=>e.day===state.day);
+ if(today.filter(e=>e.variant==='positionQuestion').length<Math.min(2,Math.ceil(living().length/8))&&d.questions.filter(q=>q.status==='open').length<3){
+  const stats=personalityProfile(observer)?.stats||{coordination:3};
+  for(const target of living().filter(p=>!p.isSelf&&p.id!==observer.id&&!p.claimed)){
+   if(today.some(e=>e.speakerId===target.id&&e.command!=='question')||d.events.some(e=>e.variant==='positionQuestion'&&e.recipientId===target.id&&e.day>=state.day-1))continue;
+   const c={command:'question',subjectId:target.id,recipientId:target.id,replyTo:null,evidence:[],variant:'positionQuestion',claim:null,weight:.025*(.6+.2*stats.coordination),informationRequest:{kind:'currentView',sourceEventId:null,key:JSON.stringify(['currentView',target.id,state.day])}};
+   c.semanticReasonKey=discussionSemanticKey(c);if(!discussionDay().keys.includes(c.semanticReasonKey))out.push(describeDiscussionSemantics(observer,c));
+  }
+ }
+ // Existing role evidence keeps its base priority; repeated root/claim loses novelty.
+ return out.filter(c=>semanticReplyAllowed(observer,c)).map(c=>{
+  if(c.evidence.some(e=>e.type==='publicBehaviorObservation')||c.command==='answer'||c.command==='hold'&&c.replyTo)return c;
+  const p=discussionProposition(c),roots=grayMaterialRoots(c);if(!roots.length)return c;
+  const count=d.events.filter(e=>e.day===state.day&&sameDiscussionIssue(discussionProposition(e),p)&&discussionProposition(e).direction===p.direction&&JSON.stringify(grayMaterialRoots(e))===JSON.stringify(roots)).length;
+  return {...c,weight:c.weight/(1+.7*count)};
+ });
+};
+function grayObservationReason(observer,row){
+ const name=id=>morningName(observer,id),events=row.sourceEventIds.map(id=>state.discussion.events.find(e=>e.id===id)),actor=name(row.actorId),target=row.targetId==null?null:name(row.targetId),days=[...new Set(events.map(e=>e.day))].join('・');
+ const why={explainedChange:`${actor}は${target}への見方を変えたけど、前後の理由も話している`,unexplainedChange:`${actor}は${target}への見方を逆にしたのに、変えた理由がまだ分からない`,openViewAnswer:`${actor}は今気になる人物として${target}を挙げて、理由も答えている`,responsiveAnswer:`${actor}は${target}について聞かれて、その話に合う理由を答えている`,discussionOrganizer:`${actor}は皆の違う意見を拾って、話を整理している`,focusedDefense:`${actor}は${days}日目に${target}を繰り返し擁護している`,focusedPressure:`${actor}は${days}日目に${target}への追及や処刑提案を繰り返している`,repeatedAgreement:`${actor}は${target}の別々の発言に繰り返し賛成している`,candidUncertainty:`${actor}は今の考えを聞かれて、まだ決められないと答えている`,repeatedDeferral:`${actor}は別々の質問への答えを何度か保留している`,concreteReasoning:`${actor}は別々の話に、具体的な理由を挙げている`};
+ return why[row.kind]||null;
+}
+const quality2GrayDescription=describeComSpeech;
+describeComSpeech=(observer,t)=>t.variant==='grayBehavior'?{schemaVersion:1,variant:t.variant,target:{type:'individual',playerId:t.targetId},relatedPlayerIds:[...new Set(t.details.evidence.flatMap(e=>e.snapshot?.sourceEventIds||[]).map(id=>state.discussion.events.find(e=>e.id===id)?.speakerId).filter(id=>id!=null&&id!==t.targetId))],claim:{type:'evaluation',certainty:'inferred',strength:'tentative'},evidence:copyPublicSpeechEvidence(t.details.evidence),evidenceCoverage:'complete',intent:'informationSharing',replyTo:null,influence:null}:quality2GrayDescription(observer,t);
+const quality2GrayGoal=strategyCandidateGoal;
+strategyCandidateGoal=(observer,c,plan)=>{const row=c.evidence?.find(e=>e.type==='publicBehaviorObservation')?.snapshot;return quality2GrayGoal(observer,row?{...c,claim:row.interpretation.direction==='affirm'?'positive':row.interpretation.direction==='deny'?'negative':null}:c,plan);};
+const quality2GrayReason=morningReason;
+morningReason=(observer,t)=>{const row=t?.details?.evidence?.find(e=>e.type==='publicBehaviorObservation')?.snapshot;return row?grayObservationReason(observer,row):quality2GrayReason(observer,t);};
+const quality2GrayText=discussionText;
+discussionText=(observer,c)=>{
+ const voice=conversationVoice(observer),to=morningName(observer,c.recipientId);
+ let text=null;
+ if(c.variant==='selfDefense'){const p=discussionProposition(c),first=CONVERSATION_FIRST_PERSON[observer.characterId]||'僕';text=p.issue==='wolf'?`${to}、${first}は人狼じゃない。その疑いには同意できない。`:p.issue==='execution'?`${to}、${first}を吊ることには反対だ。もう一度考えてほしい。`:`${to}、${first}のCOへの疑いには同意できない。気になる点は答えるよ。`;}else if(c.variant==='positionQuestion'){
+  const prompts={joshua:`${to}、今は誰の話が気になってる？`,geode:`${to}、今んところ、誰を見てるんだい？`,kaede:`……${to}、今、気になる人はいる？`,max:`${to}、君は今、誰に注目しているんだ？`,zaemon:`${to}、今、誰が気にかかっておる？`,yamato:`${to}、今は誰に注目している？聞かせてくれ。`,henry:`あの……${to}、今、気になる人っている？`,dominic:`${to}、今気になってる奴はいるか？聞かせてくれよ！`,pattino:`${to}、今、誰のことが気になる感じ？`,makimura:`${to}、今気になる奴はいるか？話してくれ。`,rixis:`${to}、今は誰の動きが気になってる？`,naminami:`${to}、今、気になる方はいらっしゃいますか？`,albert:`${to}、今、誰に注目している？`,milk:`${to}、いま、だれが気になる？`,momiji:`${to}、今気になってる奴はいるか？`,francois:`${to}、今の君の見方を聞かせてくれるかい？`,melbon:`${to}、今、気にかかる方はいらっしゃいますか？`,cortes:`${to}、今のお考えを伺ってもよろしいでしょうか。`,wanunu_iii:`${to}、いま、だれをみてるんだ？`};text=prompts[observer.characterId]||`${to}、今は誰が気になってる？`;
+ }else if(c.variant==='positionAnswer'){
+  text=`${to}、`+naturalConversationText(formatMorningConsideration(observer,c.topicForReason));
+ }else if(c.variant==='positionHold'){
+  text=conversationFill(voice.answerHold,{to});
+ }else if(c.command==='question'&&c.informationRequest?.kind==='statementDetail'){
+  const source=state.discussion.events.find(e=>e.id===c.informationRequest.sourceEventId);text=`${to}、${morningName(observer,source?.speakerId)}の話の、どの部分が気になった${['melbon','cortes','naminami'].includes(observer.characterId)?'のですか？':'？'}`;
+ }
+ const row=c.evidence?.find(e=>e.type==='publicBehaviorObservation')?.snapshot;
+ if(row&&c.topic?.variant==='grayBehavior'){
+  const reason=grayObservationReason(observer,row),who=morningName(observer,row.actorId),id=observer.characterId;
+  const endings=row.interpretation.direction==='affirm'?{albert:'その考え方は評価できる。正体とは分けて考える。',milk:'ぼく、その話し方はいいと思う！',momiji:'そういうところは頼りにしたいな！',francois:'その姿勢は悪くないね。正体を保証するつもりはないが。',cortes:'その姿勢は評価したいところです。'}:row.interpretation.direction==='deny'?{albert:'判断を変えた経緯を確かめたい。',milk:'ぼく、そこがちょっと気になる。',momiji:'そこは気になるぞ！変えたわけを聞きたいな。',francois:'少々気になるね。その経緯は聞いておきたい。'}:{};
+  const neutral=row.kind==='candidUncertainty'?'慎重に考えているようにも見える。まだ材料が足りないだけかもしれない。':row.kind==='repeatedDeferral'?'まだ考えがまとまらないだけかもしれないけど、次は考えを聞きたい。':row.kind==='focusedDefense'?'同じ陣営だとは限らないけど、どう見ているのかは気になる。':row.kind==='focusedPressure'?'筋の通った追及かもしれないけど、その方針は確かめたい。':'同じ考えなのか、重く見る理由も同じなのかは分けて考えたい。';
+  text=`${reason}。`+(endings[id]|| (row.interpretation.direction==='affirm'?`${who}の考え方は参考にしたい。`:row.interpretation.direction==='deny'?'そこは気になる。見方を変えた経緯を確かめたい。':neutral));
+ }
+ if(text!=null)return isAffinityVillage()?affinityTone(observer,c,naturalConversationText(text)):naturalConversationText(text);
+ return quality2GrayText(observer,c);
+};
+const quality2GrayCommit=commitDiscussionSpeech;
+commitDiscussionSpeech=(observer,c)=>{
+ if(!grayCandidateSelfAllowed(observer,c)||grayCandidateUsed(c))return null;
+ if(c.command==='question'&&c.variant!=='positionQuestion'){
+  const gap=grayQuestionGap(state.discussion?.events.find(e=>e.id===c.replyTo));if(!gap||grayQuestionUsed(gap))return null;c={...c,informationRequest:gap};
+ }
+ const row=c.evidence?.find(e=>e.type==='publicBehaviorObservation')?.snapshot;
+ const event=quality2GrayCommit(observer,c);if(!event)return null;
+ if(c.informationRequest){event.informationRequest=JSON.parse(JSON.stringify(c.informationRequest));const entry=state.discussion.questions.find(q=>q.eventId===event.id);if(entry)entry.informationRequest=event.informationRequest;}
+ if(row){const g=grayState();g.observations[row.id]=JSON.parse(JSON.stringify(row));if(!c.replyTo)g.used[row.rootKey]={eventId:event.id,day:state.day,speakerId:observer.id};event.behaviorObservationId=row.id;}
+ if(c.variant==='positionAnswer'){event.viewSubjectId=c.topicForReason.targetId;event.secondaryIds=[...new Set([...event.secondaryIds,event.viewSubjectId])].filter(id=>id!==event.primaryTargetId);event.participants.viewSubjectId=event.viewSubjectId;}
+ const history=observer.speechHistory?.at(-1);if(history?.semantics){history.semantics.informationRequest=event.informationRequest;history.semantics.behaviorObservationId=event.behaviorObservationId;}
+ return event;
+};
+const quality2GrayLogRecipient=discussionLogRecipient;
+discussionLogRecipient=e=>e.command==='hold'&&state.discussion?.events.find(x=>x.id===e.replyTo)?.command==='question'?(byId(e.recipientId)?.id??null):quality2GrayLogRecipient(e);
+const quality2GrayPublicEvent=discussionPublicEvent;
+discussionPublicEvent=e=>({...quality2GrayPublicEvent(e),informationRequest:e.informationRequest,behaviorObservationId:e.behaviorObservationId});
+function validStoredGray(value){
+ const d=value.discussion;if(!d)return true;const g=d.gray,observations=grayObservationRows(value),events=d.events;
+ if(g){if(g.schemaVersion!==1||!g.used||!g.observations)return false;
+  for(const [id,row]of Object.entries(g.observations))if(!observations.some(o=>o.id===id&&JSON.stringify(o)===JSON.stringify(row)))return false;
+  for(const [key,use]of Object.entries(g.used)){const e=events.find(e=>e.id===use.eventId),row=e?.evidence?.find(x=>x.type==='publicBehaviorObservation')?.snapshot;if(!row||row.rootKey!==key||e.replyTo||use.speakerId!==e.speakerId||use.day!==e.day)return false;}
+ }
+ for(const e of events){
+  for(const ev of e.evidence||[])if(ev.type==='publicBehaviorObservation'){if(!observations.some(row=>row.id===ev.observationId&&JSON.stringify(row)===JSON.stringify(ev.snapshot))||!g?.observations?.[ev.observationId])return false;if(!e.replyTo&&g.used[ev.snapshot.rootKey]?.eventId!==e.id)return false;}
+  if(e.variant==='positionQuestion'&&!e.informationRequest)return false;
+  if(e.variant==='positionAnswer'&&(e.viewSubjectId!==e.topicForReason?.targetId||e.participants.viewSubjectId!==e.viewSubjectId))return false;
+  if(e.informationRequest){const req=e.informationRequest,q=d.questions.find(q=>q.eventId===e.id);if(e.command!=='question'||!q||JSON.stringify(q.informationRequest)!==JSON.stringify(req))return false;
+   if(e.variant==='positionQuestion'){if(req.kind!=='currentView'||req.key!==JSON.stringify(['currentView',e.recipientId,e.day]))return false;}
+   else {const prior={...value,discussion:{...d,events:events.filter(x=>Number(x.id.slice(1))<Number(e.id.slice(1)))}};const gap=grayQuestionGap(events.find(x=>x.id===e.replyTo),prior);if(!gap||JSON.stringify(req)!==JSON.stringify(gap))return false;}
+  }
+ }
+ return true;
+}
+const quality2GraySaved=isValidSavedGame;
+isValidSavedGame=value=>quality2GraySaved(value)&&validStoredGray(value);
 
 $("#discussionBtn").onclick=encourageDiscussion;
 $("#playerCount").addEventListener("input",()=>{selectedRolePreset=null;renderRoleConfig()});

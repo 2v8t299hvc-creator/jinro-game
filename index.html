@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-quality3</title>
+<title>個人用人狼アプリ v2.20.0-quality4</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -130,7 +130,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.20.0-quality3</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.20.0-quality4</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -239,7 +239,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
 </section>
 <script>
-const GAME_VERSION="2.20.0-quality3";
+const GAME_VERSION="2.20.0-quality4";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -7151,6 +7151,242 @@ function validStoredGray(value){
 }
 const quality2GraySaved=isValidSavedGame;
 isValidSavedGame=value=>quality2GraySaved(value)&&validStoredGray(value);
+
+// quality4: statement-level judgement and persistent, private daily policies.
+const Q4_VERSION=1;
+DISCUSSION_ISSUES.push('executionPolicy','guardPolicy','informationPolicy');
+let q4ReadingBase=false;
+function q4State(){return state.deliberation??={schemaVersion:1,visibility:'private',boards:{},argumentRecords:{},evaluations:{},policies:{},usedArguments:{},policyIntentions:{}};}
+function q4Board(){
+ const pub=buildSpeechPublicInformation(),s=q4State();
+ const facts={day:state.day,phase:state.phase,counts:{...pub.context.counts},livingIds:pub.context.people.filter(p=>p.alive).map(p=>p.id),claims:pub.context.people.filter(p=>p.alive&&p.claimed).map(p=>({id:p.id,role:p.claimed})),brokenIds:[...pub.context.broken.keys()].filter(id=>byId(id)?.alive),confirmed:[...pub.context.confirmed.keys()].map(id=>({id,role:publiclyKnownRoleFor(id,pub.context.confirmed)})),missingEnabled:!!state.firstVictimEnabled,records:{seer:pub.context.seerRows.map(r=>r.source),medium:pub.context.mediumRows.map(r=>r.source)},slots:Math.max(0,Math.floor((living().length-1)/2))};
+ const key=JSON.stringify(facts),id='B'+affinityHash(key).toString(16);if(!s.boards[id])s.boards[id]={schemaVersion:1,id,facts,signature:affinityHash(key)};
+ return {pub,board:s.boards[id],key};
+}
+function q4BoardRef(board){return {type:'publicPolicyBoard',visibility:'public',boardId:board.id,snapshot:JSON.parse(JSON.stringify(board))};}
+function q4BaseDecision(observer,pub){const old=q4ReadingBase;q4ReadingBase=true;try{return {decision:buildSpeechDecisionInformation(observer,pub),outlook:buildCharacterOutlook(observer,pub,observer.role==='wolf')};}finally{q4ReadingBase=old;}}
+function q4OwnStance(observer,source,decision,outlook){
+ const p=discussionProposition(source),recent=(state.discussion?.events||[]).filter(e=>e.speakerId===observer.id&&e.subjectId===p.subjectId&&sameDiscussionIssue(discussionProposition(e),p)&&!['question','hold'].includes(e.command)).at(-1);
+ let current=null;
+ if(p.issue==='wolf'){const person=outlook.people[p.subjectId];if(person&&person.wolfView!=='unknown'&&!person.conflictingInformation)current={direction:person.wolfView==='wolfLeaning'?'affirm':'deny',visibility:person.publicEvidence.length?'public':'private',sourceId:null,evidence:person.publicEvidence};}
+ if(p.issue==='roleTrust'){const entry=outlook.roles[p.role]?.assessments[p.subjectId];if(entry&&entry.view!=='unknown')current={direction:entry.view==='true'?'affirm':'deny',visibility:entry.publicEvidence.length?'public':'private',sourceId:null,evidence:entry.publicEvidence};}
+ if(recent&&(!current||current.direction===discussionProposition(recent).direction))return {direction:discussionProposition(recent).direction,visibility:'public',sourceId:recent.id,evidence:[discussionRef(recent)]};
+ return current;
+}
+function q4PublicColor(pub,id){
+ const role=publiclyKnownRoleFor(id,pub.context.confirmed),colors=[],evidence=[];
+ if(role){colors.push(role==='wolf');evidence.push({type:'publicRoleConfirmation',visibility:'public',snapshot:{playerId:id,role,reasons:[...(pub.context.confirmed.get(id)||[])]}});}
+ for(const [rows,rkey,idkey]of [[pub.context.seerRows,'seer','seerId'],[pub.context.mediumRows,'medium','mediumId']])for(const row of rows)if(row.record.targetId===id&&pub.roles.roles[rkey][row.record[idkey]]?.status==='true'){colors.push(!!row.record.black);evidence.push({type:row.record.black?'confirmedWolfResult':'seerWhite',visibility:'public',source:row.source});}
+ const distinct=[...new Set(colors)];return distinct.length===1?{certaintyScope:'public',wolfStatus:distinct[0]?'wolf':'nonWolf',evidence}:null;
+}
+function q4ArgumentRoot(e){const p=discussionProposition(e);return JSON.stringify([e.speakerId,p.issue,p.role,p.subjectId,p.direction,grayMaterialRoots(e)]);}
+function q4EvaluationRows(observer,pub,decision,outlook){
+ const known=grayKnownEventIds(observer),events=grayCoreEvents().filter(e=>e.day>=state.day-2&&!['flowPolicy','flowAnswer','flowReview','argumentReason'].includes(e.topic?.variant||e.topicForReason?.variant));
+ const rows=[],observations=grayObservationRows(),stats=personalityProfile(observer)?.stats||{logic:3,emotionality:3,observation:3};
+ // These caches live only for this evaluation: no stale values across events or loads.
+ const propositions=new Map(),materialKeys=new Map(),specificReasons=new Map(),stances=new Map(),publicColors=new Map(),eventById=new Map((state.discussion?.events||[]).map(e=>[e.id,e]));
+ const proposition=e=>{if(!propositions.has(e))propositions.set(e,discussionProposition(e));return propositions.get(e);};
+ const materialKey=e=>{if(!materialKeys.has(e))materialKeys.set(e,JSON.stringify(grayMaterialRoots(e)));return materialKeys.get(e);};
+ const specific=e=>{if(!specificReasons.has(e))specificReasons.set(e,graySpecificReason(e));return specificReasons.get(e);};
+ const stance=e=>{const p=proposition(e),key=JSON.stringify([p.subjectId,p.issue,p.role]);if(!stances.has(key))stances.set(key,q4OwnStance(observer,e,decision,outlook));return stances.get(key);};
+ const publicColor=id=>{if(!publicColors.has(id))publicColors.set(id,pub.people.people[id]||q4PublicColor(pub,id));return publicColors.get(id);};
+ const observed=new Map();for(const r of observations)if(r.sourceEventIds.every(id=>known.has(id))&&['explainedChange','responsiveAnswer','openViewAnswer','focusedDefense'].includes(r.kind))for(const id of r.sourceEventIds){const key=JSON.stringify([r.actorId,id]);if(!observed.has(key))observed.set(key,r);}
+
+ for(const e of events){
+  if(e.speakerId===observer.id||!byId(e.speakerId)?.alive||!known.has(e.id))continue;
+  const p=proposition(e),own=stance(e),reasons=[];
+  const add=(kind,direction,delta,refs,scope='record',extra=[])=>reasons.push({kind,direction,delta,scope,sourceEventIds:[...new Set(refs)],extra:copyPublicSpeechEvidence(extra)});
+  const target=decision.people.people[p.subjectId],publicTarget=publicColor(p.subjectId);
+  const publicConflict=p.issue==='wolf'&&publicTarget?.certaintyScope==='public'&&(publicTarget.wolfStatus==='wolf'&&p.direction==='deny'||publicTarget.wolfStatus==='nonWolf'&&p.direction==='affirm');
+  const roleConflict=p.issue==='roleTrust'&&(pub.context.broken.has(p.subjectId)&&p.direction==='affirm'||pub.context.confirmed.has(p.subjectId)&&p.direction==='deny');
+  if(publicConflict||roleConflict){const extra=roleConflict?[{type:pub.context.broken.has(p.subjectId)?'publicBreakdown':'publicRoleConfirmation',visibility:'public',snapshot:{playerId:p.subjectId,role:p.role,reasons:[...(pub.context.broken.get(p.subjectId)||pub.context.confirmed.get(p.subjectId)||[])]}}]:publicTarget.evidence.filter(x=>x.visibility==='public');add('publicRefutation','deny',-2,[e.id],'record',extra);}
+  else {
+   if(own&&['affirm','deny'].includes(p.direction)){
+    const match=own.direction===p.direction;
+    add(match?(p.issue==='wolf'&&p.direction==='affirm'?'sharedSuspicion':'opinionAgreement'):'opposedTarget',match?'affirm':'deny',(match?.45:-.55)*(.6+.2*stats.emotionality),[e.id,...(own.sourceId?[own.sourceId]:[])],own.visibility==='public'?'subjective':'private',own.evidence||[]);
+   }
+   if(specific(e)&&e.evidence.some(x=>x.type==='discussionStatement'))add('groundedInference','affirm',.6*(.6+.2*stats.logic),[e.id,...e.evidence.filter(x=>x.type==='discussionStatement').map(x=>x.eventId)]);
+   const earlier=events.filter(x=>x.id!==e.id&&Number(x.id.slice(1))<Number(e.id.slice(1))&&x.speakerId===e.speakerId&&sameDiscussionIssue(proposition(x),p)&&proposition(x).direction===p.direction&&materialKey(x)===materialKey(e)&&known.has(x.id)).at(-1);
+   if(earlier&&specific(e)&&!events.some(x=>Number(x.id.slice(1))>Number(earlier.id.slice(1))&&Number(x.id.slice(1))<Number(e.id.slice(1))&&x.speakerId===e.speakerId&&sameDiscussionIssue(proposition(x),p)&&['affirm','deny','execute','keep'].includes(proposition(x).direction)&&proposition(x).direction!==p.direction))add('consistentOpinion','affirm',.7*(.6+.2*stats.logic),[earlier.id,e.id]);
+   const observation=observed.get(JSON.stringify([e.speakerId,e.id]));
+   if(observation&&observation.kind!=='focusedDefense')add(observation.kind==='explainedChange'?'reasonedUpdate':'appropriateAnswer','affirm',.8*(.6+.2*stats.logic),observation.sourceEventIds);
+   if(observation?.kind==='focusedDefense'&&observation.sourceEventIds.every(id=>!specific(eventById.get(id))))add('weakRepeatedDefense','deny',-.7*(.6+.2*stats.observation),observation.sourceEventIds);
+   if(e.variant==='limitedInference')add('cautiousJudgement','affirm',.5*(.6+.2*stats.logic),[e.replyTo,e.id]);
+  }
+  if(!reasons.length)continue;
+  reasons.sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta));
+  const selected=reasons[0],root=q4ArgumentRoot(e),key=JSON.stringify([observer.id,root,selected.kind,selected.sourceEventIds]);
+  const descriptor={schemaVersion:1,key,kind:selected.kind,direction:selected.direction,ownerId:observer.id,actorId:e.speakerId,subjectId:p.subjectId,issue:p.issue,role:p.role,sourceEventIds:selected.sourceEventIds,scope:selected.scope==='private'?'withheld':selected.scope,ownDirection:own?.visibility==='public'?own.direction:null};
+  rows.push({key,root,visibility:'private',ownerId:observer.id,actorId:e.speakerId,statementId:e.id,reasons,selectedReason:selected.kind,descriptor,publicEvidence:selected.scope==='private'?[]:[...selected.sourceEventIds.map(id=>discussionRef(eventById.get(id))),...selected.extra],delta:clamp(selected.delta,-2,2),ownJudgement:own});
+ }
+ return rows;
+}
+function q4PolicyMotive(observer,c,base,board){
+ const info=buildPrivateInfo(observer),plan=isStrategicDiscussionVillage()?buildDiscussionPlan(observer):null;
+ let goal='neutral',bonus=0;
+ if(observer.role==='wolf'){
+  const allies=info.knownWolfAllies,exposed=base.grayTargets.filter(id=>allies.includes(id));
+  if(c.action==='mediumRoll'&&exposed.length){goal='protectAllyByRoleRoll';bonus=1.4*(personalityProfile(observer)?.stats.coordination??3)/3;}
+  if(c.domain==='execution'&&c.targets.some(id=>allies.includes(id))){if(c.targets.includes(plan?.cutId)){goal='cutAlly';bonus=.6+.1*(personalityProfile(observer)?.stats.willingnessToCut??3);}else{goal='avoidAllyPressure';bonus=-1.5;}}
+  if(c.action==='gray'&&c.targets.includes(plan?.pressureId)){goal='redirectPressure';bonus=.8;}
+  if(c.domain==='guard'&&c.targets.some(id=>allies.includes(id))&&plan?.route==='credit'){goal='protectAllyCredit';bonus=.7;}
+ }else if(observer.role==='madman'){
+  if(c.domain==='execution'&&c.targets.includes(plan?.protectId)){goal='avoidPredictedWolfPressure';bonus=-.8;}
+  if(c.action==='gray'&&c.targets.includes(plan?.pressureId)){goal='redirectPressure';bonus=.6;}
+ }else if(observer.role==='fox'){
+  if(c.domain==='execution'&&c.targets.includes(plan?.protectId)){goal='preserveWolf';bonus=-1;}
+  if(c.targets.includes(observer.id)){goal='avoidExposure';bonus=-1.5;}
+ }
+ return {visibility:'private',goal,bonus};
+}
+function q4PolicyDescriptor(c,board){return {schemaVersion:1,day:board.facts.day,domain:c.domain,action:c.action,selection:c.selection||'pool',targets:[...c.targets],role:c.role??null,boardId:board.id,completeRoll:!!c.completeRoll,certainty:'inferred',key:JSON.stringify([board.facts.day,c.domain,c.action,c.selection||'pool',c.selection==='person'?c.targets:[],c.completeRoll||false])};}
+function q4PolicyCandidates(observer,pub,board,decision,outlook,credit){
+ const f=board.facts,slots=f.slots,players=pub.context.people.filter(p=>p.alive),seer=players.filter(p=>p.claimed==='seer'&&!f.brokenIds.includes(p.id)),med=players.filter(p=>p.claimed==='medium'&&!f.brokenIds.includes(p.id)),publicExecution=buildPublicExecutionEvaluation(observer),keep=publicExecution.keep?.active?publicExecution.keep.keepId:null;
+ const gray=players.filter(p=>p.id!==observer.id&&!p.claimed&&p.id!==keep&&!(pub.people.people[p.id]?.certaintyScope==='public'&&pub.people.people[p.id]?.wolfStatus==='nonWolf'));
+ gray.sort((a,b)=>(decision.people.people[a.id]?.score??50)-(decision.people.people[b.id]?.score??50)||hypothesisBias(observer,'flowGray:'+b.id)-hypothesisBias(observer,'flowGray:'+a.id));
+ const grayTargets=gray.length?(decision.people.people[gray[0].id]?.score<=40?[gray[0].id]:gray.map(p=>p.id)):[];
+ const upperWolves=Math.max(0,(f.counts.wolf||0)-pub.context.mediumRows.filter(r=>r.record.black&&pub.roles.roles.medium[r.record.mediumId]?.status==='true').map(r=>r.record.targetId).filter((id,i,a)=>a.indexOf(id)===i).length),margin=slots-upperWolves-(f.counts.fox>0?1:0),out=[];
+ const stats=personalityProfile(observer)?.stats||{logic:3,coordination:3},base={grayTargets};
+ const add=(action,domain,targets,catchChance,information,risk,slack,personal,extras={})=>{
+  const motive=q4PolicyMotive(observer,{action,domain,targets},base,board);
+  const c={action,domain,targets,components:{catchChance,information,risk,slack,personal,strategy:motive.bonus,counter:0},motive,...extras};
+  c.score=4*catchChance+3*information-4*risk+2*slack+2*personal+motive.bonus;
+  const counters=(state.discussion?.events||[]).filter(e=>e.day===state.day&&e.command==='rebut'&&q4PolicyOf(e)&&state.discussion.events.find(x=>x.id===e.replyTo)?.speakerId===observer.id&&q4PolicyOf(e).domain===domain&&q4PolicyOf(e).action===action);
+  const roots=new Set();for(const e of counters){const root=JSON.stringify([e.speakerId,action,grayMaterialRoots(e)]);if(roots.has(root))continue;roots.add(root);const trust=credit[e.speakerId]??50;c.components.counter+=Math.min(.45,.2*(trust/50)*(stats.coordination/3));}
+  c.components.counter=Math.min(1.2,c.components.counter);c.score+=c.components.counter;
+  c.confidence=clamp(1-risk,.15,.85);c.public=q4PolicyDescriptor(c,board);c.reviewConditions=q4ReviewConditions(action);out.push(c);
+ };
+ if(grayTargets.length){const risk=clamp((50-(decision.people.people[grayTargets[0]]?.score??50))/50,0,1);add('gray','execution',grayTargets,.25+.5*risk,.55,.5-.2*risk,clamp(margin/5,-.5,.3),risk*.25,{selection:grayTargets.length===1?'person':'pool'});}
+ if(med.length>=2){const fakeMin=Math.max(0,med.length-(f.counts.medium||0)),shortage=Math.max(0,med.length-slots);add('mediumRoll','execution',med.map(p=>p.id),fakeMin/med.length*.8,.45,1/med.length+.1,clamp((slots-med.length)/4,-1,.5)-shortage,.1,{role:'medium',completeRoll:slots>=med.length&&margin>=0});}
+ if(seer.length>=2){const surplus=Math.max(0,seer.length-(f.counts.seer||0));add('seerCompare',surplus?'execution':'information',seer.map(p=>p.id),surplus/seer.length*.6,.7,surplus?.4:.12,surplus?clamp(margin/5,-.5,.3):-.4,.05,{role:'seer'});}
+ const broken=f.brokenIds.filter(id=>id!==observer.id&&id!==keep);if(broken.length)add('broken','execution',[broken[0]],.85,.5,.08,.2,.1,{selection:'person',confidence:.9});
+ add('reconsider','information',[],.02,.35+(margin<0?.25:0),.05,margin<0?.2:-.7,0);
+ if(seer.length){const ranked=[...seer].sort((a,b)=>(decision.roles.roles.seer[b.id]?.score??50)-(decision.roles.roles.seer[a.id]?.score??50));const ids=seer.length===1||pub.context.confirmed.has(ranked[0].id)?[ranked[0].id]:seer.map(p=>p.id);add('guardSeer','guard',ids,0,.85,.15+(f.missingEnabled?.12:0),.2,0,{role:'seer',selection:ids.length===1?'person':'pool'});}
+ const other=players.filter(p=>!seer.some(s=>s.id===p.id)&&(p.claimed==='medium'||pub.context.confirmed.has(p.id))&&!['cat','knight'].includes(p.claimed)&&!f.brokenIds.includes(p.id));if(other.length)add('guardOther','guard',[other[0].id],0,.55,pub.context.confirmed.has(other[0].id)?.10:.25,.2,0,{role:other[0].claimed,selection:'person'});
+ return out;
+}
+function q4ReviewConditions(action){return action==='mediumRoll'?['newMediumResult','changedCapacity','newBreakdown']:action==='guardSeer'||action==='guardOther'?['newRoleClaim','newBreakdown','newConfirmation']:['newResult','newSuspicion','newBreakdown','changedCapacity'];}
+function q4PickPolicy(observer,options,old,key,domain){
+ if(!options.length)return null;const L=personalityProfile(observer)?.stats.logic??3,rng=affinityRng(state.affinity?.seed||12345,key,observer.id,'flow:'+domain),temperature=.55+.12*(5-L)+.25*(1-Math.max(...options.map(c=>c.confidence)));
+ const prior=options.find(c=>c.public.key===old?.first?.public.key);if(prior&&old&&JSON.stringify(options.map(c=>[c.public.key,c.score]).sort())===JSON.stringify([old.first,...old.alternatives].filter(Boolean).map(c=>[c.public.key,c.score]).sort()))return prior;
+ const scored=options.map(c=>({c,score:c.score+(c.public.key===old?.first?.public.key? .6:0)+(affinityNext(rng)-.5)*.16*(5-L)}));
+ const max=Math.max(...scored.map(r=>r.score));if(domain==='execution'){const broken=scored.find(r=>r.c.action==='broken');if(broken&&broken.score>=max-.1)return broken.c;}
+ const weights=scored.map(r=>Math.exp((r.score-max)/temperature));let draw=affinityNext(rng)*weights.reduce((a,b)=>a+b,0);for(let i=0;i<scored.length;i++){draw-=weights[i];if(draw<=0)return scored[i].c;}return scored.at(-1).c;
+}
+function q4Model(observer){
+ const s=q4State(),{pub,board,key:boardKey}=q4Board(),privateKey=JSON.stringify([observer.role,observer.seerResults,observer.mediumResults,(observer.intuitionJudgments||[]).filter(j=>j.felt),(observer.intuitionJudgments||[]).some(j=>j.felt)?state.affinity?.revisions?.[observer.id]:0]),counters=(state.discussion?.events||[]).filter(e=>e.day===state.day&&e.command==='rebut'&&q4PolicyOf(e)&&state.discussion.events.find(x=>x.id===e.replyTo)?.speakerId===observer.id).map(e=>e.id),events=(state.discussion?.events||[]).filter(e=>!q4PolicyOf(e)&&e.topic?.variant!=='argumentReason').map(e=>[e.id,e.claim,e.subjectId]),key=JSON.stringify([boardKey,privateKey,events,counters]);
+ const old=s.evaluations[observer.id];if(old?.key===key)return old;
+ const {decision,outlook}=q4BaseDecision(observer,pub),rows=q4EvaluationRows(observer,pub,decision,outlook),latest=new Map();for(const row of rows){latest.set(row.root,row);s.argumentRecords[row.key]=JSON.parse(JSON.stringify(row));}
+ const credit={};for(const row of latest.values())credit[row.actorId]=(credit[row.actorId]||0)+row.delta;
+ for(const id of Object.keys(credit))credit[id]=clamp(50+clamp(credit[id],-8,8),42,58);
+ const model={schemaVersion:1,visibility:'private',ownerId:observer.id,key,boardId:board.id,rows:[...latest.values()],credit,day:state.day};s.evaluations[observer.id]=model;
+ const previous=s.policies[observer.id],options=q4PolicyCandidates(observer,pub,board,decision,outlook,credit),domains={};for(const domain of ['execution','guard','information']){const candidates=options.filter(c=>c.domain===domain);const prior=previous?.day===state.day?previous.domains[domain]:null;const first=q4PickPolicy(observer,candidates,prior,key,domain);domains[domain]={first,alternatives:candidates.filter(c=>c!==first).sort((a,b)=>b.score-a.score),confidence:first?.confidence||0};}
+ const newCounters=counters.filter(id=>!(previous?.lastCounterIds||[]).includes(id)),history=[...(previous?.history||[])],changed=[];for(const domain of Object.keys(domains)){const before=previous?.domains[domain]?.first,after=domains[domain].first;if(before?.public.key!==after?.public.key){changed.push(domain);history.push({day:state.day,domain,before:before?.public||null,after:after?.public||null,reason:!previous?'initial':previous.day!==state.day?'newDay':previous.boardId!==board.id?'publicInformation':newCounters.length?'reasonedCounter':'personalInformation',boardId:board.id,counterIds:[...newCounters]});}}
+ s.policies[observer.id]={schemaVersion:1,visibility:'private',ownerId:observer.id,day:state.day,boardId:board.id,lastInformationKey:key,lastCounterIds:[...counters],first:domains.execution.first||domains.information.first,domains,history:history.slice(-60),publiclyExpressed:previous?.publiclyExpressed||{}};
+ return model;
+}
+const q3ReasonCore=grayCoreEvents;
+grayCoreEvents=(context=state)=>q3ReasonCore(context).filter(e=>e.topic?.variant!=='argumentReason'&&e.topicForReason?.variant!=='argumentReason');
+const q3ArgumentTrust=applySocialPersonTrust;
+applySocialPersonTrust=(observer,result,publicOnly=false)=>{const r=q3ArgumentTrust(observer,result,publicOnly);if(q4ReadingBase)return r;const model=state.deliberation?.evaluations?.[observer.id];if(model)for(const [id,value]of Object.entries(model.credit)){if(r.people[id])r.people[id].argumentCredit={visibility:'private',score:value,reasonKeys:model.rows.filter(row=>String(row.actorId)===id).map(row=>row.key)};}return r;};
+function q4PolicyOf(e){return e?.topic?.details?.flow||e?.topicForReason?.details?.flow||e?.flowPolicy||null;}
+const q3PolicyProposition=discussionProposition;
+discussionProposition=(e,context=state,useStored=true)=>{if(useStored&&e.proposition?.schemaVersion===1)return e.proposition;const flow=q4PolicyOf(e);if(!flow)return q3PolicyProposition(e,context,useStored);return {schemaVersion:1,issue:flow.domain==='execution'?'executionPolicy':flow.domain==='guard'?'guardPolicy':'informationPolicy',role:flow.role,subjectId:null,direction:flow.domain==='execution'?'execute':flow.domain==='guard'?'affirm':'unknown',confidence:'inferred',evidenceRefs:discussionEvidenceReferences(e.evidence||[]),policy:{day:flow.day,domain:flow.domain,action:flow.action,selection:flow.selection,targets:flow.targets}};};
+const q3FlowKey=discussionSemanticKey;
+discussionSemanticKey=c=>{const flow=q4PolicyOf(c);return flow?JSON.stringify([q3FlowKey(c),flow.key]):q3FlowKey(c);};
+const q3PolicyRelation=classifyDiscussionRelation;
+classifyDiscussionRelation=(a,b,context=state)=>{const x=q4PolicyOf(a),y=q4PolicyOf(b);if(!x&&!y)return q3PolicyRelation(a,b,context);if(!x||!y||x.day!==y.day||x.domain!==y.domain)return 'independent';if(x.action===y.action&&(x.selection==='pool'&&y.selection==='pool'||JSON.stringify(x.targets)===JSON.stringify(y.targets)))return 'support';return x.domain==='execution'&&x.action!==y.action?'rebut':'independent';};
+const q3PolicyReply=semanticReplyAllowed;
+semanticReplyAllowed=(observer,c,context=state)=>{
+ const flow=q4PolicyOf(c);if(!flow)return q3PolicyReply(observer,c,context);
+ const source=context.discussion?.events.find(e=>e.id===c.replyTo);if(!c.replyTo)return ['propose','hold','organize'].includes(c.command);
+ if(!source||(source.depth||0)>=3||c.command==='question'&&(source.depth||0)>=2)return false;
+ if(c.command==='answer'||c.command==='hold'&&source.command==='question'){const q=discussionQuestionRequest(source,context),original=context.discussion.events.find(e=>e.id===source.replyTo);return q?.respondentId===observer.id&&q.questionerId===c.recipientId&&q4PolicyOf(original)?.key===flow.key;}
+ if(source.speakerId===observer.id||source.speakerId!==c.recipientId||!q4PolicyOf(source))return false;
+ if(c.command==='question')return q4PolicyOf(source).key===flow.key;
+ const rel=classifyDiscussionRelation(source,c,context);return c.command==='agree'?rel==='support':c.command==='rebut'?rel==='rebut':false;
+};
+const q3PolicyGap=grayQuestionGap;
+grayQuestionGap=(e,context=state)=>{const flow=q4PolicyOf(e);if(!flow)return q3PolicyGap(e,context);if(e.command!=='propose')return null;return {kind:'policyReview',sourceEventId:e.id,key:JSON.stringify(['policyReview',e.speakerId,flow.key])};};
+function q4ValidDescriptor(flow,context=state){if(!flow)return false;const domain={gray:'execution',mediumRoll:'execution',seerCompare:flow.domain,broken:'execution',reconsider:'information',guardSeer:'guard',guardOther:'guard'};if(domain[flow.action]!==flow.domain||!['pool','person'].includes(flow.selection)||new Set(flow.targets||[]).size!==(flow.targets||[]).length)return false;const b=context.deliberation?.boards?.[flow?.boardId];return !!b&&flow.schemaVersion===1&&flow.day===b.facts.day&&['execution','guard','information'].includes(flow.domain)&&['gray','mediumRoll','seerCompare','broken','reconsider','guardSeer','guardOther'].includes(flow.action)&&Array.isArray(flow.targets)&&flow.targets.every(id=>b.facts.livingIds.includes(id))&&flow.certainty==='inferred'&&(!(flow.action==='mediumRoll'||flow.action==='seerCompare')||flow.targets.length>=2)&&(!(flow.action==='mediumRoll'||flow.action==='seerCompare'||flow.action==='guardSeer')||flow.targets.every(id=>b.facts.claims.some(c=>c.id===id&&c.role===(flow.action==='mediumRoll'?'medium':'seer'))))&&(flow.action!=='broken'||flow.targets.every(id=>b.facts.brokenIds.includes(id)))&&flow.key===JSON.stringify([flow.day,flow.domain,flow.action,flow.selection||'pool',flow.selection==='person'?flow.targets:[],flow.completeRoll||false])&&(!flow.completeRoll||flow.action==='mediumRoll'&&b.facts.slots>=flow.targets.length);}
+const q3PolicyEvidence=discussionEvidenceValid;
+discussionEvidenceValid=evidence=>q3PolicyEvidence(evidence)&&evidence.every(e=>e.type!=='publicPolicyBoard'||state.deliberation?.boards?.[e.boardId]&&JSON.stringify(state.deliberation.boards[e.boardId])===JSON.stringify(e.snapshot))&&evidence.every(e=>e.type!=='argumentAssessment'||state.deliberation?.argumentRecords?.[e.snapshot.key]&&JSON.stringify(state.deliberation.argumentRecords[e.snapshot.key].descriptor)===JSON.stringify(e.snapshot)&&e.snapshot.scope!=='withheld');
+function q4PolicySpeechCandidate(observer,policy,command='propose',source=null){
+ const board=q4State().boards[policy.public.boardId],flow=JSON.parse(JSON.stringify(policy.public)),evidence=[q4BoardRef(board),...(source?[discussionRef(source)]:[])],topic={kind:'information',variant:command==='answer'?'flowAnswer':command==='question'?'flowReview':'flowPolicy',targetId:null,details:{certainty:'inferred',evidence,flow}};
+ if(!source){const history=q4State().policies[observer.id]?.history||[],change=[...history].reverse().find(h=>h.domain===flow.domain&&h.before&&h.after?.key===flow.key&&h.before.action!==h.after.action&&['publicInformation','newDay','reasonedCounter'].includes(h.reason));if(change){const prior=q4State().boards[change.before.boardId],now=board.facts,old=prior?.facts;let reason=null;if(old){if(now.brokenIds.some(id=>!old.brokenIds.includes(id)))reason='新しく破綻が分かったので';else if(now.records.seer.length!==old.records.seer.length||now.records.medium.length!==old.records.medium.length)reason='新しい占い・霊媒結果が出たので';else if(JSON.stringify(now.claims)!==JSON.stringify(old.claims))reason='COの状況が変わったので';else if(JSON.stringify(now.livingIds)!==JSON.stringify(old.livingIds))reason='生存人数が変わったので';else if(change.reason==='reasonedCounter'&&change.counterIds.length)reason='別の進行案の根拠を聞いて';}if(reason){topic.details.policyChange={reason,before:change.before,sourceEventIds:change.counterIds};if(prior)evidence.push(q4BoardRef(prior));for(const id of change.counterIds){const ref=state.discussion.events.find(e=>e.id===id);if(ref)evidence.push(discussionRef(ref));}}}}
+ const stats=personalityProfile(observer)?.stats||{logic:3,assertiveness:3},weight=(command==='answer'?2.4:command==='question'?.12:command==='agree'?.17:command==='rebut'?.20:.13)*(.6+.12*stats.logic)*(.5+.1*stats.assertiveness);
+ const c={command,subjectId:null,recipientId:source?.speakerId??null,replyTo:source?.id??null,claim:null,evidence,weight,topicForReason:source?topic:null,topic:source?null:topic,variant:topic.variant};
+ if(command==='question'){const p=discussionProposition(source);c.questionRequest={schemaVersion:1,kind:'policyReview',aboutStatementId:source.id,subjectId:null,issue:p.issue,role:p.role,direction:p.direction,questionerId:observer.id,respondentId:source.speakerId};c.informationRequest=grayQuestionGap(source);}
+ c.weight*=isAffinityVillage()?affinityCandidateFactor(observer,c):1;c.semanticReasonKey=discussionSemanticKey(c);return describeDiscussionSemantics(observer,c);
+}
+const q3PolicyCandidates=discussionCandidates;
+discussionCandidates=observer=>{
+ if(!isDiscussionVillage())return q3PolicyCandidates(observer);
+ const model=q4Model(observer),stored=q4State().policies[observer.id],base=q3PolicyCandidates(observer).filter(c=>!c.replyTo||!q4PolicyOf(state.discussion.events.find(e=>e.id===c.replyTo)));
+ for(const row of model.rows){if(!row.publicEvidence.length||row.descriptor.scope==='withheld'||row.actorId===observer.id)continue;const use=JSON.stringify([observer.id,row.root,row.selectedReason]);if(q4State().usedArguments[use])continue;
+  const evidence=[{type:'argumentAssessment',visibility:'public',snapshot:row.descriptor},...row.publicEvidence],direction=row.descriptor.direction,topic={kind:direction==='affirm'?'trust':'suspect',variant:'argumentReason',targetId:row.actorId,details:{certainty:'inferred',evidence,assessment:row.descriptor}};
+  const c={command:direction==='affirm'?'trust':'suspect',subjectId:row.actorId,recipientId:null,replyTo:null,claim:null,topic,evidence,weight:.09*(.6+.15*(personalityProfile(observer)?.stats.logic??3))};c.semanticReasonKey=discussionSemanticKey(c);if(!discussionDay().keys.includes(c.semanticReasonKey))base.push(describeDiscussionSemantics(observer,c));
+ }
+ for(const domain of ['execution','guard','information']){const policy=stored.domains[domain].first;if(!policy||domain==='information'&&stored.domains.execution.first&&policy.score<0)continue;if(stored.publiclyExpressed[policy.public.key])continue;
+  if(state.discussion.events.some(e=>e.day===state.day&&e.command==='propose'&&q4PolicyOf(e)?.key===policy.public.key))continue;
+  base.push(q4PolicySpeechCandidate(observer,policy,domain==='information'?(policy.action==='seerCompare'?'organize':'hold'):'propose'));
+ }
+ const recent=state.discussion.events.filter(e=>e.day===state.day&&e.command==='propose'&&q4PolicyOf(e)).slice(-12),known=grayKnownEventIds(observer);
+ for(const e of recent){if(e.speakerId===observer.id||!byId(e.speakerId)?.alive||!known.has(e.id)||(e.depth||0)>=2||state.discussion.events.some(x=>x.speakerId===observer.id&&x.replyTo===e.id))continue;const pair=[observer.id,e.speakerId].sort((a,b)=>a-b).join(':');if((discussionDay().pairs[pair]||0)>=3)continue;
+  const own=stored.domains[q4PolicyOf(e).domain]?.first;if(!own)continue;const probe={topic:{details:{flow:own.public}}},rel=classifyDiscussionRelation(e,probe);if(['support','rebut'].includes(rel))base.push(q4PolicySpeechCandidate(observer,own,rel==='support'?'agree':'rebut',e));
+  const gap=grayQuestionGap(e);if(gap&&!grayQuestionUsed(gap)&&state.discussion.questions.filter(q=>q.status==='open').length<3)base.push(q4PolicySpeechCandidate(observer,{public:q4PolicyOf(e)},'question',e));
+ }
+ const compare=recent.filter(e=>known.has(e.id)&&q4PolicyOf(e).domain==='execution').slice(-2);if(compare.length===2&&classifyDiscussionRelation(compare[0],compare[1])==='rebut'){const own=stored.domains.execution.first;if(own){const c=q4PolicySpeechCandidate(observer,own,'organize');c.topic.details.comparedPolicyIds=compare.map(e=>e.id);c.evidence.push(...compare.map(discussionRef));c.weight*=.5;c.semanticReasonKey=discussionSemanticKey(c);if(!state.discussion.events.some(e=>e.day===state.day&&JSON.stringify(e.topic?.details?.comparedPolicyIds)===JSON.stringify(c.topic.details.comparedPolicyIds)))base.push(describeDiscussionSemantics(observer,c));}}
+ for(const q of state.discussion.questions.filter(q=>q.status==='open'&&q.recipientId===observer.id&&q.day>=state.day-1)){const question=state.discussion.events.find(e=>e.id===q.eventId),source=state.discussion.events.find(e=>e.id===q.aboutId);if(!q4PolicyOf(source))continue;const c=q4PolicySpeechCandidate(observer,{public:q4PolicyOf(source)},'answer',question);c.recipientId=question.speakerId;c.answerAbout=source.id;c.semanticReasonKey=discussionSemanticKey(c);base.push(describeDiscussionSemantics(observer,c));}
+ return base.filter(c=>semanticReplyAllowed(observer,c)&&grayCandidateSelfAllowed(observer,c)&&!discussionDay().keys.includes(c.semanticReasonKey));
+};
+const q3ArgumentProp=discussionProposition;
+discussionProposition=(e,context=state,useStored=true)=>{if(useStored&&e.proposition?.schemaVersion===1)return e.proposition;const a=e.topic?.details?.assessment||e.topicForReason?.details?.assessment;if(!a)return q3ArgumentProp(e,context,useStored);return {schemaVersion:1,issue:'personReliability',role:null,subjectId:a.actorId,direction:a.direction,confidence:'inferred',evidenceRefs:discussionEvidenceReferences(e.evidence||[])};};
+const q3PolicyGoal=strategyCandidateGoal;
+strategyCandidateGoal=(observer,c,plan)=>{const f=q4PolicyOf(c);if(f){const chosen=state.deliberation?.policies[observer.id]?.domains[f.domain]?.first;return chosen?.public.key===f.key?chosen.motive.goal:'neutral';}const a=c.topic?.details?.assessment;return a?q3PolicyGoal(observer,{...c,claim:a.direction==='affirm'?'positive':'negative'},plan):q3PolicyGoal(observer,c,plan);};
+function q4Name(observer,id){return id===observer.id?(CONVERSATION_FIRST_PERSON[observer.characterId]||'僕'):morningName(observer,id);}
+function q4FlowSentence(observer,flow){const board=q4State().boards[flow.boardId],b=board.facts,name=id=>q4Name(observer,id),target=flow.targets.map(name).join('・');
+ switch(flow.action){case 'gray':return `${flow.selection==='person'?target+'を':'グレーの発言を比べて'}処刑候補に考えたい。今は残り${b.slots}回くらいの処刑を目安にしている。`;
+ case 'mediumRoll':return `霊媒COは${flow.targets.length}人、配役の霊媒枠は${b.counts.medium||0}人。霊媒を順に処刑する案を検討したい。${flow.completeRoll?`今の人数なら処刑は約${b.slots}回。ただし結果が出れば続行を見直す。`:`処刑は約${b.slots}回なので、全員を吊り切る前提にはしない。`}`;
+ case 'seerCompare':return `占いCOは${flow.targets.length}人、配役の占い枠は${b.counts.seer||0}人。${flow.domain==='execution'?'結果と説明を比べて、占い候補の処刑も検討したい。':'まず結果と説明を比較したい。'}人数だけで誰が偽かは決めない。`;
+ case 'broken':return `${target}は発言や結果が破綻している。今日は処刑候補として優先したい。破綻だけで人狼と決まるわけではない。`;
+ case 'guardSeer':return `占いCOは${b.claims.filter(p=>p.role==='seer'&&!b.brokenIds.includes(p.id)).length}人。${flow.targets.length===1?target+'を':'占い候補を'}護衛候補として優先したい。${b.missingEnabled?'役欠けや偽COの可能性も残る。':'CO人数だけで真とは決めつけない。'}`;
+ case 'guardOther':return `${target}も護衛候補に考えたい。${b.confirmed.some(p=>flow.targets.includes(p.id))?'役職が分かっている人物を残す価値がある。':'霊媒の結果を残す価値もある。'}占い護衛と比べて決めたい。`;
+ default:return `今は処刑先を急いで決めず、結果と説明をもう一度確かめたい。今の人数では処刑は約${b.slots}回だ。`;
+ }
+}
+function q4FlowLabel(action){return {gray:'グレー処刑',mediumRoll:'霊媒ローラー',seerCompare:'占いCOの比較・処刑',broken:'破綻したCO者の処刑',reconsider:'方針の再検討',guardSeer:'占い護衛',guardOther:'その他の護衛'}[action]||'方針の検討';}
+function q4ArgumentText(observer,d){const opinion=d.issue==='roleTrust'?(d.ownDirection==='affirm'?'本物寄りに見ている':'偽物寄りに見ている'):(d.ownDirection==='affirm'?'疑っている':'人狼ではなさそうと見ている');const name=id=>q4Name(observer,id),actor=name(d.actorId),target=name(d.subjectId)+(d.issue==='roleTrust'?'の'+morningRoleLabel(d.role)+'CO':'');const lines={opinionAgreement:`${actor}のこの意見には納得できる。${target}については、こちらも${opinion}。同じ意見であることと、村側かどうかは別だけど。`,sharedSuspicion:`${actor}のこの意見には納得できる。${target}については${d.ownDirection==='affirm'?'僕も疑っている':'僕も人狼ではなさそうと見ている'}。同じ意見だから村側だと決まるわけではないけど。`,opposedTarget:`${actor}の${target}への見方には引っかかる。こちらは${opinion}から、そこは違って見える。`,groundedInference:`${actor}のこの指摘は、実際の発言と照らしている。その意見は参考にしたい。`,consistentOpinion:`${actor}は前にも同じ根拠で同じ見方を説明していた。この点は一貫している。`,reasonedUpdate:`${actor}は新しい材料を挙げて見方を変えていた。その変更には筋が通っている。`,appropriateAnswer:`${actor}は聞かれた話に合う具体的な理由を答えていた。その説明は参考にしたい。`,cautiousJudgement:`${actor}はその根拠で断定できる範囲を確かめていた。急いで決めない姿勢は評価したい。`,weakRepeatedDefense:`${actor}は特定の相手を何度か庇っていたけど、理由がまだ具体的でない。そこは気になる。`,publicRefutation:`${actor}のこの見方は、${target}について今分かっていることと食い違う。意見が合うかどうかより、その反証を重く見たい。`};return (lines[d.kind]||'この発言の根拠を確認したい。').replaceAll('僕も',(CONVERSATION_FIRST_PERSON[observer.characterId]||'僕')+'も');}
+const q3PolicyText=discussionText;
+discussionText=(observer,c)=>{const d=c.topic?.details?.assessment||c.topicForReason?.details?.assessment,flow=q4PolicyOf(c);if(!d&&!flow)return q3PolicyText(observer,c);let text;if(c.command==='organize'&&c.topic?.details?.comparedPolicyIds){text=c.topic.details.comparedPolicyIds.map(id=>{const e=state.discussion.events.find(e=>e.id===id);return `${q4Name(observer,e.speakerId)}は${q4FlowLabel(q4PolicyOf(e).action)}を優先している。`;}).join('')+`この二つの案を、処刑の余裕と新しい結果で比べたい。`;}else if(d)text=q4ArgumentText(observer,d);else if(c.command==='question')text=`${q4Name(observer,c.recipientId)}、その方針は、どんな結果が出たら見直す${['melbon','cortes','naminami'].includes(observer.characterId)?'お考えですか？':'？'}`;else if(c.command==='answer'){text=`${q4Name(observer,c.recipientId)}、`+(flow.action==='mediumRoll'?'霊媒結果や破綻、新しいCOで内訳の見方が変われば、続けるか考え直す。処刑回数が足りなくなった時も同じだ。':flow.domain==='guard'?'新しいCOや破綻、真と分かる役職が出れば、護衛候補の優先順位を変える。':'新しい結果や具体的な疑い、破綻が出れば、処刑候補を考え直す。残りの処刑回数も見直す。');}else text=(c.command==='agree'?conversationFill(conversationVoice(observer).agree,{to:q4Name(observer,c.recipientId)}):c.command==='rebut'?conversationFill(conversationVoice(observer).rebut,{to:q4Name(observer,c.recipientId)}):'')+q4FlowSentence(observer,flow);const change=c.topic?.details?.policyChange;if(change)text=change.reason+'、'+q4FlowLabel(change.before.action)+'を優先する方針を見直した。'+text;return isAffinityVillage()?affinityTone(observer,c,naturalConversationText(text)):naturalConversationText(text);};
+const q3PolicyAssessment=affinityLogicalAssessment;
+affinityLogicalAssessment=(observer,e)=>{const a=e.topic?.details?.assessment||e.topicForReason?.details?.assessment;if(!a&&e.relation?.type!=='supplement')return q3PolicyAssessment(observer,q4PolicyOf(e)?{...e,claim:null}:e);const known=grayKnownEventIds(observer),refs=a?.sourceEventIds||[e.replyTo],valid=refs.every(id=>known.has(id))&&(a?['consistentOpinion','groundedInference','reasonedUpdate','appropriateAnswer','cautiousJudgement','publicRefutation'].includes(a.kind):publicFoxPossibility(e.subjectId,buildSpeechPublicInformation()));const baseStatus=valid?'correct':'pending',L=personalityProfile(observer)?.stats.logic??3,rng=affinityRng(state.affinity.seed,e.id,observer.id,'logic'),status=valid&&affinityNext(rng)<[.22,.15,.08,.03,.01][L-1]?'incorrect':baseStatus;return {visibility:'private',baseStatus,status,misunderstood:status!==baseStatus,strength:1,hard:false,publicRelation:null,knownRefIds:refs.filter(id=>known.has(id))};};
+const q3PolicyCommit=commitDiscussionSpeech;
+commitDiscussionSpeech=(observer,c)=>{const flow=q4PolicyOf(c),a=c.topic?.details?.assessment||c.topicForReason?.details?.assessment;if(flow&&!q4ValidDescriptor(flow)||a&&a.ownerId!==observer.id||hasPrivateSpeechData(c.topic)||hasPrivateSpeechData(c.topicForReason))return null;if(flow&&(c.subjectId!==null||!c.evidence.some(e=>e.type==='publicPolicyBoard'&&e.boardId===flow.boardId)))return null;
+ if(a){const row=q4State().argumentRecords[a.key];if(!row||c.subjectId!==a.actorId||c.claim!=null||!row.publicEvidence.length||!c.evidence.some(e=>e.type==='argumentAssessment'&&JSON.stringify(e.snapshot)===JSON.stringify(a))||!a.sourceEventIds.every(id=>c.evidence.some(e=>e.type==='discussionStatement'&&e.eventId===id))||JSON.stringify(row.descriptor)!==JSON.stringify(a)||q4State().usedArguments[JSON.stringify([observer.id,row.root,row.selectedReason])])return null;}
+ const e=q3PolicyCommit(observer,c);if(!e)return null;
+ if(flow){e.flowPolicy=JSON.parse(JSON.stringify(flow));e.secondaryIds=[...new Set([...e.secondaryIds,...flow.targets])];const own=q4State().policies[observer.id];if(own&&['propose','hold','organize'].includes(c.command)&&!c.replyTo)own.publiclyExpressed[flow.key]={eventId:e.id,day:state.day};const selected=own?.domains[flow.domain]?.first;q4State().policyIntentions[e.id]={visibility:'private',ownerId:observer.id,goal:selected?.motive.goal||'neutral',boardId:flow.boardId};}
+ if(a){const row=q4State().argumentRecords[a.key];q4State().usedArguments[JSON.stringify([observer.id,row.root,row.selectedReason])]={eventId:e.id,assessmentId:a.key};e.argumentAssessmentId=a.key;}
+ if(e.relation?.type==='supplement'&&isAffinityVillage()){const prepared=prepareAffinityEvent(e);captureArgumentMemories(e);applyAffinityPrepared(prepared,e);if(isStrategicDiscussionVillage())captureStrategicIntuition(observer,c,e,buildDiscussionPlan(observer));e.evaluationCompatibility={policy:'quality4LogicalQualification',affinityApplied:true,intuitionApplied:false};}
+ const history=observer.speechHistory?.at(-1);if(history?.semantics){history.semantics.flowPolicy=e.flowPolicy;history.semantics.argumentAssessmentId=e.argumentAssessmentId;history.semantics.secondaryTargetIds=e.secondaryIds;}
+ return e;
+};
+const q3PolicyLog=discussionLogHTML;
+discussionLogHTML=e=>{const html=q3PolicyLog(e),f=q4PolicyOf(e);if(!f)return html;const label=LOG_COMMAND_LABELS[e.command],domain=f.domain==='execution'?'処刑':f.domain==='guard'?'護衛':'方針';return html.replace(label+' »',label+'（'+domain+'） »').replace('>'+label+'<','>'+label+'（'+domain+'）<');};
+const q3PolicyPublic=discussionPublicEvent;
+discussionPublicEvent=e=>({...q3PolicyPublic(e),flowPolicy:e.flowPolicy,argumentAssessmentId:e.argumentAssessmentId});
+function q4ValidSaved(value){
+ const s=value.deliberation;if(!s)return true;if(s.schemaVersion!==1||s.visibility!=='private'||!s.boards||!s.argumentRecords||!s.evaluations||!s.policies||!s.usedArguments||!s.policyIntentions)return false;const ids=new Set(value.players.map(p=>p.id)),events=value.discussion?.events||[],eventIds=new Set(events.map(e=>e.id));
+ for(const [id,b]of Object.entries(s.boards)){if(b.schemaVersion!==1||b.id!==id||b.signature!==affinityHash(JSON.stringify(b.facts))||!Number.isInteger(b.facts.day)||b.facts.day<1||b.facts.day>value.day||b.facts.slots!==Math.max(0,Math.floor((b.facts.livingIds.length-1)/2))||b.facts.livingIds.some(id=>!ids.has(id))||b.facts.claims.some(c=>!ids.has(c.id)))return false;}
+ for(const [key,row]of Object.entries(s.argumentRecords)){if(row.key!==key||!ids.has(row.ownerId)||!ids.has(row.actorId)||row.ownerId===row.actorId||!eventIds.has(row.statementId)||row.delta<-2||row.delta>2||!row.descriptor||row.descriptor.key!==key||row.descriptor.sourceEventIds.some(id=>!eventIds.has(id))||hasPrivateSpeechData(row.publicEvidence))return false;}
+ for(const [id,model]of Object.entries(s.evaluations)){if(!ids.has(+id)||model.ownerId!==+id||model.visibility!=='private'||!s.boards[model.boardId]||!Array.isArray(model.rows)||new Set(model.rows.map(r=>r.root)).size!==model.rows.length||Object.values(model.credit).some(v=>!Number.isFinite(v)||v<42||v>58))return false;const sums={};for(const row of model.rows){if(!s.argumentRecords[row.key]||JSON.stringify(s.argumentRecords[row.key])!==JSON.stringify(row))return false;sums[row.actorId]=(sums[row.actorId]||0)+row.delta;}for(const [target,sum]of Object.entries(sums))if(model.credit[target]!==clamp(50+clamp(sum,-8,8),42,58))return false;}
+ for(const [id,plan]of Object.entries(s.policies)){if(!ids.has(+id)||plan.ownerId!==+id||plan.visibility!=='private'||plan.day>value.day||!s.boards[plan.boardId]||!plan.domains||!Array.isArray(plan.history))return false;for(const domain of ['execution','guard','information']){const d=plan.domains[domain];if(!d||!Array.isArray(d.alternatives)||[d.first,...d.alternatives].filter(Boolean).some(p=>!q4ValidDescriptor(p.public,value)||!Number.isFinite(p.score)||!p.components||Object.values(p.components).some(x=>!Number.isFinite(x))||Math.abs(p.score-(4*p.components.catchChance+3*p.components.information-4*p.components.risk+2*p.components.slack+2*p.components.personal+p.components.strategy+p.components.counter))>1e-8||p.motive?.visibility!=='private'||p.motive.bonus!==p.components.strategy))return false;}for(const h of plan.history)if(h.after&&!q4ValidDescriptor(h.after,value)||h.before&&!q4ValidDescriptor(h.before,value)||h.counterIds.some(id=>!eventIds.has(id)))return false;for(const d of Object.values(plan.publiclyExpressed))if(!eventIds.has(d.eventId))return false;}
+ for(const use of Object.values(s.usedArguments))if(!eventIds.has(use.eventId)||!s.argumentRecords[use.assessmentId])return false;
+ for(const e of events){const f=q4PolicyOf(e);if(f&&(!q4ValidDescriptor(f,value)||JSON.stringify(e.proposition?.policy)!==JSON.stringify({day:f.day,domain:f.domain,action:f.action,selection:f.selection,targets:f.targets})))return false;if(e.argumentAssessmentId&&!s.argumentRecords[e.argumentAssessmentId])return false;}
+ return true;
+}
+const q3PolicySaved=isValidSavedGame;
+isValidSavedGame=value=>q3PolicySaved(value)&&q4ValidSaved(value);
 
 $("#discussionBtn").onclick=encourageDiscussion;
 $("#playerCount").addEventListener("input",()=>{selectedRolePreset=null;renderRoleConfig()});

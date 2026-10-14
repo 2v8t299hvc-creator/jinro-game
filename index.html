@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-quality6</title>
+<title>個人用人狼アプリ v2.20.0-quality7-partial</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -133,7 +133,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.20.0-quality6</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.20.0-quality7-partial</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -242,7 +242,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
 </section>
 <script>
-const GAME_VERSION="2.20.0-quality6";
+const GAME_VERSION="2.20.0-quality7-partial";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -1384,7 +1384,7 @@ function renderAll(){
     const dimmed=state.selectionMode&&p.alive&&!selectable;
     return `<div class="player-row ${p.alive?"":"dead"} ${selectable?"selectable":""} ${dimmed?"dimmed":""}" data-player-id="${p.id}">
       <div class="player-name"><span class="player-number">${String(p.id+1).padStart(2,"0")}</span>${escapeHtml(p.name)}${p.isSelf?"（あなた）":""}${state.winner?`<div class="role-reveal">${roleName(p.role)}</div>`:""}</div>
-      <div class="player-co">${p.claimed?roleName(p.claimed)+"CO":(p.villagerClaim===true?"村人CO":(p.villagerClaim===false?"非村人":(p.coCheckedNone?"COなし":"未CO")))}${showBrokenAssist()&&isPubliclyBroken(p.id)?` <span class="broken-badge">破綻</span>`:""}${showConfirmedAssist()&&isPubliclyConfirmedTrue(p.id)?` <span class="confirmed-badge">真確定</span>`:""}</div>
+      <div class="player-co">${q7CardRoleLabel(p)}${showBrokenAssist()&&isPubliclyBroken(p.id)?` <span class="broken-badge">破綻</span>`:""}${showConfirmedAssist()&&isPubliclyConfirmedTrue(p.id)?` <span class="confirmed-badge">真確定</span>`:""}</div>
       <div class="player-life">${p.alive?"生存":"死亡"}</div><button class="person-note-btn" data-note-player="${p.id}" aria-label="${escapeHtml(p.name)}のメモ">✎</button>
     </div>`;
   }).join("");
@@ -3547,6 +3547,7 @@ function createPublicTruthContext(){
     if(!confirmed.has(proof.id))confirmed.set(proof.id,[]);
     confirmed.get(proof.id).push(proof.reason);
   }
+  confirmed.publicRoles=new Map();
   return {
     broken,confirmed,
     addBroken:(id,reason)=>addTruthReason(broken,id,reason),
@@ -3594,6 +3595,7 @@ function priorDeadIdsForFullCo(request){
     (state.publicRecords.deaths||[]).some(d=>d.playerId===p.id&&d.day<=request.day))).map(p=>p.id);
 }
 function publiclyKnownRoleFor(id,confirmed){
+  if(confirmed.publicRoles?.has(id))return confirmed.publicRoles.get(id);
   if(!confirmed.has(id))return null;
   const proof=(state.publicRecords.confirmedProofs||[]).find(x=>x.id===id&&x.role);
   if(proof)return proof.role;
@@ -3601,6 +3603,7 @@ function publiclyKnownRoleFor(id,confirmed){
   return byId(id)?.claimed||null;
 }
 function excludesDeadRoleCandidate(id,role,confirmed){
+  if(confirmed.q7Domains?.has(id)&&!confirmed.q7Domains.get(id).includes(role))return true;
   if(!openingAllowsRole(id,role))return true;
   if(byId(id)?.claimed===role)return true; // CO者は別途その役職候補に数える。
   const knownRole=publiclyKnownRoleFor(id,confirmed);
@@ -3718,6 +3721,7 @@ function applyConfirmedRoleBreakdowns({confirmed,addBroken}){
 
 function solvePublicTruth(){
   ensurePublicRecords();
+  const key=q7TruthKey(),cached=q7TruthCache.get(state);if(cached?.key===key)return cached.result;if(q7PublicTruthCache.has(key))return q7PublicTruthCache.get(key);
   const truth=createPublicTruthContext();
   applyPublicJusatsuBreakdowns(truth);
   const fullCoRoles=new Set((state.publicRecords.fullCoRequests||[]).map(x=>x.role));
@@ -3726,12 +3730,13 @@ function solvePublicTruth(){
   }
   // 各段階を必ず順番に実行する。短絡評価で後続の判定を省略しない。
   for(let pass=0;pass<8;pass++){
-    let changed=confirmFullCoRoles(truth,fullCoRoles);
+    let changed=q7ApplyConstraints(truth);
+    if(confirmFullCoRoles(truth,fullCoRoles))changed=true;
     if(confirmPublicResonators(truth))changed=true;
     if(applyConfirmedRoleBreakdowns(truth))changed=true;
     if(!changed)break;
   }
-  return {broken:truth.broken,confirmed:truth.confirmed};
+  const result={broken:truth.broken,confirmed:truth.confirmed,constraints:truth.constraints};q7TruthCache.set(state,{key:q7TruthKey(),result});q7PublicTruthCache.set(q7TruthKey(),result);while(q7PublicTruthCache.size>8)q7PublicTruthCache.delete(q7PublicTruthCache.keys().next().value);return result;
 }
 
 function getPublicBreakdowns(){
@@ -3749,10 +3754,11 @@ function commitPublicTruthProofs(){
     if(!proof.role&&publicCatIds.has(proof.id))proof.role="cat";
   });
   const known=new Set(state.publicRecords.confirmedProofs.map(x=>x.id));
-  const confirmations=solvePublicTruth().confirmed;
+  const resolved=solvePublicTruth(),confirmations=resolved.confirmed;
+  state.publicRoleConstraints=resolved.constraints;
   for(const [id,reasons] of confirmations){
     if(!known.has(id)&&reasons.length){
-      state.publicRecords.confirmedProofs.push({id,role:publicCatIds.has(id)?"cat":byId(id)?.claimed,day:state.day,reason:reasons[0]});
+      state.publicRecords.confirmedProofs.push({id,role:publiclyKnownRoleFor(id,confirmations)||(publicCatIds.has(id)?"cat":byId(id)?.claimed),day:state.day,reason:reasons[0]});
       known.add(id);
     }
   }
@@ -7168,7 +7174,7 @@ let q4ReadingBase=false;
 function q4State(){return state.deliberation??={schemaVersion:1,visibility:'private',boards:{},argumentRecords:{},evaluations:{},policies:{},usedArguments:{},policyIntentions:{}};}
 function q4Board(){
  const pub=buildSpeechPublicInformation(),s=q4State();
- const facts={day:state.day,phase:state.phase,counts:{...pub.context.counts},livingIds:pub.context.people.filter(p=>p.alive).map(p=>p.id),claims:pub.context.people.filter(p=>p.alive&&p.claimed).map(p=>({id:p.id,role:p.claimed})),brokenIds:[...pub.context.broken.keys()].filter(id=>byId(id)?.alive),confirmed:[...pub.context.confirmed.keys()].map(id=>({id,role:publiclyKnownRoleFor(id,pub.context.confirmed)})),missingEnabled:!!state.firstVictimEnabled,records:{seer:pub.context.seerRows.map(r=>r.source),medium:pub.context.mediumRows.map(r=>r.source)},slots:Math.max(0,Math.floor((living().length-1)/2))};
+ const facts={day:state.day,phase:state.phase,counts:{...pub.context.counts},livingIds:pub.context.people.filter(p=>p.alive).map(p=>p.id),claims:pub.context.people.filter(p=>p.alive&&p.claimed).map(p=>({id:p.id,role:p.claimed})),brokenIds:[...pub.context.broken.keys()].filter(id=>byId(id)?.alive),confirmed:[...pub.context.confirmed.keys()].map(id=>({id,role:publiclyKnownRoleFor(id,pub.context.confirmed)})),missingEnabled:!!state.firstVictimEnabled,missingRoleCandidates:solvePublicTruth().constraints?.firstVictimRoleCandidates||[],missingExcludedRoles:solvePublicTruth().constraints?.missingExcludedRoles||[],records:{seer:pub.context.seerRows.map(r=>r.source),medium:pub.context.mediumRows.map(r=>r.source)},slots:Math.max(0,Math.floor((living().length-1)/2))};
  const key=JSON.stringify(facts),id='B'+affinityHash(key).toString(16);if(!s.boards[id])s.boards[id]={schemaVersion:1,id,facts,signature:affinityHash(key)};
  return {pub,board:s.boards[id],key};
 }
@@ -7271,7 +7277,7 @@ function q4PolicyCandidates(observer,pub,board,decision,outlook,credit){
  const broken=f.brokenIds.filter(id=>id!==observer.id&&id!==keep);if(broken.length)add('broken','execution',[broken[0]],.85,.5,.08,.2,.1,{selection:'person',confidence:.9});
  add('reconsider','information',[],.02,.35+(margin<0?.25:0),.05,margin<0?.2:-.7,0);
  const guardSeers=seer.filter(p=>hostile(observer)||decision.roles.roles.seer[p.id]?.status!=='false');
- if(guardSeers.length){const ranked=[...guardSeers].sort((a,b)=>(decision.roles.roles.seer[b.id]?.score??50)-(decision.roles.roles.seer[a.id]?.score??50));const ids=guardSeers.length===1||pub.context.confirmed.has(ranked[0].id)?[ranked[0].id]:guardSeers.map(p=>p.id);add('guardSeer','guard',ids,0,.85,.15+(f.missingEnabled?.12:0),.2,0,{role:'seer',selection:ids.length===1?'person':'pool'});}
+ if(guardSeers.length){const ranked=[...guardSeers].sort((a,b)=>(decision.roles.roles.seer[b.id]?.score??50)-(decision.roles.roles.seer[a.id]?.score??50));const ids=guardSeers.length===1||pub.context.confirmed.has(ranked[0].id)?[ranked[0].id]:guardSeers.map(p=>p.id);add('guardSeer','guard',ids,0,.85,.15+(f.missingEnabled&&!f.missingExcludedRoles?.includes('seer')?.12:0),.2,0,{role:'seer',selection:ids.length===1?'person':'pool'});}
  const other=players.filter(p=>!seer.some(s=>s.id===p.id)&&(p.claimed==='medium'||pub.context.confirmed.has(p.id))&&!['cat','knight'].includes(p.claimed)&&!f.brokenIds.includes(p.id)&&(hostile(observer)||!p.claimed||decision.roles.roles[p.claimed]?.[p.id]?.status!=='false'));if(other.length)add('guardOther','guard',[other[0].id],0,.55,pub.context.confirmed.has(other[0].id)?.10:.25,.2,0,{role:other[0].claimed,selection:'person'});
  return out;
 }
@@ -7360,7 +7366,7 @@ function q4FlowSentence(observer,flow){const board=q4State().boards[flow.boardId
  case 'mediumRoll':return `霊媒COは${flow.targets.length}人、配役の霊媒枠は${b.counts.medium||0}人。霊媒を順に処刑する案を検討したい。${flow.completeRoll?`今の人数なら処刑は約${b.slots}回。ただし結果が出れば続行を見直す。`:`処刑は約${b.slots}回なので、全員を吊り切る前提にはしない。`}`;
  case 'seerCompare':return `占いCOは${flow.targets.length}人、配役の占い枠は${b.counts.seer||0}人。${flow.domain==='execution'?'結果と説明を比べて、占い候補の処刑も検討したい。':'まず結果と説明を比較したい。'}人数だけで誰が偽かは決めない。`;
  case 'broken':return `${target}は発言や結果が破綻している。今日は処刑候補として優先したい。破綻だけで人狼と決まるわけではない。`;
- case 'guardSeer':return `占いCOは${b.claims.filter(p=>p.role==='seer'&&!b.brokenIds.includes(p.id)).length}人。${flow.targets.length===1?target+'を':'占い候補を'}護衛候補として優先したい。${b.missingEnabled?'役欠けや偽COの可能性も残る。':'CO人数だけで真とは決めつけない。'}`;
+ case 'guardSeer':return `占いCOは${b.claims.filter(p=>p.role==='seer'&&!b.brokenIds.includes(p.id)).length}人。${flow.targets.length===1?target+'を':'占い候補を'}護衛候補として優先したい。${b.missingEnabled&&!b.missingExcludedRoles?.includes('seer')?'占い師の役欠けや偽COの可能性も残る。':'CO人数だけで真とは決めつけない。'}`;
  case 'guardOther':return `${target}も護衛候補に考えたい。${b.confirmed.some(p=>flow.targets.includes(p.id))?'役職が分かっている人物を残す価値がある。':'霊媒の結果を残す価値もある。'}占い護衛と比べて決めたい。`;
  default:return `今は処刑先を急いで決めず、結果と説明をもう一度確かめたい。今の人数では処刑は約${b.slots}回だ。`;
  }
@@ -7495,7 +7501,7 @@ discussionText=(observer,c)=>{if(c.variant==='blackQualification'){const f=q4Pol
  const s=summary.data,n=id=>q4Name(observer,id);let text;
  if(summary.kind==='board'){text=`生存は${s.livingCount}人。毎晩1人襲撃で減るなら、処刑はあと${s.slots}回くらい。${s.countsKnown?'公開配役と確定情報から残る人外の上限は'+s.hostileUpper+'人だ。':'公開配役が記録されていないので、人外数の上限は計算できない。'}平和や呪殺、猫又の道連れで回数は変わる。`;const claims=['seer','medium','knight','cat'].map(role=>({role,n:s.players.filter(p=>p.alive&&p.claimed===role).length})).filter(p=>p.n);if(claims.length)text+=claims.map(p=>`${morningRoleLabel(p.role)}COは${p.n}人`).join('、')+'。';}
  else if(summary.kind==='night'){if(s.night.peace)text=s.night.peaceCauses.includes('guard')&&s.night.peaceCauses.includes('foxAttack')?'今日は平和だね。護衛成功か、妖狐への襲撃が考えられる。誰が守られたかはまだ分からない。':s.night.peaceCauses.includes('guard')?'今日は平和だね。この配役なら護衛成功を考えたい。襲撃先は分からない。':'今日は死体が出ていない。原因はまだ判断できない。';else {const descriptions=s.night.combinations.map(c=>c.attack==='cat'?(c.foxDeaths?'呪殺と猫又襲撃・狼道連れ':'猫又襲撃と人狼道連れ'):c.foxDeaths?(c.attack==='ordinary'?'呪殺と通常襲撃':'呪殺だけで襲撃死なし'):'通常襲撃');text=`今朝は${s.deathIds.length}人が死亡している。${descriptions.length?descriptions.join('、')+'が成立する。':'この情報だけでは内訳を絞れない。'}${s.night.catPairCertain?'他の死因が成立しないので、この2人は猫又と人狼の組み合わせだ。':s.night.combinations.length>1?'まだ内訳は確定しない。':''}${(s.counts.cat||0)>0&&!s.night.catCoRequested?'猫又のCOを求めて確かめたい。提案だけでは不在と分からない。':''}`;}}
- else {text=`${n(s.seerId)}を真占い師と仮定して整理する。`;if(s.black.length)text+=s.black.map(n).join('・')+'はその視点で人狼。';if(s.white.length)text+=s.white.map(x=>n(x.id)+(x.notFox?'は生存しているので人狼・妖狐ではない':'は人狼ではない')).join('、')+'。狂人までは否定できない。';if(s.rivals.length)text+=s.rivals.map(p=>`${n(p.id)}の可能な内訳は${p.roles.map(role=>morningRoleLabel(role)).join('・')||'ない'}`).join('、')+'。';text+=`この視点で最低${s.exposedMinimum}人外が露呈している。${s.contradictions.length?'公開記録と成立しない点があるので、この占い師の見方を再検討したい。':'村全体で真と決まった情報ではない。'}`;}
+ else {text=`仮に${n(s.seerId)}が真占い師なら、`;if(s.black.length)text+=s.black.map(n).join('・')+'はその視点で人狼。';if(s.white.length)text+=s.white.map(x=>n(x.id)+(x.notFox?'は生存しているので人狼・妖狐ではない':'は人狼ではない')).join('、')+'。狂人までは否定できない。';if(s.rivals.length&&s.rivals.length<=3)text+=s.rivals.map(p=>`${n(p.id)}の可能な内訳は${p.roles.map(role=>q7RoleLabel(role)).join('・')||'ない'}`).join('、')+'。';text+=`この視点で最低${s.exposedMinimum}人外が露呈している。${s.contradictions.length?'公開記録と成立しない点があるので、この占い師の見方を再検討したい。':'ただし、この占い師が真と村全体で決まったわけではない。'}`;}
  const opinion=c.topic?.details?.nightOpinion;if(opinion){text+=`${q4Name(observer,opinion.source.snapshot.seerId)}の今朝の白が死体に出ているので、呪殺を有力に見たい。ただし猫又の襲撃など、ほかの内訳も残る。`;}
  return isAffinityVillage()?affinityTone(observer,c,naturalConversationText(text)):naturalConversationText(text);
 };
@@ -7572,6 +7578,124 @@ commitDiscussionSpeech=(observer,c)=>{
  const key=q6PresentationKey(c);if(key&&state.discussion.events.some(e=>e.presentationKey===key))return null;
  const e=quality5PresentationCommit(observer,c);if(e&&key)e.presentationKey=key;return e;
 };
+
+// quality7: public claim stance is independent of the actor's private role recognition.
+function q7CardRoleLabel(p){
+ if(p.claimed)return roleName(p.claimed)+'CO';
+ const proof=(state.publicRecords.confirmedProofs||[]).find(x=>x.id===p.id&&x.role);
+ if(proof)return q7RoleLabel(proof.role)+'（公開判明）';
+ return p.villagerClaim===true?'村人CO':p.villagerClaim===false?'非村人':p.coCheckedNone?'COなし':'未CO';
+}
+function q7RoleLabel(role){const row=ROLES.find(x=>x[0]===role);return row?row[1]:`未対応の役職（${String(role)}）`;}
+function q7ClaimPosition(observer){
+ const role=observer.claimed;if(!hostile(observer)||!['seer','medium'].includes(role)||observer.role===role)return null;
+ const change=observer.claimPositionChange;
+ if(['concedeRival','abandonClaim'].includes(change?.mode)&&state.discussion?.events.some(e=>e.id===change.eventId&&e.speakerId===observer.id&&e.claimPositionChange?.mode===change.mode&&e.claimPositionChange?.role===role))return null;
+ return {role,ownerId:observer.id};
+}
+function q7PositionAllows(observer,c){
+ const stance=q7ClaimPosition(observer);if(!stance)return true;
+ const topic=c.topic||c.topicForReason;
+ if(topic?.details?.boardSummary?.kind==='view'&&topic.details.boardSummary.data.seerId!==observer.id&&stance.role==='seer')return false;
+ if(topic?.variant==='roleTruth'&&topic.details?.role===stance.role&&topic.targetId!==observer.id)return false;
+ if(['reportedRoleComparison','reportedRoleDefense'].includes(c.variant)&&c.claim==='positive'&&byId(c.subjectId)?.claimed===stance.role&&c.subjectId!==observer.id)return false;
+ const flow=q4PolicyOf(c);if(flow?.domain==='guard'&&flow.targets.some(id=>id!==observer.id&&byId(id)?.claimed===stance.role)&&['propose','agree','organize'].includes(c.command))return false;
+ const roots=c.evidence||topic?.details?.evidence||[];
+ const rivalSources=roots.flatMap(e=>[e.source,...(e.sources||[])]).filter(Boolean).filter(source=>source.snapshot?.[stance.role==='seer'?'seerId':'mediumId']!=null&&source.snapshot[stance.role==='seer'?'seerId':'mediumId']!==observer.id);
+ if(!rivalSources.length)return true;
+ // A neutral result report is not a recommendation. Inference from a rival's truth is.
+ if(['suspect','trust','propose','agree','defend'].includes(c.command)||topic?.variant==='nonFox')return false;
+ return true;
+}
+const quality6PositionCandidates=discussionCandidates;
+discussionCandidates=observer=>quality6PositionCandidates(observer).filter(c=>q7PositionAllows(observer,c));
+const quality6PositionCommit=commitDiscussionSpeech;
+commitDiscussionSpeech=(observer,c)=>q7PositionAllows(observer,c)?quality6PositionCommit(observer,c):null;
+
+// Public-only bounded role-capacity matching, not enumeration of all assignments.
+const q7TruthCache=new WeakMap(),q7PublicTruthCache=new Map();
+function q7TruthKey(){return JSON.stringify([state.day,state.openingRulesVersion,state.firstVictimEnabled,state.publicRoleCounts,state.players.map(p=>[p.id,p.name,p.alive,p.claimed,p.villagerClaim,p.deathDay,p.deathPhase]),state.publicRecords]);}
+function q7ActualFullRequest(r){return r&&Array.isArray(r.respondentIds)&&Array.isArray(r.aliveIds)&&!r.inferredFromPublicHistory&&Number.isInteger(r.order);}
+function q7RoleDomains(truth,assumedSeerId=null){
+ const counts=Object.fromEntries(ROLES.map(([role])=>[role,state.publicRoleCounts?.[role]||0]));
+ if(state.players.length>20||Object.values(counts).reduce((a,b)=>a+b,0)!==state.players.length)return null;
+ const r=state.publicRecords,known=id=>publiclyKnownRoleFor(id,truth.confirmed),groups=new Map();
+ for(const d of r.deaths||[])if(d.phase==='night'){const list=groups.get(d.day)||[];if(!list.includes(d.playerId))list.push(d.playerId);groups.set(d.day,list);}
+ const trueSeers=new Set([...truth.confirmed.keys()].filter(id=>known(id)==='seer'));if(assumedSeerId!=null)trueSeers.add(assumedSeerId);
+ const trueMediums=new Set([...truth.confirmed.keys()].filter(id=>known(id)==='medium'));
+ const seerRows=r.seerResults.filter(x=>trueSeers.has(x.seerId)),mediumRows=r.mediumResults.filter(x=>trueMediums.has(x.mediumId));
+ const ordinary=new Set();
+ for(const [day,ids]of groups){if(ids.length!==1)continue;
+  if(day===1&&state.openingRulesVersion===1&&state.firstVictimEnabled||day>1&&counts.fox===0)ordinary.add(ids[0]);
+  else if(day>1&&counts.seer===1&&seerRows.some(x=>x.day===day&&(x.targetId!==ids[0]||x.black)))ordinary.add(ids[0]);
+ }
+ const executedCats=new Set(r.catChains.map(x=>x.catId));
+ const requests=r.fullCoRequests.filter(q7ActualFullRequest);
+ const resonatorRequests=requests.filter(x=>x.role==='resonator');
+ const domains=state.players.map(p=>{
+  let roles=ROLES.map(x=>x[0]).filter(role=>counts[role]>0&&openingAllowsRole(p.id,role));
+  const fixed=known(p.id);if(fixed)roles=roles.filter(role=>role===fixed);
+  if(p.id===assumedSeerId)roles=roles.filter(role=>role==='seer');
+  else if(assumedSeerId!=null&&counts.seer===1)roles=roles.filter(role=>role!=='seer');
+  if(executedCats.has(p.id))roles=roles.filter(role=>role==='cat');
+  if(p.claimed)roles=roles.filter(role=>role===p.claimed||['wolf','madman','fox'].includes(role));
+  if(truth.broken.has(p.id))roles=roles.filter(role=>['wolf','madman','fox'].includes(role));
+  for(const request of requests){
+   if(!['seer','medium','knight','cat','resonator'].includes(request.role))continue;
+   if(request.aliveIds.includes(p.id)&&!request.respondentIds.includes(p.id))roles=roles.filter(role=>role!==request.role);
+  }
+  if(resonatorRequests.some(x=>x.respondentIds.includes(p.id)))roles=roles.filter(role=>role==='resonator');
+  for(const x of [...seerRows,...mediumRows].filter(x=>x.targetId===p.id))roles=roles.filter(role=>x.black?role==='wolf':role!=='wolf');
+  for(const x of seerRows.filter(x=>x.targetId===p.id&&!x.black&&divinationKillsFox(x.day))){
+   const death=(r.deaths||[]).find(d=>d.playerId===p.id);
+   if(p.alive||death&&(death.day>x.day||death.day===x.day&&death.phase==='day'))roles=roles.filter(role=>role!=='fox');
+  }
+  const death=(r.deaths||[]).find(d=>d.playerId===p.id);
+  if(death?.phase==='night'&&(groups.get(death.day)||[]).length===1)roles=roles.filter(role=>!['wolf','cat'].includes(role));
+  if(ordinary.has(p.id))roles=roles.filter(role=>!['wolf','fox','cat'].includes(role));
+  return {id:p.id,roles};
+ });
+ return {counts,domains,ordinaryDeathIds:[...ordinary],assumedSeerId};
+}
+function q7RoleMatch(model,id=null,role=null){
+ if(!model)return null;
+ const domains=id==null?model.domains:model.domains.map(d=>d.id===id?{...d,roles:d.roles.filter(x=>x===role)}:d);
+ return matchOpeningHypothesisRoles(domains,model.counts);
+}
+function q7ApplyConstraints(truth){
+ let changed=false;
+ const model=q7RoleDomains(truth),feasible=!!q7RoleMatch(model);
+ if(!model){truth.constraints={schemaVersion:1,visibility:'public',status:'unavailable',errors:['公開配役数が全参加者数と一致しない']};return false;}
+ if(!feasible){truth.constraints={schemaVersion:1,visibility:'public',status:'inconsistent',errors:['公開配役・CO応答・死亡・判定が両立しない。役欠けや死亡役職は未確定のまま扱う']};return false;}
+ const candidates={};
+ for(const p of state.players.filter(p=>!p.alive)){
+  const d=model.domains.find(d=>d.id===p.id);candidates[p.id]=d.roles.filter(role=>q7RoleMatch(model,p.id,role));
+ }
+ truth.confirmed.q7Domains=new Map(Object.entries(candidates).map(([id,roles])=>[+id,roles]));
+ const request=state.publicRecords.fullCoRequests.find(r=>r.role==='resonator'&&q7ActualFullRequest(r));
+ if(request)for(const id of request.respondentIds){
+  truth.confirmed.publicRoles.set(id,'resonator');
+  if(truth.addConfirmed(id,'共鳴者の強制CO実行では、現行ルール上の真共鳴者だけが応答する'))changed=true;
+ }
+ for(const [key,roles]of Object.entries(candidates))if(roles.length===1&&TEAM[roles[0]]==='村人陣営'){
+  const id=+key;truth.confirmed.publicRoles.set(id,roles[0]);
+  if(truth.addConfirmed(id,`公開配役・強制CO応答・死亡履歴から、この死者の候補役職は${q7RoleLabel(roles[0])}だけになる`))changed=true;
+ }
+ const opening=openingPublicDeaths().map(d=>({id:d.playerId,roles:candidates[d.playerId]||[]}));
+ const victimRoles=state.firstVictimEnabled?(opening.length?[...new Set(opening.flatMap(d=>d.roles.filter(role=>!['wolf','fox'].includes(role))))]:ROLES.map(x=>x[0]).filter(role=>model.counts[role]>0&&!['wolf','fox'].includes(role))):[];
+ truth.constraints={schemaVersion:1,visibility:'public',status:'consistent',errors:[],deadRoleCandidates:candidates,openingDeaths:opening,firstVictimRoleCandidates:victimRoles,missingExcludedRoles:state.firstVictimEnabled?ROLES.map(x=>x[0]).filter(role=>!victimRoles.includes(role)):ROLES.map(x=>x[0]),ordinaryDeathIds:model.ordinaryDeathIds};
+ // Baseline is feasible: only the seer assumption may cause the contradiction.
+ for(const seer of state.players.filter(p=>p.claimed==='seer'&&!truth.broken.has(p.id))){
+  const assumed=q7RoleDomains(truth,seer.id);if(q7RoleMatch(assumed))continue;
+  const wolves=assumed.domains.filter(d=>d.roles.includes('wolf')).map(d=>d.id),madmen=assumed.domains.filter(d=>d.roles.length===1&&d.roles[0]==='madman').map(d=>d.id);
+  let reason;
+  if(wolves.length<assumed.counts.wolf)reason=`この占い師を真とすると、公開判定・確定役職・死亡履歴から人狼を割り当てられるのは最大${wolves.length}人で、配役の${assumed.counts.wolf}人に足りない（死亡者も含めて照合）`;
+  else if(madmen.length>assumed.counts.madman)reason=`この占い師を真とすると、通常襲撃死などの公開制約により${madmen.map(id=>byId(id)?.name||'死者').join('・')}の${madmen.length}人が狂人である必要があり、配役の${assumed.counts.madman}人を超える`;
+  else reason='この占い師を真と仮定した公開結果・CO・死因と、公開配役の人数枠を同時に満たす役職割当が存在しない';
+  if(truth.addBroken(seer.id,reason))changed=true;
+ }
+ return changed;
+}
 
 $("#discussionBtn").onclick=encourageDiscussion;
 $("#playerCount").addEventListener("input",()=>{selectedRolePreset=null;renderRoleConfig()});

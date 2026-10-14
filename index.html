@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-quality4</title>
+<title>個人用人狼アプリ v2.20.0-quality5</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -126,11 +126,14 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 .notes-sheet textarea{display:block;box-sizing:border-box;width:100%;margin:8px 0;padding:12px;border:1px solid var(--line);border-radius:8px;background:#0d1016;color:var(--text);font:16px/1.6 sans-serif;resize:vertical;min-height:100px;max-height:55vh;max-height:55dvh;touch-action:manipulation}
 .notes-sheet label{font-size:12px;color:#b8c3d9}.notes-sheet button{min-height:44px}.notes-sheet.hidden,.notes-backdrop.hidden{display:none}.notes-backdrop{position:fixed;inset:0;z-index:105;background:#0005}.notes-sheet{top:var(--notes-top,calc(12px + env(safe-area-inset-top)));max-height:var(--notes-max-height,calc(100dvh - 24px))}.notes-sheet textarea{max-height:var(--notes-input-height,55dvh)}
 @media(max-width:520px){.discussion-body{font-size:13px}.discussion-head{font-size:12px}#notebookBtn{font-size:12px;padding:7px 12px;min-height:36px}}
+
+/* quality5 compact cards: independent note button with 44px touch area */
+.player-list{grid-template-columns:repeat(2,minmax(0,1fr))}.player-row{position:relative;display:grid;grid-template-columns:minmax(0,1fr);gap:3px;padding:8px 46px 8px 8px;font-size:13px;min-height:60px}.player-row .player-name{grid-column:1;white-space:normal;overflow-wrap:anywhere}.player-row .player-co{grid-column:1;white-space:normal;font-size:12px}.player-row .player-life{grid-column:1;grid-row:auto;text-align:left;font-size:11px}.player-row .person-note-btn{position:absolute;right:0;top:0;margin:0;width:44px;min-height:44px;padding:4px;font-size:19px;line-height:1;background:transparent}.player-row .broken-badge,.player-row .confirmed-badge{font-size:10px}@media(max-width:520px){.player-row{font-size:13px;grid-template-columns:minmax(0,1fr);padding:7px 46px 7px 7px}.player-list{gap:5px}}
 </style>
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.20.0-quality4</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.20.0-quality5</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -239,7 +242,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
 </section>
 <script>
-const GAME_VERSION="2.20.0-quality4";
+const GAME_VERSION="2.20.0-quality5";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -1384,7 +1387,7 @@ function renderAll(){
     return `<div class="player-row ${p.alive?"":"dead"} ${selectable?"selectable":""} ${dimmed?"dimmed":""}" data-player-id="${p.id}">
       <div class="player-name"><span class="player-number">${String(p.id+1).padStart(2,"0")}</span>${escapeHtml(p.name)}${p.isSelf?"（あなた）":""}${state.winner?`<div class="role-reveal">${roleName(p.role)}</div>`:""}</div>
       <div class="player-co">${p.claimed?roleName(p.claimed)+"CO":(p.villagerClaim===true?"村人CO":(p.villagerClaim===false?"非村人":(p.coCheckedNone?"COなし":"未CO")))}${showBrokenAssist()&&isPubliclyBroken(p.id)?` <span class="broken-badge">破綻</span>`:""}${showConfirmedAssist()&&isPubliclyConfirmedTrue(p.id)?` <span class="confirmed-badge">真確定</span>`:""}</div>
-      <div class="player-life">${p.alive?"生存":"死亡"}</div><button class="person-note-btn" data-note-player="${p.id}" aria-label="${escapeHtml(p.name)}のメモ">メモ</button>
+      <div class="player-life">${p.alive?"生存":"死亡"}</div><button class="person-note-btn" data-note-player="${p.id}" aria-label="${escapeHtml(p.name)}のメモ">✎</button>
     </div>`;
   }).join("");
   document.querySelectorAll("[data-player-id]").forEach(row=>{
@@ -7251,7 +7254,7 @@ function q4PolicyCandidates(observer,pub,board,decision,outlook,credit){
   const motive=q4PolicyMotive(observer,{action,domain,targets},base,board);
   const c={action,domain,targets,components:{catchChance,information,risk,slack,personal,strategy:motive.bonus,counter:0},motive,...extras};
   c.score=4*catchChance+3*information-4*risk+2*slack+2*personal+motive.bonus;
-  const counters=(state.discussion?.events||[]).filter(e=>e.day===state.day&&e.command==='rebut'&&q4PolicyOf(e)&&state.discussion.events.find(x=>x.id===e.replyTo)?.speakerId===observer.id&&q4PolicyOf(e).domain===domain&&q4PolicyOf(e).action===action);
+  const counters=(state.discussion?.events||[]).filter(e=>e.day===state.day&&e.command==='rebut'&&e.variant!=='blackQualification'&&q4PolicyOf(e)&&state.discussion.events.find(x=>x.id===e.replyTo)?.speakerId===observer.id&&q4PolicyOf(e).domain===domain&&q4PolicyOf(e).action===action);
   const roots=new Set();for(const e of counters){const root=JSON.stringify([e.speakerId,action,grayMaterialRoots(e)]);if(roots.has(root))continue;roots.add(root);const trust=credit[e.speakerId]??50;c.components.counter+=Math.min(.45,.2*(trust/50)*(stats.coordination/3));}
   c.components.counter=Math.min(1.2,c.components.counter);c.score+=c.components.counter;
   c.confidence=clamp(1-risk,.15,.85);c.public=q4PolicyDescriptor(c,board);c.reviewConditions=q4ReviewConditions(action);out.push(c);
@@ -7274,12 +7277,12 @@ function q4PickPolicy(observer,options,old,key,domain){
  const weights=scored.map(r=>Math.exp((r.score-max)/temperature));let draw=affinityNext(rng)*weights.reduce((a,b)=>a+b,0);for(let i=0;i<scored.length;i++){draw-=weights[i];if(draw<=0)return scored[i].c;}return scored.at(-1).c;
 }
 function q4Model(observer){
- const s=q4State(),{pub,board,key:boardKey}=q4Board(),privateKey=JSON.stringify([observer.role,observer.seerResults,observer.mediumResults,(observer.intuitionJudgments||[]).filter(j=>j.felt),(observer.intuitionJudgments||[]).some(j=>j.felt)?state.affinity?.revisions?.[observer.id]:0]),counters=(state.discussion?.events||[]).filter(e=>e.day===state.day&&e.command==='rebut'&&q4PolicyOf(e)&&state.discussion.events.find(x=>x.id===e.replyTo)?.speakerId===observer.id).map(e=>e.id),events=(state.discussion?.events||[]).filter(e=>!q4PolicyOf(e)&&e.topic?.variant!=='argumentReason').map(e=>[e.id,e.claim,e.subjectId]),key=JSON.stringify([boardKey,privateKey,events,counters]);
+ const s=q4State(),{pub,board,key:boardKey}=q4Board(),privateKey=JSON.stringify([observer.role,observer.seerResults,observer.mediumResults,(observer.intuitionJudgments||[]).filter(j=>j.felt),(observer.intuitionJudgments||[]).some(j=>j.felt)?state.affinity?.revisions?.[observer.id]:0]),counters=(state.discussion?.events||[]).filter(e=>e.day===state.day&&e.command==='rebut'&&e.variant!=='blackQualification'&&q4PolicyOf(e)&&state.discussion.events.find(x=>x.id===e.replyTo)?.speakerId===observer.id).map(e=>e.id),events=(state.discussion?.events||[]).filter(e=>!q4PolicyOf(e)&&e.topic?.variant!=='argumentReason'&&e.topic?.variant!=='boardSummary').map(e=>[e.id,e.claim,e.subjectId]),key=JSON.stringify([boardKey,privateKey,events,counters]);
  const old=s.evaluations[observer.id];if(old?.key===key)return old;
  const {decision,outlook}=q4BaseDecision(observer,pub),rows=q4EvaluationRows(observer,pub,decision,outlook),latest=new Map();for(const row of rows){latest.set(row.root,row);s.argumentRecords[row.key]=JSON.parse(JSON.stringify(row));}
  const credit={};for(const row of latest.values())credit[row.actorId]=(credit[row.actorId]||0)+row.delta;
  for(const id of Object.keys(credit))credit[id]=clamp(50+clamp(credit[id],-8,8),42,58);
- const model={schemaVersion:1,visibility:'private',ownerId:observer.id,key,boardId:board.id,rows:[...latest.values()],credit,day:state.day};s.evaluations[observer.id]=model;
+ const model={schemaVersion:1,visibility:'private',ownerId:observer.id,key,boardId:board.id,roleScores:Object.fromEntries(Object.entries(decision.roles.roles).map(([role,values])=>[role,Object.fromEntries(Object.entries(values).map(([id,v])=>[id,v.score]))])),rows:[...latest.values()],credit,day:state.day};s.evaluations[observer.id]=model;
  const previous=s.policies[observer.id],options=q4PolicyCandidates(observer,pub,board,decision,outlook,credit),domains={};for(const domain of ['execution','guard','information']){const candidates=options.filter(c=>c.domain===domain);const prior=previous?.day===state.day?previous.domains[domain]:null;const first=q4PickPolicy(observer,candidates,prior,key,domain);domains[domain]={first,alternatives:candidates.filter(c=>c!==first).sort((a,b)=>b.score-a.score),confidence:first?.confidence||0};}
  const newCounters=counters.filter(id=>!(previous?.lastCounterIds||[]).includes(id)),history=[...(previous?.history||[])],changed=[];for(const domain of Object.keys(domains)){const before=previous?.domains[domain]?.first,after=domains[domain].first;if(before?.public.key!==after?.public.key){changed.push(domain);history.push({day:state.day,domain,before:before?.public||null,after:after?.public||null,reason:!previous?'initial':previous.day!==state.day?'newDay':previous.boardId!==board.id?'publicInformation':newCounters.length?'reasonedCounter':'personalInformation',boardId:board.id,counterIds:[...newCounters]});}}
  s.policies[observer.id]={schemaVersion:1,visibility:'private',ownerId:observer.id,day:state.day,boardId:board.id,lastInformationKey:key,lastCounterIds:[...counters],first:domains.execution.first||domains.information.first,domains,history:history.slice(-60),publiclyExpressed:previous?.publiclyExpressed||{}};
@@ -7387,6 +7390,115 @@ function q4ValidSaved(value){
 }
 const q3PolicySaved=isValidSavedGame;
 isValidSavedGame=value=>q3PolicySaved(value)&&q4ValidSaved(value);
+
+// quality5: public board inference. No role/action timing is changed.
+function q5Store(){return state.boardReasoning??={schemaVersion:1,snapshots:{},used:{}};}
+function q5Rules(context=state){return context.publicRoleCounts||{};}
+function q5Snapshot(context=state){
+ const counts=q5Rules(context),countsKnown=Object.values(counts).some(n=>Number.isInteger(n)&&n>0),r=context.publicRecords||{},players=context.players.map(p=>({id:p.id,alive:p.alive,claimed:p.claimed,deathDay:p.deathDay,deathPhase:p.deathPhase}));
+ const deaths=r.deaths||[],day=context.day,now=deaths.filter(d=>d.day===day&&d.phase==='night'),prior=deaths.filter(d=>d.day<day),ids=now.map(d=>d.playerId),confirmed=new Map(),broken=new Set();
+ if(context===state){const pub=buildSpeechPublicInformation();for(const id of pub.context.confirmed.keys())confirmed.set(id,publiclyKnownRoleFor(id,pub.context.confirmed));for(const id of pub.context.broken.keys())broken.add(id);}
+ const full=(r.fullCoRequests||[]),rolePossible=(id,role,atDay)=>{const p=players.find(p=>p.id===id);if(!p)return false;if(p.claimed===role&&broken.has(id))return false;if(confirmed.has(id)&&confirmed.get(id)!==role)return false;const request=full.find(q=>q.role===role&&q.day<=atDay&&Array.isArray(q.respondentIds));if(request?.aliveIds.includes(id)&&!request.respondentIds.includes(id))return false;return !p.claimed||p.claimed===role;};
+ const publicRemoved=new Set();for(const [id,role]of confirmed)if(['wolf','madman','fox'].includes(role)&&!players.find(p=>p.id===id)?.alive)publicRemoved.add(id);
+ if(context===state){const pub=buildSpeechPublicInformation();for(const row of pub.context.mediumRows)if(row.record.black&&pub.roles.roles.medium[row.record.mediumId]?.status==='true')publicRemoved.add(row.record.targetId);}
+ const openingFoxIds=context.openingRulesVersion===1&&!context.firstVictimEnabled?deaths.filter(d=>d.day===1&&d.phase==='night').map(d=>d.playerId):[];for(const id of openingFoxIds)publicRemoved.add(id);
+ const nightGroups=new Map();for(const d of deaths.filter(d=>d.day<=day&&d.phase==='night')){if(!nightGroups.has(d.day))nightGroups.set(d.day,new Set());nightGroups.get(d.day).add(d.playerId);}
+ const nightRemovalLowerBounds=[...nightGroups].map(([nightDay,group])=>{const ids=[...group],minimum=nightDay===1&&context.openingRulesVersion===1&&!context.firstVictimEnabled?ids.length:Math.max(0,ids.length-1),known=ids.filter(id=>publicRemoved.has(id)).length;return {day:nightDay,ids,minimum,additional:Math.max(0,minimum-known)};});
+ const lowerRemoved=nightRemovalLowerBounds.reduce((n,x)=>n+x.additional,0);
+ const hostileInitial=(counts.wolf||0)+(counts.madman||0)+(counts.fox||0),livingCount=players.filter(p=>p.alive).length;
+ const seers=players.filter(p=>!prior.some(d=>d.playerId===p.id)&&rolePossible(p.id,'seer',day-1)&&(!p.alive||p.claimed==='seer'||!p.claimed));
+ const foxTargets=ids.filter(id=>!confirmed.has(id)||confirmed.get(id)==='fox'),possibleDiviners=seers.filter(p=>{const reports=(r.seerResults||[]).filter(x=>x.seerId===p.id&&x.day===day);return !reports.length||reports.some(x=>!x.black&&foxTargets.includes(x.targetId));});
+ const foxCapacity=day===1&&context.openingRulesVersion!==1?0:Math.min(counts.fox||0,counts.seer||0,possibleDiviners.length,foxTargets.length);
+ const catRequest=full.find(q=>q.role==='cat'&&q.day===day&&Array.isArray(q.respondentIds)),livingCatKnown=[...confirmed].filter(([id,role])=>role==='cat'&&players.find(p=>p.id===id)?.alive).length;
+ const priorCatCertain=(r.catChains||[]).filter(x=>x.day<day).length+prior.filter(d=>confirmed.get(d.playerId)==='cat'&&!(r.catChains||[]).some(c=>c.catId===d.playerId)).length;
+ const catAvailable=(counts.cat||0)>priorCatCertain+livingCatKnown;
+ const catPairs=(remaining)=>remaining.some(cat=>rolePossible(cat,'cat',day-1)&&remaining.some(wolf=>wolf!==cat&&(!confirmed.has(wolf)||confirmed.get(wolf)==='wolf')));const catTarget=catPairs(ids),catVictim=catTarget;
+ let combinations=[];
+ if(ids.length){for(let fox=0;fox<=foxCapacity;fox++)for(const attack of ['none','ordinary','cat']){const n=fox+(attack==='cat'?2:attack==='ordinary'?1:0);if(n!==ids.length)continue;if(day===1&&context.openingRulesVersion===1&&(!context.firstVictimEnabled&&attack!=='none'||context.firstVictimEnabled&&attack==='none'))continue;if(ids.some(id=>['cat','wolf'].includes(confirmed.get(id)))&&attack!=='cat')continue;if(ids.filter(id=>confirmed.get(id)==='fox').length>fox)continue;if(attack==='ordinary'&&!ids.some(id=>!confirmed.has(id)||!['wolf','fox','cat'].includes(confirmed.get(id))))continue;if(attack==='cat'&&(!catAvailable||!catTarget||!catVictim||(counts.wolf||0)<=0))continue;if(attack==='none'&&fox===0)continue;const feasible=(chosen,start)=>{if(chosen.length===fox){const left=ids.filter(id=>!chosen.includes(id));return attack==='none'?left.length===0:attack==='cat'?left.length===2&&catPairs(left):left.length===1&&(!confirmed.has(left[0])||!['wolf','fox','cat'].includes(confirmed.get(left[0])));}for(let i=start;i<foxTargets.length;i++)if(feasible([...chosen,foxTargets[i]],i+1))return true;return false;};if(!feasible([],0))continue;combinations.push({foxDeaths:fox,attack});}}
+ // A cat absent after actual mandatory CO must be dead; with one initial cat and no prior deaths it belongs to this night.
+ const priorCatPossible=priorCatCertain>0||prior.some(d=>d.phase==='night'&&prior.filter(x=>x.day===d.day&&x.phase==='night').length>=2);
+ const catAbsentNow=!!catRequest&&!catRequest.respondentIds.some(id=>players.find(p=>p.id===id)?.alive)&&counts.cat===1&&!priorCatPossible;
+ if(catAbsentNow&&ids.length===2)combinations=combinations.filter(c=>c.attack==='cat');
+ const peace=day>1&&!ids.length&&(context===state?lastNightWasPeace():false),peaceCauses=[];
+ if(peace){if((counts.knight||0)>0&&players.some(p=>!prior.some(d=>d.playerId===p.id)&&rolePossible(p.id,'knight',day-1)))peaceCauses.push('guard');if((counts.fox||0)>new Set([...openingFoxIds,...prior.filter(d=>confirmed.get(d.playerId)==='fox').map(d=>d.playerId)]).size)peaceCauses.push('foxAttack');if(!peaceCauses.length)peaceCauses.push('noAttackTarget');}
+ if(!countsKnown)combinations=[];
+ const catPairCertain=ids.length===2&&combinations.length>0&&combinations.every(c=>c.attack==='cat'&&c.foxDeaths===0);
+ const removalExtra=catPairCertain&&!ids.some(id=>publicRemoved.has(id))?1:0;
+ const snapshot={schemaVersion:1,day,countsKnown,counts:{...counts},players,deathIds:ids,deathRecords:now,coRequests:full.map(q=>({role:q.role,day:q.day,aliveIds:q.aliveIds,respondentIds:q.respondentIds})),confirmed:[...confirmed].map(([id,role])=>({id,role})),livingCount,slots:Math.max(0,Math.floor((livingCount-1)/2)),hostileUpper:countsKnown?Math.min(livingCount,Math.max(0,hostileInitial-publicRemoved.size-lowerRemoved)):null,publicRemovedIds:[...publicRemoved],nightRemovalLowerBounds,night:{peace,peaceCauses,combinations,certainty:combinations.length===1?'certain':'unresolved',catPairCertain,catAbsentNow,catCoRequested:!!catRequest,possibleDivinerIds:possibleDiviners.map(p=>p.id)}};
+ snapshot.id='Q5'+affinityHash(JSON.stringify(snapshot)).toString(16);return snapshot;
+}
+const q5SnapshotCache=new WeakMap();
+function q5Board(){const key=JSON.stringify([state.day,state.publicRoleCounts,state.publicRecords,state.firstVictimEnabled,state.openingRulesVersion,state.players.map(p=>[p.id,p.alive,p.claimed,p.deathDay,p.deathPhase]),lastNightWasPeace()]),old=q5SnapshotCache.get(state);if(old?.key===key)return old.snapshot;const snap=q5Snapshot();q5Store().snapshots[snap.id]??=snap;q5SnapshotCache.set(state,{key,snapshot:snap});return snap;}
+function q5Ref(s){return {type:'publicBoardInference',visibility:'public',snapshot:{schemaVersion:1,id:s.id}};}
+const quality4Board=q4Board;
+q4Board=()=>{const base=quality4Board(),s=q5Board(),facts={...base.board.facts,boardInferenceId:s.id,hostileUpper:s.hostileUpper,night:s.night,publicDeaths:s.deathRecords,coRequests:s.coRequests};const key=JSON.stringify(facts),id='B'+affinityHash(key).toString(16);q4State().boards[id]??={schemaVersion:1,id,facts,signature:affinityHash(key)};return {pub:base.pub,board:q4State().boards[id],key};};
+const q5ViewCache=new WeakMap();
+function q5View(seerId,pub=buildSpeechPublicInformation()){
+ const s=q5Board(),cache=q5ViewCache.get(state)||new Map(),cacheKey=s.id+':'+seerId;if(cache.has(cacheKey))return cache.get(cacheKey);const count=s.counts.seer||0,rows=pub.context.seerRows.filter(r=>r.record.seerId===seerId),black=[...new Set(rows.filter(r=>r.record.black).map(r=>r.record.targetId))],white=rows.filter(r=>!r.record.black).map(r=>({id:r.record.targetId,day:r.record.day,notWolf:true,notFox:divinationKillsFox(r.record.day)&&byId(r.record.targetId)?.alive}));
+ const rivals=pub.context.people.filter(p=>p.id!==seerId&&p.claimed==='seer').map(p=>{let roles=count===1?['wolf','madman','fox'].filter(role=>(s.counts[role]||0)>0):['seer','wolf','madman','fox'].filter(role=>(s.counts[role]||0)>0);const death=(state.publicRecords.deaths||[]).find(d=>d.playerId===p.id);if(death&&((death.day===s.day&&s.night.combinations.length&&s.night.combinations.every(c=>c.attack==='ordinary'&&c.foxDeaths===0))||death.phase==='night'&&(s.counts.fox||0)===0&&(state.publicRecords.deaths||[]).filter(d=>d.day===death.day&&d.phase==='night').length===1))roles=roles.filter(role=>!['wolf','fox','cat'].includes(role));return {id:p.id,roles};});
+ const exposed=[...new Set([...black,...(count===1?rivals.map(p=>p.id):[])])],exposedMinimum=Math.max(exposed.length,rivals.length+1-count),contradictions=[];
+ if(!count)contradictions.push('noSeerSlot');if(pub.context.broken.has(seerId))contradictions.push('publicBreakdown');for(const id of black){const role=s.confirmed.find(p=>p.id===id)?.role;if(role&&role!=='wolf')contradictions.push('blackOnConfirmed:'+id);}
+ if(black.length>(s.counts.wolf||0))contradictions.push('tooManyWolves');if(exposedMinimum>(s.counts.wolf||0)+(s.counts.madman||0)+(s.counts.fox||0))contradictions.push('tooManyExposed');if(rivals.some(p=>!p.roles.length))contradictions.push('impossibleRival');
+ const view={schemaVersion:1,scope:'assumingSeerTrue',seerId,boardId:s.id,black,white,rivals,exposedIds:exposed,exposedMinimum,contradictions,sourceRefs:rows.map(r=>r.source)};cache.set(cacheKey,view);q5ViewCache.set(state,cache);return view;
+}
+const quality4Fox=publicFoxPossibility;
+publicFoxPossibility=(id,pub)=>quality4Fox(id,pub);
+function q5WhiteCondition(e){const refs=e.evidence||e.topic?.details?.evidence||[];return refs.map(x=>x.source).filter(Boolean).find(s=>s.collection==='seerResults'&&!s.snapshot.black&&s.snapshot.targetId===e.subjectId&&byId(e.subjectId)?.alive&&divinationKillsFox(s.snapshot.day));}
+const quality4PolicyDescriptor=q4PolicyDescriptor;
+q4PolicyDescriptor=(c,b)=>({...quality4PolicyDescriptor(c,b),...(c.publicGrounds?{proposalKind:c.proposalKind,publicGrounds:copyPublicSpeechEvidence(c.publicGrounds),protection:c.protection||null}:{} )});
+const quality4PolicyCandidates=q4PolicyCandidates;
+q4PolicyCandidates=(observer,pub,board,decision,outlook,credit)=>{
+ const s=q5Board(),rows=grayObservationRows(),known=grayKnownEventIds(observer),candidates=quality4PolicyCandidates(observer,pub,board,decision,outlook,credit),keep=buildPublicExecutionEvaluation(observer).keep;
+ if(!s.countsKnown)return candidates;
+ const eligible=id=>id!==observer.id&&byId(id)?.alive&&!(keep?.active&&keep.keepId===id)&&!pub.context.confirmed.has(id);
+ const reportCredit=id=>hostile(observer)?(id===observer.id&&observer.claimed==='seer'?Math.max(60,pub.roles.roles.seer[id]?.score??50):pub.roles.roles.seer[id]?.score??50):decision.roles.roles.seer[id]?.score??50;
+ const strongBlack=pub.context.seerRows.filter(r=>r.record.black&&eligible(r.record.targetId)&&pub.roles.roles.seer[r.record.seerId]?.status!=='broken'&&!q5View(r.record.seerId,pub).contradictions.length&&reportCredit(r.record.seerId)>51).sort((a,b)=>reportCredit(b.record.seerId)-reportCredit(a.record.seerId));
+ const material=rows.filter(r=>eligible(r.actorId)&&!byId(r.actorId).claimed&&r.sourceEventIds.every(id=>known.has(id))&&(r.interpretation.direction==='deny'&&r.kind==='unexplainedChange'||r.kind==='repeatedDeferral'));
+ const addPerson=(id,kind,grounds,trust)=>{const c=candidates.find(c=>c.action==='gray');if(!c)return;const score=(hostile(observer)?pub.people.people[id]?.score:decision.people.people[id]?.score)??50,caught=kind==='black'?clamp((trust-40)/60,.25,.85):clamp((50-score)/50+.20,.2,.7),copy={...c,targets:[id],selection:'person',components:{...c.components,catchChance:caught,information:kind==='black'?.7:.6,risk:kind==='black'?1-caught:.42,personal:clamp((50-score)/50,-.5,.5)},publicGrounds:grounds,proposalKind:kind};copy.motive=q4PolicyMotive(observer,copy,{grayTargets:[id]},board);copy.components.strategy=copy.motive.bonus;copy.score=4*copy.components.catchChance+3*copy.components.information-4*copy.components.risk+2*copy.components.slack+2*copy.components.personal+copy.components.strategy+copy.components.counter;copy.public=q4PolicyDescriptor(copy,board);candidates.push(copy);};
+ for(const r of strongBlack.filter((r,i,a)=>a.findIndex(x=>x.record.targetId===r.record.targetId)===i).slice(0,3)){const id=r.record.targetId,grounds=[{type:'reportedResult',visibility:'public',source:r.source}],behavior=material.find(x=>x.actorId===id);if(behavior)grounds.push(grayObservationEvidence(behavior));addPerson(id,'black',grounds,reportCredit(r.record.seerId));}
+ for(const r of material.filter(r=>!strongBlack.some(b=>b.record.targetId===r.actorId)).slice(0,3))addPerson(r.actorId,'grayEvidence',[grayObservationEvidence(r)],60);
+ // Publicly inferred protection value, never the actual living knight list.
+ const knightRequested=(state.publicRecords.fullCoRequests||[]).some(q=>q.role==='knight'&&q.day<=state.day&&Array.isArray(q.respondentIds));const hiddenKnight=(s.counts.knight||0)>0&&!knightRequested&&!s.players.some(p=>p.alive&&p.claimed==='knight'),valuable=s.players.some(p=>p.alive&&p.claimed==='seer')||s.confirmed.some(p=>byId(p.id)?.alive);
+ for(const c of candidates){if(hiddenKnight&&valuable&&c.action==='mediumRoll'){const bonus=s.slots>=c.targets.length?.8:.2;c.components.personal+=bonus/2;c.protection={kind:'hiddenKnightPossible',boardId:s.id};c.publicGrounds=[q5Ref(s)];c.score+=bonus;c.public=q4PolicyDescriptor(c,board);}if(c.action==='seerCompare'&&candidates.some(x=>x.action==='broken')){c.components.information+=.2;c.score+=.6;}if(c.action==='gray'&&c.selection==='person'&&!c.publicGrounds){c.selection='pool';c.targets=pub.context.people.filter(p=>p.alive&&!p.claimed&&p.id!==observer.id&&eligible(p.id)).map(p=>p.id);c.public=q4PolicyDescriptor(c,board);}}
+ for(const c of candidates)if(c.action==='mediumRoll'&&s.slots<s.hostileUpper+Math.min(c.targets.length,s.counts.medium||0)){c.components.slack-=.2*(s.hostileUpper+Math.min(c.targets.length,s.counts.medium||0)-s.slots);c.completeRoll=false;c.score=4*c.components.catchChance+3*c.components.information-4*c.components.risk+2*c.components.slack+2*c.components.personal+c.components.strategy+c.components.counter;c.public=q4PolicyDescriptor(c,board);}
+ return candidates;
+};
+const quality4PolicySpeech=q4PolicySpeechCandidate;
+q4PolicySpeechCandidate=(observer,policy,command='propose',source=null)=>{const c=quality4PolicySpeech(observer,policy,command,source),f=q4PolicyOf(c);if(f.publicGrounds){c.evidence.push(...f.publicGrounds);c.topic?.details&&(c.topic.details.evidence=c.evidence);c.topicForReason?.details&&(c.topicForReason.details.evidence=c.evidence);}return describeDiscussionSemantics(observer,c);};
+const quality4FlowSentence=q4FlowSentence;
+q4FlowSentence=(observer,f)=>{const n=id=>q4Name(observer,id);if(f.proposalKind==='black'){const result=f.publicGrounds.find(x=>x.type==='reportedResult');const own=result.source.snapshot.seerId===observer.id;return `${n(f.targets[0])}を今日の処刑候補に挙げたい。${own?'占い結果で黒が出ている。':'真寄りに見ている'+n(result.source.snapshot.seerId)+'から黒が出ている。'}${f.publicGrounds.some(x=>x.type==='publicBehaviorObservation')?'発言の変化にも説明が足りない。':''}${own?'ほかの候補や本人の説明も比べたい。':'占い師が偽なら、この黒だけでは決められない。'}`; }if(f.proposalKind==='grayEvidence'){const observation=f.publicGrounds.find(x=>x.type==='publicBehaviorObservation');return `${n(f.targets[0])}をグレーの処刑候補に考えたい。${observation.snapshot.kind==='unexplainedChange'?'見方を変えた理由がまだ説明されていない。':'質問への回答を何度か保留している。'}これだけで人狼とは決めない。`; }return quality4FlowSentence(observer,f)+(f.protection?'グレーから潜伏騎士を処刑したり、COさせたりする危険を減らす意味もある。':'');};
+const quality4BoardCore=grayCoreEvents;
+grayCoreEvents=(context=state)=>quality4BoardCore(context).filter(e=>e.topic?.variant!=='boardSummary'&&e.topicForReason?.variant!=='boardSummary');
+function q5Speech(observer,kind,data,evidence){const topic={kind:'information',variant:'boardSummary',targetId:null,details:{certainty:'inferred',boardSummary:{kind,data},evidence}},stats=personalityProfile(observer)?.stats||{};if(kind==='night'&&data.night.certainty==='unresolved'&&data.night.combinations.some(x=>x.foxDeaths>0)){const pub=buildSpeechPublicInformation(),white=pub.context.seerRows.find(r=>r.record.day===state.day&&!r.record.black&&data.deathIds.includes(r.record.targetId)&&pub.roles.roles.seer[r.record.seerId]?.status!=='false'&&(state.deliberation?.evaluations?.[observer.id]?.roleScores?.seer?.[r.record.seerId]??50)>51);if(white){topic.details.nightOpinion={certainty:'likely',scope:'subjective',favor:'curse',source:white.source};evidence.push({type:'reportedResult',visibility:'public',source:white.source});}}
+ const c={command:'organize',subjectId:null,recipientId:null,replyTo:null,claim:null,topic,evidence,weight:(kind==='night'?.14:.10)*(.5+.15*(kind==='night'?stats.observation:stats.logic))*(.5+.1*stats.assertiveness)};c.semanticReasonKey=JSON.stringify(['q5',state.day,kind,data.id||JSON.stringify(data)]);return describeDiscussionSemantics(observer,c);}
+const quality4BoardRelation=classifyDiscussionRelation;
+classifyDiscussionRelation=(a,b,context=state)=>b.variant==='blackQualification'&&b.replyTo===a.id&&q4PolicyOf(a)?.proposalKind==='black'?'rebut':quality4BoardRelation(a,b,context);
+const quality4ConcreteLogTarget=discussionLogRecipient;
+discussionLogRecipient=e=>{const f=q4PolicyOf(e);if(e.command==='propose'&&f?.selection==='person'&&f.targets.length===1&&byId(f.targets[0]))return f.targets[0];return quality4ConcreteLogTarget(e);};
+const quality4DiscussionCandidates=discussionCandidates;
+discussionCandidates=observer=>{const list=quality4DiscussionCandidates(observer);if(!isDiscussionVillage())return list;const s=q5Board();if(state.day<2&&!s.deathIds.length)return list;
+ const pub=buildSpeechPublicInformation(),known=grayKnownEventIds(observer);const roleScores=state.deliberation?.evaluations?.[observer.id]?.roleScores?.seer||{};
+ for(const source of state.discussion.events.filter(e=>e.day===state.day&&e.speakerId!==observer.id&&e.command==='propose'&&q4PolicyOf(e)?.proposalKind==='black'&&known.has(e.id))){const result=q4PolicyOf(source).publicGrounds.find(e=>e.type==='reportedResult'),seerId=result?.source?.snapshot?.seerId;if(seerId==null||pub.roles.roles.seer[seerId]?.status==='true'||(roleScores[seerId]??pub.roles.roles.seer[seerId]?.score??50)>50||state.discussion.events.some(e=>e.speakerId===observer.id&&e.replyTo===source.id))continue;const c=q4PolicySpeechCandidate(observer,{public:q4PolicyOf(source)},'rebut',source);c.variant='blackQualification';c.semanticReasonKey=JSON.stringify(['blackQualification',observer.id,source.id]);c.weight*=.7;list.push(describeDiscussionSemantics(observer,c));}
+ list.push(q5Speech(observer,'board',s,[q5Ref(s)]));if(s.countsKnown&&(s.night.peace||s.deathIds.length>=2))list.push(q5Speech(observer,'night',s,[q5Ref(s)]));
+ for(const p of s.players.filter(p=>s.countsKnown&&p.claimed==='seer'&&p.id!==observer.id)){const view=q5View(p.id,pub);list.push(q5Speech(observer,'view',view,[q5Ref(s),...view.sourceRefs.map(source=>({type:'reportedResult',visibility:'public',source}))]));}
+ const coherent=new Map();for(let c of list){if(c.command==='propose'&&!c.replyTo&&!q4PolicyOf(c)&&c.subjectId!=null){const chosen=state.deliberation?.policies?.[observer.id]?.domains.execution.first;if(!chosen||chosen.public.selection!=='person'||!chosen.targets.includes(c.subjectId))continue;const planned=q4PolicySpeechCandidate(observer,chosen);c={...planned,weight:Math.max(planned.weight,c.weight)};}const key=c.semanticReasonKey||discussionSemanticKey(c),previous=coherent.get(key);if(!previous||previous.weight<c.weight)coherent.set(key,c);}
+ return [...coherent.values()].filter(c=>!grayCandidateUsed(c)&&(!c.topic?.details?.boardSummary||!q5Store().used[c.semanticReasonKey])&&(!q4PolicyOf(c)||c.replyTo||!state.discussion.events.some(e=>e.day===state.day&&e.command==='propose'&&q4PolicyOf(e)?.key===q4PolicyOf(c).key)));};
+const quality4DiscussionText=discussionText;
+discussionText=(observer,c)=>{if(c.variant==='blackQualification'){const f=q4PolicyOf(c),r=f.publicGrounds.find(e=>e.type==='reportedResult');return `${q4Name(observer,c.recipientId)}、${q4Name(observer,r.source.snapshot.seerId)}が真と決まっていない以上、その黒だけで${q4Name(observer,f.targets[0])}を処刑するのは早い。占い師の信用と、本人の説明を比べたい。`;}const summary=c.topic?.details?.boardSummary;if(!summary){let text=quality4DiscussionText(observer,c);const source=state.discussion?.events.find(e=>e.id===c.replyTo),white=source&&q5WhiteCondition(source);if(c.variant==='semanticSupplement'&&white){const seer=byId(white.snapshot.seerId),pub=buildSpeechPublicInformation();if(pub.roles.roles.seer[seer.id]?.status!=='true')text=`${q4Name(observer,seer.id)}が真なら、${q4Name(observer,c.subjectId)}は人狼でも妖狐でもない。妖狐の可能性を残すなら、まず占い師が偽かどうかを考える必要がある。`;}return text;}
+ const s=summary.data,n=id=>q4Name(observer,id);let text;
+ if(summary.kind==='board'){text=`生存は${s.livingCount}人。毎晩1人襲撃で減るなら、処刑はあと${s.slots}回くらい。${s.countsKnown?'公開配役と確定情報から残る人外の上限は'+s.hostileUpper+'人だ。':'公開配役が記録されていないので、人外数の上限は計算できない。'}平和や呪殺、猫又の道連れで回数は変わる。`;const claims=['seer','medium','knight','cat'].map(role=>({role,n:s.players.filter(p=>p.alive&&p.claimed===role).length})).filter(p=>p.n);if(claims.length)text+=claims.map(p=>`${morningRoleLabel(p.role)}COは${p.n}人`).join('、')+'。';}
+ else if(summary.kind==='night'){if(s.night.peace)text=s.night.peaceCauses.includes('guard')&&s.night.peaceCauses.includes('foxAttack')?'今日は平和だね。護衛成功か、妖狐への襲撃が考えられる。誰が守られたかはまだ分からない。':s.night.peaceCauses.includes('guard')?'今日は平和だね。この配役なら護衛成功を考えたい。襲撃先は分からない。':'今日は死体が出ていない。原因はまだ判断できない。';else {const descriptions=s.night.combinations.map(c=>c.attack==='cat'?(c.foxDeaths?'呪殺と猫又襲撃・狼道連れ':'猫又襲撃と人狼道連れ'):c.foxDeaths?(c.attack==='ordinary'?'呪殺と通常襲撃':'呪殺だけで襲撃死なし'):'通常襲撃');text=`今朝は${s.deathIds.length}人が死亡している。${descriptions.length?descriptions.join('、')+'が成立する。':'この情報だけでは内訳を絞れない。'}${s.night.catPairCertain?'他の死因が成立しないので、この2人は猫又と人狼の組み合わせだ。':s.night.combinations.length>1?'まだ内訳は確定しない。':''}${(s.counts.cat||0)>0&&!s.night.catCoRequested?'猫又のCOを求めて確かめたい。提案だけでは不在と分からない。':''}`;}}
+ else {text=`${n(s.seerId)}を真占い師と仮定して整理する。`;if(s.black.length)text+=s.black.map(n).join('・')+'はその視点で人狼。';if(s.white.length)text+=s.white.map(x=>n(x.id)+(x.notFox?'は生存しているので人狼・妖狐ではない':'は人狼ではない')).join('、')+'。狂人までは否定できない。';if(s.rivals.length)text+=s.rivals.map(p=>`${n(p.id)}の可能な内訳は${p.roles.map(role=>morningRoleLabel(role)).join('・')||'ない'}`).join('、')+'。';text+=`この視点で最低${s.exposedMinimum}人外が露呈している。${s.contradictions.length?'公開記録と成立しない点があるので、この占い師の見方を再検討したい。':'村全体で真と決まった情報ではない。'}`;}
+ const opinion=c.topic?.details?.nightOpinion;if(opinion){text+=`${q4Name(observer,opinion.source.snapshot.seerId)}の今朝の白が死体に出ているので、呪殺を有力に見たい。ただし猫又の襲撃など、ほかの内訳も残る。`;}
+ return isAffinityVillage()?affinityTone(observer,c,naturalConversationText(text)):naturalConversationText(text);
+};
+const quality4Evidence=discussionEvidenceValid;
+discussionEvidenceValid=ev=>quality4Evidence(ev)&&ev.every(e=>e.type!=='publicBoardInference'||!!q5Store().snapshots[e.snapshot.id]&&(JSON.stringify(e.snapshot)===JSON.stringify({schemaVersion:1,id:e.snapshot.id})||JSON.stringify(q5Store().snapshots[e.snapshot.id])===JSON.stringify(e.snapshot)));
+const quality4Commit=commitDiscussionSpeech;
+commitDiscussionSpeech=(observer,c)=>{if(c.topic?.details?.boardSummary){const summary=c.topic.details.boardSummary,snap=q5Store().snapshots[summary.data.id||summary.data.boardId];if(!snap||q5Store().used[c.semanticReasonKey])return null;if(summary.kind==='view'&&JSON.stringify(q5View(summary.data.seerId))!==JSON.stringify(summary.data))return null;if(summary.kind!=='view'&&JSON.stringify(snap)!==JSON.stringify(summary.data))return null;}
+ const e=quality4Commit(observer,c);if(e&&c.topic?.details?.boardSummary)q5Store().used[c.semanticReasonKey]={eventId:e.id,day:state.day};return e;};
+const quality4SaveCheck=isValidSavedGame;
+isValidSavedGame=value=>{if(!quality4SaveCheck(value))return false;const s=value.boardReasoning;if(!s)return true;if(s.schemaVersion!==1||!s.snapshots||!s.used)return false;for(const [id,snap]of Object.entries(s.snapshots)){const copy={...snap};delete copy.id;if(snap.schemaVersion!==1||id!==snap.id||id!=='Q5'+affinityHash(JSON.stringify(copy)).toString(16)||snap.hostileUpper<0||snap.slots!==Math.max(0,Math.floor((snap.livingCount-1)/2)))return false;}return Object.values(s.used).every(x=>value.discussion.events.some(e=>e.id===x.eventId));};
 
 $("#discussionBtn").onclick=encourageDiscussion;
 $("#playerCount").addEventListener("input",()=>{selectedRolePreset=null;renderRoleConfig()});

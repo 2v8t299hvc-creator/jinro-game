@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-quality5</title>
+<title>個人用人狼アプリ v2.20.0-quality6</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -128,12 +128,12 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 @media(max-width:520px){.discussion-body{font-size:13px}.discussion-head{font-size:12px}#notebookBtn{font-size:12px;padding:7px 12px;min-height:36px}}
 
 /* quality5 compact cards: independent note button with 44px touch area */
-.player-list{grid-template-columns:repeat(2,minmax(0,1fr))}.player-row{position:relative;display:grid;grid-template-columns:minmax(0,1fr);gap:3px;padding:8px 46px 8px 8px;font-size:13px;min-height:60px}.player-row .player-name{grid-column:1;white-space:normal;overflow-wrap:anywhere}.player-row .player-co{grid-column:1;white-space:normal;font-size:12px}.player-row .player-life{grid-column:1;grid-row:auto;text-align:left;font-size:11px}.player-row .person-note-btn{position:absolute;right:0;top:0;margin:0;width:44px;min-height:44px;padding:4px;font-size:19px;line-height:1;background:transparent}.player-row .broken-badge,.player-row .confirmed-badge{font-size:10px}@media(max-width:520px){.player-row{font-size:13px;grid-template-columns:minmax(0,1fr);padding:7px 46px 7px 7px}.player-list{gap:5px}}
+.player-list{grid-template-columns:repeat(2,minmax(0,1fr))}.player-row{position:relative;display:grid;grid-template-columns:minmax(0,1fr);gap:3px;padding:8px 46px 8px 8px;font-size:13px;min-height:60px}.player-row .player-name{grid-column:1;white-space:normal;overflow-wrap:anywhere}.player-row .player-co{grid-column:1;white-space:normal;font-size:12px}.player-row .player-life{grid-column:1;grid-row:auto;text-align:left;font-size:11px}.player-row .person-note-btn{position:absolute;grid-column:auto;grid-row:auto;left:auto;bottom:auto;justify-self:auto;right:0;top:0;margin:0;width:44px;min-height:44px;padding:4px;font-size:19px;line-height:1;background:transparent}.player-row .broken-badge,.player-row .confirmed-badge{font-size:10px}@media(max-width:520px){.player-row{font-size:13px;grid-template-columns:minmax(0,1fr);padding:7px 46px 7px 7px}.player-list{gap:5px}}
 </style>
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.20.0-quality5</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title">個人用人狼 v2.20.0-quality6</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -242,7 +242,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
 </section>
 <script>
-const GAME_VERSION="2.20.0-quality5";
+const GAME_VERSION="2.20.0-quality6";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -1205,6 +1205,7 @@ function recordPublicDeath(p,day,phase,label){
   if(!p)return;
   p.deathDay=day;
   p.deathPhase=phase;
+  syncPlayerLifeDisplay();
   pushPublicRecord("deaths",{playerId:p.id,day,phase,label},["playerId","day","phase"]);
 }
 function nextPublicationOrder(){ensurePublicRecords();state.publicRecords.publishClock=(state.publicRecords.publishClock||0)+1;return state.publicRecords.publishClock;}
@@ -1237,20 +1238,7 @@ function renderLogFilterOptions(){
   sel.innerHTML=`<option value="">全員のログ</option>`+state.players.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("");
   sel.value=current;
 }
-function renderLog(){
-  if(!state)return;
-  renderLogFilterOptions();
-  let rows=state.logs;
-  const filterId=state.logPersonFilterId;
-  if(filterId!==null&&filterId!==undefined&&filterId!==""){
-    const person=byId(filterId);
-    if(person)rows=rows.filter(x=>String(x.msg||"").includes(person.name));
-  }
-  $("#log").innerHTML=rows.length
-    ?rows.map(x=>`<p class="${x.cls}">${escapeHtml(x.msg)}</p>`).join("")
-    :`<p class="muted">この人物に関するログはまだありません。</p>`;
-  $("#log").scrollTop=$("#log").scrollHeight;
-}
+let renderLog;
 function showGame(){$("#setupScreen").classList.add("hidden");$("#gameScreen").classList.remove("hidden");renderAll()}
 function showSetup(){$("#gameScreen").classList.add("hidden");$("#setupScreen").classList.remove("hidden")}
 
@@ -1373,13 +1361,23 @@ function renderClaimBoard(){
   }).join("");
 }
 
+// State remains authoritative; update existing cards before inference/save work.
+function syncPlayerLifeDisplay(){
+ if(!state)return;
+ document.querySelectorAll('[data-player-id]').forEach(row=>{
+  const p=byId(+row.dataset.playerId);if(!p)return;
+  row.classList.toggle('dead',!p.alive);
+  if(!p.alive){row.classList.remove('selectable');row.classList.remove('dimmed');}
+  const life=row.querySelector('.player-life');if(life)life.textContent=p.alive?'生存':'死亡';
+ });
+}
 function renderAll(){
   if(!state)return;
   $("#topbarPhase").textContent=state.winner?`ゲーム終了：${state.winner}`:`${state.day}日目・${state.phase==="day"?"昼":"夜"} / 生存${living().length}`;
   $("#statusBadges").innerHTML=`<span class="badge">${state.day}日目</span><span class="badge">${state.phase==="day"?"昼":"夜"}</span><span class="badge">生存 ${living().length}</span><span class="badge">死亡 ${state.players.length-living().length}</span><span class="badge">残り ${state.phase==="day"?Math.floor((living().length-1)/2):Math.floor(living().length/2)}縄（目安）</span>`;
   const counts=state.publicRoleCounts||{};
   $("#roleSummary").textContent="配役："+ROLES.filter(([r])=>(counts[r]||0)>0).map(([r,n])=>`${n}×${counts[r]}`).join(" / ");
-  renderClaimBoard();
+  syncPlayerLifeDisplay();
 
   $("#players").innerHTML=state.players.map(p=>{
     const selectable=state.selectionMode&&p.alive&&(!state._selectionAllowed||state._selectionAllowed.includes(p.id));
@@ -1400,6 +1398,7 @@ function renderAll(){
     };
   });
 
+  renderClaimBoard();
   renderLog();
   if(state.selectionMode){$("#selectionHint").textContent=`${state.selectionTitle}：名前パネルをタップして選択`;$("#selectionHint").classList.remove("hidden")}else{$("#selectionHint").classList.add("hidden")}
   document.querySelectorAll(".bottom-nav button").forEach(b=>b.disabled=!!state.winner);
@@ -1448,11 +1447,11 @@ function makeRolePanel(){
 
 function reportTrueSeer(p,first=false){
   if(!p.alive)return; // 襲撃死した占い師は占いが成立しても報告不可
-  if(first)log(`${p.name} が【占い師CO】しました。`,"claim");
+  if(first)log(`${p.name} が【占い師CO】しました。`,"claim",{speakerId:p.id});
   const unread=p.seerResults.slice(p.lastReportedSeerCount||0);
-  if(!unread.length&&first){log(`${p.name}（占い師CO）：まだ占い結果はありません。`,"result");return}
+  if(!unread.length&&first){log(`${p.name}（占い師CO）：まだ占い結果はありません。`,"result",{speakerId:p.id});return}
   unread.forEach(r=>{
-    log(`${p.name}（占い師CO）：${byId(r.target).name} → ${r.black?"人狼":"人狼ではない"}`,"result");
+    log(`${p.name}（占い師CO）：${byId(r.target).name} → ${r.black?"人狼":"人狼ではない"}`,"result",{speakerId:p.id});
     publishedSeerRecord(p,r.target,r.black,r.day);
   });
   p.lastReportedSeerCount=p.seerResults.length;
@@ -1460,7 +1459,7 @@ function reportTrueSeer(p,first=false){
 function reportFakeSeer(p,first=false,prepared=null){
   if(!p.alive)return;
   const pending=prepared??prepareFakeSeerReports(p);
-  if(first)log(`${p.name} が【占い師CO】しました。`,"claim");
+  if(first)log(`${p.name} が【占い師CO】しました。`,"claim",{speakerId:p.id});
   for(const r of pending){
     // 発表直前にも制約を確認。公開後の結果を書き換えることはない。
     if(state.publicRecords.seerResults.some(x=>x.seerId===p.id&&x.day===r.day))continue;
@@ -1474,13 +1473,13 @@ function reportFakeSeer(p,first=false,prepared=null){
       if(!Array.isArray(p.fakeSeerWithheldReports))p.fakeSeerWithheldReports=[];
       if(p.fakeSeerWithheldReports.some(h=>h.day===r.day))continue;
       p.fakeSeerWithheldReports.push({day:r.day,target:r.target});
-      log(`${p.name}（占い師CO）：${r.day}日目の判定は以前の結果と確定情報が両立せず、公表できません。`,"result");
+      log(`${p.name}（占い師CO）：${r.day}日目の判定は以前の結果と確定情報が両立せず、公表できません。`,"result",{speakerId:p.id});
       continue;
     }
     const result={...r,black};
     if(result.strategy)result.strategy={...JSON.parse(JSON.stringify(result.strategy)),publishedBlack:black,rechecked:true};
     p.fakeSeerResults.push(result);
-    log(`${p.name}（占い師CO）：${byId(result.target).name} → ${result.black?"人狼":"人狼ではない"}`,"result");
+    log(`${p.name}（占い師CO）：${byId(result.target).name} → ${result.black?"人狼":"人狼ではない"}`,"result",{speakerId:p.id});
     publishedSeerRecord(p,result.target,result.black,result.day);
   }
   p.lastReportedSeerCount=p.fakeSeerResults.length;
@@ -1488,11 +1487,11 @@ function reportFakeSeer(p,first=false,prepared=null){
 // 真偽共通の公表処理。初回の「結果なし」表示は真霊媒だけが行う従来仕様。
 function publishUnreadMediumResults(p,results,first,reportEmpty){
   if(!p.alive)return;
-  if(first)log(`${p.name} が【霊媒師CO】しました。`,"claim");
+  if(first)log(`${p.name} が【霊媒師CO】しました。`,"claim",{speakerId:p.id});
   const unread=results.slice(p.lastReportedMediumCount||0);
-  if(!unread.length&&first&&reportEmpty){log(`${p.name}（霊媒師CO）：まだ霊媒結果はありません。`,"result");return}
+  if(!unread.length&&first&&reportEmpty){log(`${p.name}（霊媒師CO）：まだ霊媒結果はありません。`,"result",{speakerId:p.id});return}
   unread.forEach(r=>{
-    log(`${p.name}（霊媒師CO）：${byId(r.target).name} → ${r.black?"人狼":"人狼ではない"}`,"result");
+    log(`${p.name}（霊媒師CO）：${byId(r.target).name} → ${r.black?"人狼":"人狼ではない"}`,"result",{speakerId:p.id});
     publishedMediumRecord(p,r.target,r.black,r.day);
   });
   p.lastReportedMediumCount=results.length;
@@ -1557,14 +1556,14 @@ function ensureFakeGuardHistory(p){
 }
 function reportKnight(p,first=false){
   if(!p.alive)return;
-  if(first)log(`${p.name} が【騎士CO】しました。`,"claim");
+  if(first)log(`${p.name} が【騎士CO】しました。`,"claim",{speakerId:p.id});
   if(p.role!=="knight")ensureFakeGuardHistory(p);
   const hist=p.role==="knight"?(p.guardHistory||[]):(p.fakeGuardHistory||[]);
   const published=new Set((state.publicRecords?.guards||[]).filter(r=>r.knightId===p.id).map(r=>r.day));
   const unread=hist.filter(r=>!published.has(r.day));
-  if(!unread.length&&first)log(`${p.name}（騎士CO）：まだ護衛記録はありません。`,"result");
+  if(!unread.length&&first)log(`${p.name}（騎士CO）：まだ護衛記録はありません。`,"result",{speakerId:p.id});
   unread.forEach(r=>{
-    log(`${p.name}（騎士CO）：${r.day}日目は ${byId(r.target)?.name??"不明"} を護衛しました。`,"result");
+    log(`${p.name}（騎士CO）：${r.day}日目は ${byId(r.target)?.name??"不明"} を護衛しました。`,"result",{speakerId:p.id});
     publishedGuardRecord(p,r.target,r.day);
   });
 }
@@ -1757,11 +1756,11 @@ function recordCOEvent(p,kind,role=null){
 function recordRoleClaim(p,role){
   if(p.claimed===role)return false;
   if(p.claimed&&p.claimed!==role){
-    log(`${p.name} は【${roleName(p.claimed)}CO】を撤回しました。`,"claim");
+    log(`${p.name} は【${roleName(p.claimed)}CO】を撤回しました。`,"claim",{speakerId:p.id});
     recordCOEvent(p,"withdraw",p.claimed);
   }
   if(p.villagerClaim===true){
-    log(`${p.name} は【村人CO】を撤回しました。`,"claim");
+    log(`${p.name} は【村人CO】を撤回しました。`,"claim",{speakerId:p.id});
     recordCOEvent(p,"withdraw","villager");
   }
   p.claimed=role;p.coCheckedNone=false;p.villagerClaim=null;
@@ -1832,7 +1831,7 @@ function publishRoleClaimResults(p,role,changed,preparedFakeSeerReports){
   }else if(role==="knight"){
     reportKnight(p,changed);
   }else if(role==="cat"&&changed){
-    log(`${p.name} が【猫又CO】しました。`,"claim");
+    log(`${p.name} が【猫又CO】しました。`,"claim",{speakerId:p.id});
   }
 }
 function announceRole(p,role,first=true,preparedFakeSeerReports=null){
@@ -1864,10 +1863,10 @@ function publishResonatorCoGroup(){
   // 全員の役職宣言を記録してから、各人の相方と文章を公表する。
   partners.forEach(p=>recordRoleClaim(p,"resonator"));
   partners.forEach(p=>{
-    log(`${p.name} が【共鳴者CO】しました。`,"claim");
+    log(`${p.name} が【共鳴者CO】しました。`,"claim",{speakerId:p.id});
     const others=state.players.filter(x=>x.role==="resonator"&&x.id!==p.id);
     publishedResonatorClaim(p,others.map(x=>x.id));
-    if(others.length)log(`${p.name}：「相方は ${others.map(x=>x.name+(x.alive?"":"（死亡）")).join("、")} です」`,"result");
+    if(others.length)log(`${p.name}：「相方は ${others.map(x=>x.name+(x.alive?"":"（死亡）")).join("、")} です」`,"result",{speakerId:p.id});
   });
 }
 function publishRoleCoResponses(role,{real,fakes,preparedFakeReports}){
@@ -1954,7 +1953,7 @@ function publishIndividualCoResponse(p,role){
 function resolveIndividualCoCheck(id){
   const p=byId(id);
   if(p.claimed){
-    log(`【個別CO確認】${p.name}：「${roleName(p.claimed)}COしています」`,"claim");
+    log(`【個別CO確認】${p.name}：「${roleName(p.claimed)}COしています」`,"claim",{speakerId:p.id});
     save();renderAll();return;
   }
   const snap=coSnapshot();
@@ -1972,7 +1971,7 @@ function villagerCheck(){
     const p=byId(id);
     if(p.claimed){
       if(p.villagerClaim===true)recordVillagerClaim(p,false);
-      log(`【個別村人CO】${p.name}：「村人ではありません。${roleName(p.claimed)}COです」`,"claim");
+      log(`【個別村人CO】${p.name}：「村人ではありません。${roleName(p.claimed)}COです」`,"claim",{speakerId:p.id});
       save();renderAll();return;
     }
     let saysVillager;
@@ -1988,7 +1987,7 @@ function villagerCheck(){
       recordVillagerClaim(p,saysVillager);
       p.villagerAnswerLocked=true;
     }
-    log(`【個別村人CO】${p.name}：「${saysVillager?"村人です":"村人ではありません"}」`,saysVillager?"claim":"system");
+    log(`【個別村人CO】${p.name}：「${saysVillager?"村人です":"村人ではありません"}」`,saysVillager?"claim":"system",{speakerId:p.id});
     commitPublicTruthProofs();save();renderAll();
   });
 }
@@ -2159,7 +2158,7 @@ function confirmExecution(){
   const w=checkWin(); if(w){finish(w);return}
   state.phase="night";
   log("夜になりました。","system");
-  save();renderAll();
+  renderAll();localStorage.setItem("jinro_v04_state",JSON.stringify(state));save();
 }
 
 function cancelExecution(){
@@ -4722,6 +4721,7 @@ function buildHypothesisMorningCandidates(observer,pub,outlook){
     variant,targetId:id,weight,details:{certainty:'inferred',hypothesis:true,evidence:JSON.parse(JSON.stringify(evidence)),...extra}});
   for(const role of ['seer','medium'])for(const entry of Object.values(outlook.roles[role].assessments)){
     if(entry.targetId===observer.id||entry.view==='unknown'||entry.certaintyScope==='public'||outlook.people[entry.targetId]?.intuitionSuspicion?.active)continue;
+    if(entry.view==='true'&&!hostile(observer)&&q6OnlyAmbiguousMatch(entry.publicEvidence,role,entry.targetId,pub.context))continue;
     add(entry.view==='true'?'roleTruth':'roleFalse',entry.targetId,3,entry.publicEvidence,{role,roleLabel:morningRoleLabel(role)});
   }
   for(const entry of Object.values(outlook.people)){
@@ -4733,7 +4733,7 @@ function buildHypothesisMorningCandidates(observer,pub,outlook){
     }
     if(id===outlook.lynchPreference.targetId&&entry.wolfView==='wolfLeaning')add('lynchProposal',id,5,entry.publicEvidence);
   }
-  return candidates;
+  return candidates.map(t=>q6NormalizeOwnTopic(observer,t));
 }
 
 // 各キャラの現在の見立て。全体を私的データとして保存し、発言には公開根拠だけを投影する。
@@ -4915,7 +4915,7 @@ function speechFitsOutlook(observer,topic,outlook){
 }
 function buildMorningSpeechCandidates(observer){
   const pub=buildSpeechPublicInformation(),outlook=buildCharacterOutlook(observer,pub,observer.role==='wolf');
-  const topics=buildOutlookSpeechCandidates(observer,pub,outlook).filter(t=>speechFitsOutlook(observer,t,outlook));
+  const topics=buildOutlookSpeechCandidates(observer,pub,outlook).filter(t=>speechFitsOutlook(observer,t,outlook)&&!(t.variant==='roleTruth'&&!hostile(observer)&&q6OnlyAmbiguousMatch(t.details?.evidence,t.details?.role,t.targetId,pub.context))).map(t=>q6NormalizeOwnTopic(observer,t));
   return topics.length?topics:buildMorningInformationCandidates(pub);
 }
 
@@ -5011,6 +5011,7 @@ function morningVoiceFor(observer){
   return COM_MORNING_VOICES[observer.characterId]||COM_MORNING_VOICES.joshua;
 }
 function morningName(observer,id){
+  if(id===observer.id)return CONVERSATION_FIRST_PERSON[observer.characterId]||"僕";
   const name=byId(id)?.name||"その人";
   return name+(["melbon","cortes"].includes(observer.characterId)?"様":observer.characterId==="naminami"?"さん":"");
 }
@@ -5039,16 +5040,20 @@ function morningReason(observer,topic){
   if(comparison)return null;
   const fox=evidence.find(e=>e.type==="survivedPublicDivination");
   if(fox)return `${fox.roleTrust.status==="true"?"真確定した":"真寄りに見ている"}${name(fox.source.snapshot.seerId)}に占われた後も生きている`;
+  const own=q6OwnPublishedResult(observer,topic);
+  if(own)return `${CONVERSATION_FIRST_PERSON[observer.characterId]||'僕'}の占い結果では、${name(own.targetId)}に${own.black?'黒':'白'}が出ている`;
   const result=evidence.filter(e=>e.source?.snapshot&&(e.source.snapshot.seerId!=null||e.source.snapshot.mediumId!=null))
     .sort((a,b)=>Math.abs(b.delta||0)-Math.abs(a.delta||0))[0];
   if(result){
     const r=result.source.snapshot;
+    if((r.seerId??r.mediumId)===observer.id)return `${CONVERSATION_FIRST_PERSON[observer.characterId]||"僕"}が報告した${r.seerId!=null?"占い":"霊媒"}結果では、${name(r.targetId)}に${r.black?"黒":"白"}が出ている`;
     const prefix=result.type==="confirmedWolfResult"||result.roleTrust?.status==="true"?"真確定した":"真寄りに見ている";
     return `${prefix}${name(r.seerId??r.mediumId)}から${r.black?"黒":"白"}が出ている`;
   }
   return null;
 }
 function formatMorningConsideration(observer,topic){
+  topic=q6NormalizeOwnTopic(observer,topic);
   const d=topic.details||{},v=topic.variant,voice=morningVoiceFor(observer),name=morningName(observer,topic.targetId)+(["roleTruth","roleFalse"].includes(topic.variant)&&!byId(topic.targetId)?.alive?"（死亡）":"");
   const fill=(text,values)=>text.replace(/【(役職|名前|評価|理由|事実)】/g,(_,key)=>values[key]??"");
   if(v==='pastWhite'||v==='pastReliable'){
@@ -5554,7 +5559,7 @@ function runDaySpeeches(){
   speakers.forEach(p=>{
     const speech=generateComSpeech(p,true);
     recordComSpeech(p,speech);
-    log(speech.fullText,"talk");
+    log(speech.fullText,"talk",{speakerId:p.id});
   });
 }
 
@@ -5717,7 +5722,7 @@ function checkWin(){
   if(w>=o)return f>0?"妖狐陣営の勝利":"人狼陣営の勝利";
   return null;
 }
-function finish(w){clearSelection();state.winner=w;state.phase="end";log(`ゲーム終了：${w}`,"system");save();renderAll()}
+function finish(w){clearSelection();state.winner=w;state.phase="end";log(`ゲーム終了：${w}`,"system");renderAll();localStorage.setItem("jinro_v04_state",JSON.stringify(state));save()}
 function save(){captureSocialBreakdowns();refreshRoleTrust();refreshRoleHypotheses();localStorage.setItem("jinro_v04_state",JSON.stringify(state))}
 function isValidSavedGame(value){
   return !!value&&Number.isInteger(value.day)&&value.day>=1&&
@@ -6014,7 +6019,7 @@ function commitDiscussionSpeech(observer,c){
   const key=observer.id+':'+c.subjectId,old=d.positions[key];d.positions[key]={claim:c.claim,eventId:id,day:state.day};
   if(old&&old.claim!==c.claim){d.revisions.push({speakerId:observer.id,subjectId:c.subjectId,before:old.claim,after:c.claim,eventId:id,replyTo:c.replyTo,day:state.day});d.revisions=d.revisions.slice(-100);}
  }
- log(`${observer.name}【${DISCUSSION_LABELS[c.command]}】：「${text}」`,'talk',{discussionId:event.id});return event;
+ log(`${observer.name}【${DISCUSSION_LABELS[c.command]}】：「${text}」`,'talk',{discussionId:event.id,speakerId:observer.id});return event;
 }
 function chooseDiscussionPair(allowedSpeakers=null,batchCounts={}){
  const day=discussionDay(),pending=discussionState().questions;
@@ -6303,7 +6308,7 @@ function submitPlayerDiscussion(subjectId,command){
   Object.assign(semantics,{eventId:id,command:c.command,subjectId,primaryTargetId:subjectId,semanticReasonKey:c.semanticReasonKey,stage:2});
   const last=self.lastSpeechDay;recordComSpeech(self,{kind:c.topic?.kind||c.command,targetId:subjectId,text,fullText:`${self.name}：「${text}」`,semantics});self.lastSpeechDay=last;
   d.nextId++;d.events.push(event);discussionDay().keys.push(c.semanticReasonKey);if(c.command==='question')d.questions.push({eventId:id,aboutId:c.replyTo,recipientId:c.recipientId,day:state.day,status:'open'});if(c.command==='answer'||c.command==='hold'&&c.replyTo){const q=d.questions.find(q=>q.eventId===c.replyTo);if(q){q.status=c.command==='answer'?'answered':'held';q.responseId=id;}}captureArgumentMemories(event);applyAffinityPrepared(c.command==='hold'&&!c.replyTo?null:prepared,event);
-  log(`${self.name}【${DISCUSSION_LABELS[c.command]}】：「${text}」`,'talk');save();renderAll();return true;
+  log(`${self.name}【${DISCUSSION_LABELS[c.command]}】：「${text}」`,'talk',{speakerId:self.id});save();renderAll();return true;
  }catch(error){state=before;throw error;}
 }
 function openPlayerDiscussionMenu(){
@@ -6640,9 +6645,9 @@ renderLog=()=>{
  const filter=state.logPersonFilterId,person=filter!=null&&filter!==''?byId(+filter):null;
  const rows=state.logs.map(row=>({row,event:discussionLogEvent(row,legacy)})).filter(({row,event})=>{
   if(!person)return true;
-  return event?[event.speakerId,event.subjectId,event.recipientId,...(event.secondaryIds||[])].includes(person.id):String(row.msg||'').includes(person.name);
+  return event?event.speakerId===person.id:q6LegacyLogSpeaker(row)===person.id;
  });
- $('#log').innerHTML=rows.length?rows.map(({row,event})=>event?discussionLogHTML(event):`<p class="system-log ${escapeHtml(row.cls||'')}">${escapeHtml(row.msg)}</p>`).join(''):'<p class="muted">この人物に関するログはまだありません。</p>';
+ $('#log').innerHTML=rows.length?rows.map(({row,event})=>event?discussionLogHTML(event):`<p class="system-log ${escapeHtml(row.cls||'')}">${escapeHtml(row.msg)}</p>`).join(''):'<p class="muted">この人物の発言はまだありません。</p>';
  $('#log').scrollTop=$('#log').scrollHeight;
 };
 
@@ -6930,6 +6935,7 @@ function grayQuestionGap(e,context=state){
   const source=context.discussion?.events.find(x=>x.id===refs[0].eventId);
   if(source&&graySpecificReason(source))return null;
   // A bare citation is incomplete: ask which part, not for the entire reason again.
+  if(source&&source.speakerId===e.speakerId)return null;
   if(source)return {kind:'statementDetail',sourceEventId:source.id,key:JSON.stringify([e.speakerId,e.subjectId,discussionProposition(e,context).issue,'statementDetail',source.id])};
  }
  return {kind:'missingReason',sourceEventId:e.id,key:JSON.stringify([e.speakerId,e.subjectId,discussionProposition(e,context).issue,'missingReason',grayMaterialRoots(e)])};
@@ -7105,7 +7111,7 @@ discussionText=(observer,c)=>{
  }else if(c.variant==='positionHold'){
   text=conversationFill(voice.answerHold,{to});
  }else if(c.command==='question'&&c.informationRequest?.kind==='statementDetail'){
-  const source=state.discussion.events.find(e=>e.id===c.informationRequest.sourceEventId);text=`${to}、${morningName(observer,source?.speakerId)}の話の、どの部分が気になった${['melbon','cortes','naminami'].includes(observer.characterId)?'のですか？':'？'}`;
+  const source=state.discussion.events.find(e=>e.id===c.informationRequest.sourceEventId),original=state.discussion.events.find(e=>e.id===c.replyTo);if(source?.speakerId===c.recipientId){const subject=morningName(observer,original?.subjectId);text=`${to}、${subject}について、どの発言を理由にそう考えた${['melbon','cortes','naminami'].includes(observer.characterId)?'のですか？':'？'}`;}else text=`${to}、${morningName(observer,source?.speakerId)}の話の、どの部分が気になった${['melbon','cortes','naminami'].includes(observer.characterId)?'のですか？':'？'}`;
  }
  const row=c.evidence?.find(e=>e.type==='publicBehaviorObservation')?.snapshot;
  if(row&&c.topic?.variant==='grayBehavior'){
@@ -7264,8 +7270,9 @@ function q4PolicyCandidates(observer,pub,board,decision,outlook,credit){
  if(seer.length>=2){const surplus=Math.max(0,seer.length-(f.counts.seer||0));add('seerCompare',surplus?'execution':'information',seer.map(p=>p.id),surplus/seer.length*.6,.7,surplus?.4:.12,surplus?clamp(margin/5,-.5,.3):-.4,.05,{role:'seer'});}
  const broken=f.brokenIds.filter(id=>id!==observer.id&&id!==keep);if(broken.length)add('broken','execution',[broken[0]],.85,.5,.08,.2,.1,{selection:'person',confidence:.9});
  add('reconsider','information',[],.02,.35+(margin<0?.25:0),.05,margin<0?.2:-.7,0);
- if(seer.length){const ranked=[...seer].sort((a,b)=>(decision.roles.roles.seer[b.id]?.score??50)-(decision.roles.roles.seer[a.id]?.score??50));const ids=seer.length===1||pub.context.confirmed.has(ranked[0].id)?[ranked[0].id]:seer.map(p=>p.id);add('guardSeer','guard',ids,0,.85,.15+(f.missingEnabled?.12:0),.2,0,{role:'seer',selection:ids.length===1?'person':'pool'});}
- const other=players.filter(p=>!seer.some(s=>s.id===p.id)&&(p.claimed==='medium'||pub.context.confirmed.has(p.id))&&!['cat','knight'].includes(p.claimed)&&!f.brokenIds.includes(p.id));if(other.length)add('guardOther','guard',[other[0].id],0,.55,pub.context.confirmed.has(other[0].id)?.10:.25,.2,0,{role:other[0].claimed,selection:'person'});
+ const guardSeers=seer.filter(p=>hostile(observer)||decision.roles.roles.seer[p.id]?.status!=='false');
+ if(guardSeers.length){const ranked=[...guardSeers].sort((a,b)=>(decision.roles.roles.seer[b.id]?.score??50)-(decision.roles.roles.seer[a.id]?.score??50));const ids=guardSeers.length===1||pub.context.confirmed.has(ranked[0].id)?[ranked[0].id]:guardSeers.map(p=>p.id);add('guardSeer','guard',ids,0,.85,.15+(f.missingEnabled?.12:0),.2,0,{role:'seer',selection:ids.length===1?'person':'pool'});}
+ const other=players.filter(p=>!seer.some(s=>s.id===p.id)&&(p.claimed==='medium'||pub.context.confirmed.has(p.id))&&!['cat','knight'].includes(p.claimed)&&!f.brokenIds.includes(p.id)&&(hostile(observer)||!p.claimed||decision.roles.roles[p.claimed]?.[p.id]?.status!=='false'));if(other.length)add('guardOther','guard',[other[0].id],0,.55,pub.context.confirmed.has(other[0].id)?.10:.25,.2,0,{role:other[0].claimed,selection:'person'});
  return out;
 }
 function q4ReviewConditions(action){return action==='mediumRoll'?['newMediumResult','changedCapacity','newBreakdown']:action==='guardSeer'||action==='guardOther'?['newRoleClaim','newBreakdown','newConfirmation']:['newResult','newSuspicion','newBreakdown','changedCapacity'];}
@@ -7470,7 +7477,7 @@ q4FlowSentence=(observer,f)=>{const n=id=>q4Name(observer,id);if(f.proposalKind=
 const quality4BoardCore=grayCoreEvents;
 grayCoreEvents=(context=state)=>quality4BoardCore(context).filter(e=>e.topic?.variant!=='boardSummary'&&e.topicForReason?.variant!=='boardSummary');
 function q5Speech(observer,kind,data,evidence){const topic={kind:'information',variant:'boardSummary',targetId:null,details:{certainty:'inferred',boardSummary:{kind,data},evidence}},stats=personalityProfile(observer)?.stats||{};if(kind==='night'&&data.night.certainty==='unresolved'&&data.night.combinations.some(x=>x.foxDeaths>0)){const pub=buildSpeechPublicInformation(),white=pub.context.seerRows.find(r=>r.record.day===state.day&&!r.record.black&&data.deathIds.includes(r.record.targetId)&&pub.roles.roles.seer[r.record.seerId]?.status!=='false'&&(state.deliberation?.evaluations?.[observer.id]?.roleScores?.seer?.[r.record.seerId]??50)>51);if(white){topic.details.nightOpinion={certainty:'likely',scope:'subjective',favor:'curse',source:white.source};evidence.push({type:'reportedResult',visibility:'public',source:white.source});}}
- const c={command:'organize',subjectId:null,recipientId:null,replyTo:null,claim:null,topic,evidence,weight:(kind==='night'?.14:.10)*(.5+.15*(kind==='night'?stats.observation:stats.logic))*(.5+.1*stats.assertiveness)};c.semanticReasonKey=JSON.stringify(['q5',state.day,kind,data.id||JSON.stringify(data)]);return describeDiscussionSemantics(observer,c);}
+ const c={command:'organize',subjectId:null,recipientId:null,replyTo:null,claim:null,topic,evidence,weight:(kind==='night'?.14:.10)*(.5+.15*(kind==='night'?stats.observation:stats.logic))*(.5+.1*stats.assertiveness)};c.semanticReasonKey=JSON.stringify(['q5',state.day,kind,data.id||JSON.stringify(data),kind==='board'||kind==='night'?q6PublicRevision():null]);return describeDiscussionSemantics(observer,c);}
 const quality4BoardRelation=classifyDiscussionRelation;
 classifyDiscussionRelation=(a,b,context=state)=>b.variant==='blackQualification'&&b.replyTo===a.id&&q4PolicyOf(a)?.proposalKind==='black'?'rebut':quality4BoardRelation(a,b,context);
 const quality4ConcreteLogTarget=discussionLogRecipient;
@@ -7500,6 +7507,72 @@ commitDiscussionSpeech=(observer,c)=>{if(c.topic?.details?.boardSummary){const s
 const quality4SaveCheck=isValidSavedGame;
 isValidSavedGame=value=>{if(!quality4SaveCheck(value))return false;const s=value.boardReasoning;if(!s)return true;if(s.schemaVersion!==1||!s.snapshots||!s.used)return false;for(const [id,snap]of Object.entries(s.snapshots)){const copy={...snap};delete copy.id;if(snap.schemaVersion!==1||id!==snap.id||id!=='Q5'+affinityHash(JSON.stringify(copy)).toString(16)||snap.hostileUpper<0||snap.slots!==Math.max(0,Math.floor((snap.livingCount-1)/2)))return false;}return Object.values(s.used).every(x=>value.discussion.events.some(e=>e.id===x.eventId));};
 
+// quality6: local consistency and presentation fixes; role actions and weights stay unchanged.
+function q6LegacyLogSpeaker(row){
+ if(!['talk','claim','result'].includes(row.cls))return null;
+ if(Number.isInteger(row.speakerId))return row.speakerId;
+ const msg=String(row.msg||''),matches=state.players.filter(p=>[p.name+'：「',p.name+'【',p.name+'（',p.name+' が【',p.name+' は【'].some(prefix=>msg.startsWith(prefix)));
+ return matches.length===1?matches[0].id:null;
+}
+function q6OwnPublishedResult(observer,t){
+ if(observer.role!=='seer'||observer.claimed!=='seer'||!['basicTrust','basicSuspect'].includes(t?.variant))return null;
+ // A published root for this person is required. Own unpublished results never enter speech.
+ const cited=(t.details?.evidence||[]).some(e=>e.source?.collection==='seerResults'&&e.source.snapshot?.targetId===t.targetId&&JSON.stringify(state.publicRecords.seerResults[e.source.index])===JSON.stringify(e.source.snapshot));
+ if(!cited)return null;
+ const black=t.variant==='basicSuspect';
+ return state.publicRecords.seerResults.find(r=>r.seerId===observer.id&&r.targetId===t.targetId&&!!r.black===black&&(observer.seerResults||[]).some(x=>x.day===r.day&&x.target===r.targetId&&!!x.black===black))||null;
+}
+function q6NormalizeOwnTopic(observer,t){
+ const r=q6OwnPublishedResult(observer,t);if(!r)return t;
+ const evidence=[...(t.details.evidence||[])];
+ if(!evidence.some(e=>e.source?.snapshot?.seerId===observer.id&&e.source.snapshot.targetId===r.targetId)){
+  evidence.push({type:'hypothesisResult',visibility:'public',source:{collection:'seerResults',index:state.publicRecords.seerResults.indexOf(r),day:r.day,order:r.order??null,snapshot:{...r}}});
+ }
+ return {...t,details:{...t.details,evidence,hypothesis:false,certainty:r.black?'confirmedWolf':'confirmedNonWolf'}};
+}
+function q6OnlyAmbiguousMatch(evidence,role,id,context){
+ if(!evidence?.length||evidence.some(e=>!['hypothesisResultMatch','confirmedResultMatch'].includes(e.type)))return false;
+ return evidence.every(e=>{const own=e.sources?.find(s=>s.snapshot?.[role==='seer'?'seerId':'mediumId']===id)?.snapshot;if(!own)return false;
+ const rows=role==='seer'?context.seerRows:context.mediumRows,key=role==='seer'?'seerId':'mediumId';
+ return new Set(rows.filter(x=>x.record.targetId===own.targetId&&!!x.record.black===!!own.black&&!context.broken.has(x.record[key])).map(x=>x.record[key])).size>1;
+ });
+}
+function q6PublicRevision(){
+ const r=state.publicRecords||{};return JSON.stringify([state.day,state.publicRoleCounts,state.players.map(p=>[p.id,p.alive,p.claimed]),r.seerResults,r.mediumResults,r.deaths,r.executions,r.fullCoRequests,r.confirmedProofs]);
+}
+function q6PresentationKey(c){
+ if(c.replyTo||c.topic?.details?.comparedPolicyIds)return null;
+ const summary=c.topic?.details?.boardSummary;
+ if(summary)return JSON.stringify(['boardPresentation',summary.kind,summary.kind==='view'?summary.data.seerId:null,q6PublicRevision()]);
+ if(c.command==='organize'&&c.topic?.variant==='morningInfo'&&c.evidence?.some(e=>e.type==='claimSummary'))return JSON.stringify(['claimPresentation',c.evidence.filter(e=>e.type==='claimSummary'),q6PublicRevision()]);
+ const flow=q4PolicyOf(c);if(c.command==='organize'&&flow?.domain==='information')return JSON.stringify(['flowPresentation',flow.action,flow.targets,q6PublicRevision()]);
+ return null;
+}
+const quality5GuardMotive=q4PolicyMotive;
+q4PolicyMotive=(observer,c,base,board)=>{
+ const motive=quality5GuardMotive(observer,c,base,board);
+ if(hostile(observer)&&c.domain==='guard'){
+  const roles=computeObserverRoleTrust(observer,roleTrustPublicContext()).roles;
+  const ids=c.targets.filter(id=>['seer','medium'].some(role=>roles[role][id]?.status==='false'));
+  if(ids.length)motive.outwardPosition={visibility:'private',kind:'knowinglySupportFalseClaim',claimantIds:ids};
+ }
+ return motive;
+};
+const quality5PresentationCandidates=discussionCandidates;
+discussionCandidates=observer=>quality5PresentationCandidates(observer).filter(c=>{
+ const key=q6PresentationKey(c);if(key&&state.discussion.events.some(e=>e.presentationKey===key))return false;
+ const flow=q4PolicyOf(c);if(!hostile(observer)&&flow?.domain==='guard'&&['propose','agree','organize'].includes(c.command)){
+  const roles=computeObserverRoleTrust(observer,roleTrustPublicContext()).roles;
+  if(flow.targets.some(id=>['seer','medium'].some(role=>roles[role][id]?.status==='false')))return false;
+ }
+ return true;
+});
+const quality5PresentationCommit=commitDiscussionSpeech;
+commitDiscussionSpeech=(observer,c)=>{
+ const key=q6PresentationKey(c);if(key&&state.discussion.events.some(e=>e.presentationKey===key))return null;
+ const e=quality5PresentationCommit(observer,c);if(e&&key)e.presentationKey=key;return e;
+};
+
 $("#discussionBtn").onclick=encourageDiscussion;
 $("#playerCount").addEventListener("input",()=>{selectedRolePreset=null;renderRoleConfig()});
 $("#firstVictimEnabled").addEventListener("change",()=>{if(selectedRolePreset!=null)applyRolePreset(selectedRolePreset);else updateSum()});
@@ -7517,8 +7590,8 @@ $("#navFlow").onclick=openFlowMenu;
 $("#logPersonFilter").addEventListener("change",e=>{
   if(!state)return;
   state.logPersonFilterId=e.target.value===""?null:+e.target.value;
-  save();
   renderLog();
+  localStorage.setItem("jinro_v04_state",JSON.stringify(state));
 });
 $("#logToggleBtn").onclick=()=>{
   const e=$("#log"),collapsed=e.classList.toggle("collapsed");

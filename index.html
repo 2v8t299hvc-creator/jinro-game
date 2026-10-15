@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-quality8-partial</title>
+<title>個人用人狼アプリ v2.20.0-quality8.1-partial</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -142,7 +142,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title" title="v2.20.0-quality8-partial">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title" title="v2.20.0-quality8.1-partial">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row topbar-actions"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -208,6 +208,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
       <button id="logToggleBtn" class="log-toggle">ログを全部見る</button>
     </div>
 
+    <div class="card compact-section" id="saveNotice"><div id="saveStatus" class="muted" aria-live="polite">進行は端末に自動保存します。</div><button id="retrySaveBtn" class="secondary" hidden>もう一度保存する</button><details><summary>保存・議論の診断</summary><div id="saveDiagnostic" class="muted"></div></details></div>
     <div class="card compact-section"><button id="discussionBtn">議論を促す</button><button id="playerDiscussionBtn" class="secondary" hidden disabled style="display:none">自分の意見を話す</button><div id="discussionStatus" class="muted" aria-live="polite"></div></div>
     <div id="actionPanel" class="hidden"></div>
 
@@ -251,7 +252,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
 </section>
 <script>
-const GAME_VERSION="2.20.0-quality8-partial";
+const GAME_VERSION="2.20.0-quality8.1-partial";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -1164,7 +1165,7 @@ function assignFakeClaims(){
   // 狂人：占い騙りが中心。低確率で猫又騙りも選ぶ。
   state.players.filter(p=>p.role==="madman").forEach(m=>{
     const r=Math.random();
-    m.fakeClaimRole=r<0.56?"seer":r<0.73?"medium":r<0.81?"cat":r<0.88?"knight":null;
+    m.fakeClaimRole=r<0.56?"seer":r<0.73?"medium":r<0.77?"cat":r<0.84?"knight":null;
   });
 
   // 人狼：一定確率で1匹が騙り役。占い中心、霊媒、低確率で猫又。
@@ -1172,13 +1173,13 @@ function assignFakeClaims(){
   if(wolves.length&&Math.random()<0.65){
     const liar=randomChoice(wolves);
     const r=Math.random();
-    liar.fakeClaimRole=r<0.62?"seer":r<0.80?"medium":r<0.91?"cat":"knight";
+    liar.fakeClaimRole=r<0.62?"seer":r<0.80?"medium":r<0.86?"cat":"knight";
   }
 
   // 妖狐：騙り自体は控えめ。猫又騙りも低確率で残す。
   state.players.filter(p=>p.role==="fox").forEach(f=>{
     const r=Math.random();
-    f.fakeClaimRole=r<0.16?"seer":r<0.24?"medium":r<0.30?"cat":r<0.34?"knight":null;
+    f.fakeClaimRole=r<0.16?"seer":r<0.24?"medium":r<0.255?"cat":r<0.295?"knight":null;
   });
 }
 
@@ -1245,7 +1246,7 @@ function publishedResonatorClaim(p,partnerIds){
 function publicRoleCount(role){
   return state.publicRoleCounts?.[role] ?? null;
 }
-function log(msg,cls="",metadata=null){state.logs.push({msg,cls,...(metadata||{})});renderLog()}
+function log(msg,cls="",metadata=null){state.logs.push({msg,cls,...(metadata||{})});try{renderLog();}catch(e){q81Diagnostic("render","LOG_RENDER_FAILED",e);}}
 function renderLogFilterOptions(){
   const sel=$("#logPersonFilter");
   if(!sel||!state)return;
@@ -1731,7 +1732,7 @@ function migrateLegacyFullCoResponses(){
 }
 function wasFullRoleCoDeclined(p,role){
   return (state.publicRecords?.fullCoRequests||[]).some(r=>r.role===role&&
-    Array.isArray(r.respondentIds)&&r.aliveIds.includes(p.id)&&!r.respondentIds.includes(p.id));
+    Array.isArray(r.respondentIds)&&(role==="seer"||r.day===state.day)&&r.aliveIds.includes(p.id)&&!r.respondentIds.includes(p.id));
 }
 function ensureWolfSeerPlan(){
   if(state.wolfSeerPlan?.version===1)return;
@@ -1808,15 +1809,21 @@ function roleClaimProbability(p,role,snap,mode="role"){
   const gray=snap.claims.filter(x=>x.alive&&!x.claimed&&x.villagerClaim!==true);
   const confirmedOthers=snap.claims.filter(x=>x.alive&&x.id!==p.id&&snap.confirmations.has(x.id));
   const nearlyExposed=gray.length<=1 || (snap.aliveIds.length<=4&&confirmedOthers.length>=snap.aliveIds.length-2);
-  const prefs={wolf:{seer:.50,medium:.31,knight:.15,cat:.22},madman:{seer:.64,medium:.43,knight:.23,cat:.26},fox:{seer:.22,medium:.13,knight:.15,cat:.18}};
+  const prefs={wolf:{seer:.50,medium:.31,knight:.15,cat:.16},madman:{seer:.64,medium:.43,knight:.23,cat:.18},fox:{seer:.22,medium:.13,knight:.15,cat:.04}};
   let chance=prefs[p.role]?.[role]||0;
-  if(p.fakeClaimRole===role)chance+=.19;
+  if(p.fakeClaimRole===role)chance+=role==="cat"?.08:.19;
   const usesSeerCrowding=role==="seer"&&["madman","fox"].includes(p.role);
-  if(otherClaimants>0&&!usesSeerCrowding)chance+=role==="cat"?.14:.07;
+  if(otherClaimants>0&&!usesSeerCrowding&&role!=="cat")chance+=.07;
   if(nearlyExposed){
-    chance+=role==="cat"?.72:role==="knight"?.43:.27;
+    chance+=role==="cat"?({wolf:.28,madman:.22,fox:.12}[p.role]||0):role==="knight"?.43:.27;
   }
-  if(role==="cat"&&snap.counts.cat===0)chance=0;
+  if(role==="cat"){
+    const crowd={wolf:[1,.75,.4,.18,.08],madman:[1,.65,.3,.12,.05],fox:[1,.45,.15,.04,.01]};
+    const pressured=snap.results.some(r=>r.targetId===p.id&&r.black&&!snap.broken.has(r.seerId));
+    if(pressured)chance+=p.role==='fox'?.12:.18;
+    chance*=(crowd[p.role]||crowd.fox)[Math.min(otherClaimants,4)];
+    if(snap.counts.cat===0)chance=0;
+  }
   if(role==="knight"&&snap.counts.knight===0)chance=0;
   if(role==="seer"&&snap.counts.seer===0)chance=0;
   if(role==="medium"&&snap.counts.medium===0)chance=0;
@@ -1859,7 +1866,7 @@ function announceRole(p,role,first=true,preparedFakeSeerReports=null){
 function prepareRoleCoResponses(role,snap){
   const real=roleLiving(role);
   const fakes=living().filter(p=>hostile(p)&&!real.includes(p)&&
-    (p.claimed===role||canOfferFakeRole(p,role,snap)&&Math.random()<roleClaimProbability(p,role,snap)));
+    (p.claimed===role||q81FakeCoResponse(p,role,snap)));
   if(role==="medium")fakes.forEach(ensureFakeMediumResults);
   const preparedFakeReports=new Map(role==="seer"?fakes.map(p=>[p.id,prepareFakeSeerReports(p)]):[]);
   return {real,fakes,preparedFakeReports};
@@ -1889,7 +1896,7 @@ function publishRoleCoResponses(role,{real,fakes,preparedFakeReports}){
   else [...real,...fakes].forEach(p=>announceRole(p,role,true,preparedFakeReports.get(p.id)??null));
 }
 function completeCoInstruction(){
-  commitPublicTruthProofs();save();renderAll();
+ q81Persist('co-core');try{commitPublicTruthProofs();}catch(e){q81Diagnostic('derived','CO_TRUTH_REFRESH',e);}finally{save();q81RenderSafely();}
 }
 function forceRoleCO(role){
   ensurePublicRecords();
@@ -2174,7 +2181,7 @@ function confirmExecution(){
   const w=checkWin(); if(w){finish(w);return}
   state.phase="night";
   log("夜になりました。","system");
-  renderAll();localStorage.setItem("jinro_v04_state",JSON.stringify(state));save();
+  save();q81RenderSafely();
 }
 
 function cancelExecution(){
@@ -5697,16 +5704,16 @@ function resolveNight(){
   applyNightFoxDeaths(foxKilled);
   const attackDied=resolveNightWolfAttack(attacked,guardTargets,foxKilled);
   prepareMorningMediumResults();
-  commitPublicTruthProofs();
-  updateWolfAIAfterNight(attacked,guardTargets,attackDied);
+  q81Persist("night-results");
+  try{commitPublicTruthProofs();}catch(e){q81Diagnostic("derived","NIGHT_TRUTH_REFRESH",e);}
+  try{updateWolfAIAfterNight(attacked,guardTargets,attackDied);}catch(e){q81Diagnostic("derived","NIGHT_STRATEGY_REFRESH",e);}
   const winner=checkWin();
   if(winner){finish(winner);return;}
   state.day++;
   state.phase="day";
   log(`${state.day}日目の朝になりました。`,"system");
-  publishMorningRoleReports();
-  runDaySpeeches();
-  save();renderAll();
+  try{publishMorningRoleReports();runDaySpeeches();}catch(e){q81Diagnostic("discussion","MORNING_DISCUSSION_FAILED",e);}
+  finally{save();q81RenderSafely();}
 }
 
 function checkWin(){
@@ -5715,8 +5722,8 @@ function checkWin(){
   if(w>=o)return f>0?"妖狐陣営の勝利":"人狼陣営の勝利";
   return null;
 }
-function finish(w){clearSelection();state.winner=w;state.phase="end";log(`ゲーム終了：${w}`,"system");renderAll();localStorage.setItem("jinro_v04_state",JSON.stringify(state));save()}
-function save(){captureSocialBreakdowns();refreshRoleTrust();refreshRoleHypotheses();localStorage.setItem("jinro_v04_state",JSON.stringify(state))}
+function finish(w){clearSelection();state.winner=w;state.phase="end";log(`ゲーム終了：${w}`,"system");save();q81RenderSafely()}
+function save(){return q81Save();}
 function isValidSavedGame(value){
   return !!value&&Number.isInteger(value.day)&&value.day>=1&&
     ["day","night","end"].includes(value.phase)&&Array.isArray(value.logs)&&
@@ -5734,6 +5741,7 @@ function load(){
     if(!isValidSavedGame(candidate))throw new Error("Invalid saved game");
     const hasGuardInstructions=Array.isArray(candidate.publicRecords?.guardInstructions);
     state=candidate;
+    q81Diagnostics.splice(0,q81Diagnostics.length,...(Array.isArray(candidate.runtimeDiagnostics81)?candidate.runtimeDiagnostics81.slice(-12):[]));
     state.selectionMode=null;state.selectionTitle=null;state._selectionAllowed=null;state._selectionCallback=null;
     if(state.logPersonFilterId===undefined)state.logPersonFilterId=null;
     if(!state.uiSettings)state.uiSettings={showConfirmedBadges:true,showBrokenBadges:true};
@@ -5759,9 +5767,10 @@ function load(){
       for(const [id] of getPublicBreakdowns())system.breakdowns[id]={order:socialOrder(),day:null};
     }
     state.version=GAME_VERSION;
-    refreshRoleTrust();refreshRoleHypotheses();
-    showGame();
-  }catch(e){state=previousState;alert("保存データを読み込めませんでした")}
+    q81RefreshDerived(false);
+    q81LastSave={ok:true,day:state.day,phase:state.phase,revision:state.saveMeta81?.revision??null,stage:"load"};
+    try{showGame();}catch(e){q81Diagnostic("render","LOAD_RENDER_FAILED",e);q81RenderSafely();}q81RenderSaveStatus();
+  }catch(e){state=previousState;q81Diagnostic("load", "LOAD_FAILED",e);q81RenderSaveStatus();alert("保存データを読み込めませんでした")}
 }
 function reset(){
   if(confirm("現在のゲームを終了して設定画面に戻りますか？")){
@@ -6014,12 +6023,12 @@ function commitDiscussionSpeech(observer,c){
  }
  log(`${observer.name}【${DISCUSSION_LABELS[c.command]}】：「${text}」`,'talk',{discussionId:event.id,speakerId:observer.id});return event;
 }
-function chooseDiscussionPair(allowedSpeakers=null,batchCounts={}){
+function chooseDiscussionPair(allowedSpeakers=null,batchCounts={},rejected=new Set()){
  const day=discussionDay(),pending=discussionState().questions;
  const pairs=[];
  for(const observer of living().filter(p=>!p.isSelf&&(!allowedSpeakers||allowedSpeakers.has(p.id)))){
-  const count=day.counts[observer.id]||0;if(count>=6||(batchCounts[observer.id]||0)>=2)continue;
-  const candidates=discussionCandidates(observer);if(!candidates.length)continue;
+  const count=day.counts[observer.id]||0;if((batchCounts[observer.id]||0)>=2)continue;
+  const candidates=discussionCandidates(observer).filter(c=>!rejected.has(observer.id+'|'+(c.semanticReasonKey||discussionSemanticKey(c))));if(!candidates.length)continue;
   const a=personalityWeights(observer).assertiveness;
   const preferences=COMMAND_PREFERENCES[observer.characterId]||COMMAND_PREFERENCES.joshua;
   const scored=candidates.map(c=>({...c,weight:c.weight*preferences[DISCUSSION_COMMANDS.indexOf(c.command)]/3}));
@@ -6031,32 +6040,47 @@ function chooseDiscussionPair(allowedSpeakers=null,batchCounts={}){
  return pairs.length?weightedSpeechChoice(pairs):null;
 }
 function runDiscussionBatch(limit,allowedSpeakers=null){
- const d=discussionState(),counts={},events=[];
+ const d=discussionState(),counts={},events=[],rejected=new Set(),start=Date.now();
+ const maxAttempts=Math.max(1,limit)+4,diagnostic={day:state.day,attempts:0,rejected:0,generated:0,reason:'limit'};
  for(const q of d.questions)if(q.status==='open'&&(q.day<state.day-1||!byId(q.recipientId)?.alive))q.status='expired';
- for(let i=0;i<limit;i++){
-  const pair=chooseDiscussionPair(allowedSpeakers,counts);if(!pair)break;
-  const event=commitDiscussionSpeech(pair.observer,pair.c);if(!event)break;
-  events.push(event);counts[pair.observer.id]=(counts[pair.observer.id]||0)+1;
-  if(allowedSpeakers)allowedSpeakers.delete(pair.observer.id);
- }
+ try{
+  while(events.length<limit&&diagnostic.attempts<maxAttempts){
+   if(Date.now()-start>1500){diagnostic.reason='budget';break;}
+   const pair=chooseDiscussionPair(allowedSpeakers,counts,rejected);if(!pair){diagnostic.reason='exhausted';break;}
+   diagnostic.attempts++;
+   const key=pair.observer.id+'|'+(pair.c.semanticReasonKey||discussionSemanticKey(pair.c));
+   const event=commitDiscussionSpeech(pair.observer,pair.c);
+   if(!event){rejected.add(key);diagnostic.rejected++;diagnostic.reason='rejected';continue;}
+   events.push(event);counts[pair.observer.id]=(counts[pair.observer.id]||0)+1;
+   if(allowedSpeakers)allowedSpeakers.delete(pair.observer.id);
+  }
+ }catch(e){diagnostic.reason='exception';q81Diagnostic('discussion','DISCUSSION_EXCEPTION',e);}
+ finally{diagnostic.generated=events.length;d.lastBatchDiagnostic=diagnostic;}
  return events;
 }
 function encourageDiscussion(){
- if(!state||state.phase!=='day'||state.winner)return [];
- if(!isDiscussionVillage()){log('この旧保存の村は従来の発言ルールで進行します。新しい村で議論ボタンを利用できます。','system');return [];}
- const day=discussionDay(),limits=discussionLimits();
- day.runs=(day.runs||0)+1;
- const result=runDiscussionBatch(limits.utterances);
- day.noNewOpinion=!result.length;
- save();renderAll();return result;
+ if(!state||state.phase!=='day'||state.winner||q81DiscussionBusy)return [];
+ if(!isDiscussionVillage()){renderDiscussionControls();return [];}
+ const day=discussionDay(),limits=discussionLimits(),startIndex=discussionState().events.length;
+ let result=[];q81DiscussionBusy=true;
+ try{renderDiscussionControls();day.runs=(day.runs||0)+1;result=runDiscussionBatch(limits.utterances);}
+ catch(e){q81Diagnostic('discussion','DISCUSSION_EXCEPTION',e);}
+ finally{
+  // Include events actually recorded before an exception; never replay the batch.
+  result=discussionState().events.slice(startIndex);day.noNewOpinion=!result.length;
+  try{save();}catch(e){q81Diagnostic('save','SAVE_EXCEPTION',e);q81Persist('discussion-recovery');}
+  q81DiscussionBusy=false;q81RenderSafely();
+ }
+ return result;
 }
 function renderDiscussionControls(){
  const button=$('#discussionBtn'),label=$('#discussionStatus');if(!button||!label)return;
  if(!state){button.disabled=true;return;}
  if(!isDiscussionVillage()){button.disabled=true;label.textContent='旧保存：従来の発言ルール';return;}
  const limit=discussionLimits(),day=state.discussion?.dayState?.[state.day];
- button.disabled=state.phase!=='day'||!!state.winner;
- label.textContent=`1回あたり最大${limit.utterances}発言`+(day?.noNewOpinion?' ／ 今は新しい意見がなさそうだ。':'');
+ button.disabled=state.phase!=='day'||!!state.winner||q81DiscussionBusy;
+ const reason=state.discussion?.lastBatchDiagnostic?.day===state.day?state.discussion.lastBatchDiagnostic.reason:null;
+ label.textContent=q81DiscussionBusy?'話し合っています…':`1回あたり最大${limit.utterances}発言`+(reason==='exception'?' ／ 議論を中断したよ。保存通知を確認してね。':reason==='budget'?' ／ いったん区切ったよ。続けて促せるよ。':day?.noNewOpinion?' ／ 今は新しい意見がなさそうだ。':'');
 }
 const legacyStage1DaySpeeches=runDaySpeeches;
 runDaySpeeches=()=>{
@@ -6657,7 +6681,7 @@ function fitPlayerNotes(){
 globalThis.visualViewport?.addEventListener('resize',fitPlayerNotes);
 globalThis.visualViewport?.addEventListener('scroll',fitPlayerNotes);
 function ensurePlayerNotes(){return state.playerNotes??={schemaVersion:1,people:{},notebook:''};}
-function persistPlayerNotes(){try{localStorage.setItem('jinro_v04_state',JSON.stringify(state));$('#notesStatus').textContent='保存したよ。';return true;}catch{$('#notesStatus').textContent='保存できなかったよ。入力はこの画面に残っているので、文字量を減らしてもう一度試してね。';return false;}}
+function persistPlayerNotes(){const ok=q81Persist('notes');$('#notesStatus').textContent=ok?'保存したよ。':'保存できなかったよ。入力は残っているので、保存通知を確認してね。';return ok;}
 function editPlayerNote(targetId,text){
  if(!state||targetId!=null&&!byId(targetId))return false;
  const notes=ensurePlayerNotes();if(targetId==null)notes.notebook=String(text);else notes.people[targetId]=String(text);
@@ -7733,8 +7757,8 @@ function q71CaptureResonatorResponse(){
 // Layout follows the actual fixed-header height, including safe area and enlarged fonts.
 function q71SelectClaimTab(role){
  if(!state||!['seer','medium','knight','resonator','cat','villager'].includes(role))return;
- state.claimTab=role;renderClaimBoard();
- localStorage.setItem('jinro_v04_state',JSON.stringify(state));
+ state.claimTab=role;q81Persist('ui');
+ try{renderClaimBoard();}catch(e){q81Diagnostic("render","CLAIM_TAB_RENDER",e);q81RenderSaveStatus();}
 }
 function q71SyncHeader(){
  const header=document.querySelector('.topbar'),root=document.documentElement;
@@ -7838,6 +7862,147 @@ discussionText=(observer,c)=>{
  return q8PreviousText(observer,c);
 };
 
+
+// quality8.1: persistence is independent of inference and has one guarded writer.
+let q81DiscussionBusy=false,q81Saving=false,q81SaveNonce=0;
+const q81SaveSession='V81-'+Date.now().toString(36),q81Diagnostics=[];
+let q81LastSave=null;
+function q81Diagnostic(stage,code,error=null){
+ const row={day:state?.day??null,phase:state?.phase??null,stage,code,errorName:error?.name||null,time:Date.now()};
+ q81Diagnostics.push(row);if(q81Diagnostics.length>12)q81Diagnostics.shift();
+ if(state&&stage!=='load')state.runtimeDiagnostics81=q81Diagnostics.map(x=>({...x}));return row;
+}
+function q81RenderSaveStatus(){
+ try{
+ const status=$('#saveStatus'),retry=$('#retrySaveBtn'),detail=$('#saveDiagnostic');if(!status||!retry)return;
+ const labels={QUOTA:'端末の保存容量が足りない',CIRCULAR:'データの循環参照',SERIALIZE:'データ変換エラー',STORAGE:'端末の保存領域を利用できない',VERIFY:'書き込みを確認できない',STALE:'別の画面に、より新しい保存がある',SAVE_EXCEPTION:'保存処理の例外'};
+ if(q81LastSave){status.textContent=q81LastSave.ok?`${q81LastSave.day}日目・${q81LastSave.phase==='night'?'夜':q81LastSave.phase==='end'?'終了':'昼'}を保存したよ。`:`保存できなかったよ（${labels[q81LastSave.code]||'保存エラー'}）。画面の状態は残っているよ。`;retry.hidden=q81LastSave.ok;}
+ const problem=q81Diagnostics.filter(x=>['derived','render','discussion','load'].includes(x.stage)).at(-1);
+ if(q81LastSave?.ok&&problem)status.textContent+=' 更新に問題があったので、診断を確認してね。';
+ if(detail)detail.textContent=JSON.stringify({lastSave:q81LastSave,discussion:state?.discussion?.lastBatchDiagnostic||null,recent:q81Diagnostics},null,2);
+ }catch{}
+}
+function q81Persist(stage='manual'){
+ if(!state)return false;
+ let raw,meta,wrote=false,previous=state.saveMeta81;
+ try{
+  const disk=localStorage.getItem('jinro_v04_state');
+  let saved=null;try{saved=disk?JSON.parse(disk):null;}catch{}
+  if(previous?.villageId&&saved?.saveMeta81&&(saved.saveMeta81.villageId!==previous.villageId||saved.saveMeta81.revision>previous.revision)){const e=new Error('Newer save');e.saveCode='STALE';throw e;}
+  if(previous&&disk){
+   let unchanged;try{unchanged=JSON.stringify(state)===disk;}catch(e){e.saveCode=/circular|cyclic/i.test(e.message)?'CIRCULAR':'SERIALIZE';throw e;}
+   if(unchanged){q81LastSave={ok:true,day:state.day,phase:state.phase,revision:previous.revision,bytesEstimate:disk.length*2,stage,unchanged:true};q81RenderSaveStatus();return true;}
+  }
+  meta={schemaVersion:1,villageId:previous?.villageId||q81SaveSession+'-'+(++q81SaveNonce),revision:(previous?.revision||0)+1,day:state.day,phase:state.phase,time:Date.now()};
+  state.saveMeta81=meta;
+  try{raw=JSON.stringify(state);}catch(e){e.saveCode=/circular|cyclic/i.test(e.message)?'CIRCULAR':'SERIALIZE';throw e;}
+  localStorage.setItem('jinro_v04_state',raw);wrote=true;
+  if(localStorage.getItem('jinro_v04_state')!==raw){const e=new Error('Save verification');e.saveCode='VERIFY';throw e;}
+  q81LastSave={ok:true,day:state.day,phase:state.phase,revision:meta.revision,bytesEstimate:raw.length*2,stage};
+  q81RenderSaveStatus();return true;
+ }catch(e){
+  if(!wrote){if(previous===undefined)delete state.saveMeta81;else state.saveMeta81=previous;}
+  const code=e.saveCode||((e.name==='QuotaExceededError'||e.code===22||e.code===1014)?'QUOTA':'STORAGE');
+  q81LastSave={ok:false,code,day:state.day,phase:state.phase,stage};q81Diagnostic('save',code,e);q81RenderSaveStatus();return false;
+ }
+}
+function q81RefreshDerived(includeSocial=true){
+ let ok=true;for(const [name,fn]of [['social',()=>captureSocialBreakdowns()],['trust',()=>refreshRoleTrust()],['hypotheses',()=>refreshRoleHypotheses()]]){
+  if(name==='social'&&!includeSocial)continue;
+  try{fn();}catch(e){ok=false;q81Diagnostic('derived','DERIVED_'+name.toUpperCase(),e);}
+ }return ok;
+}
+function q81Save(){
+ if(q81Saving)return q81Persist('reentrant');q81Saving=true;
+ try{
+  if(!q81Persist('core'))return false;
+  q81RefreshDerived();
+  return q81Persist('derived');
+ }finally{q81Saving=false;q81RenderSaveStatus();}
+}
+function q81RenderSafely(){
+ try{renderAll();}catch(e){q81Diagnostic('render','RENDER_FAILED',e);try{renderPlayers();}catch{} }
+ finally{try{renderDiscussionControls();}catch{}q81RenderSaveStatus();}
+}
+$('#retrySaveBtn').onclick=()=>{save();q81RenderSafely();};
+
+
+// Forced fake-CO decisions are private, once per role/person/day. Published CO is retained.
+function q81FakeCoResponse(p,role,snap){
+ if(!canOfferFakeRole(p,role,snap))return false;
+ const decisions=state.fakeCoDecisions81??={schemaVersion:1,visibility:'private',decisions:{}};
+ const key=JSON.stringify([state.day,role,p.id]);
+ if(Object.prototype.hasOwnProperty.call(decisions.decisions,key))return decisions.decisions[key].respond;
+ const probability=roleClaimProbability(p,role,snap),respond=Math.random()<probability;
+ decisions.decisions[key]={day:state.day,playerId:p.id,role,probability,respond};return respond;
+}
+function q81RivalDecision(observer,c,context=state){
+ const role=observer.claimed;if(!['seer','medium'].includes(role))return {allow:true};
+ const source=context.discussion?.events.find(e=>e.id===c.replyTo),p=discussionProposition(c,context),sourceP=source&&discussionProposition(source,context);
+ const player=id=>context.players.find(p=>p.id===id),field=role==='seer'?'seerId':'mediumId';
+ const records=context.publicRecords?.[role==='seer'?'seerResults':'mediumResults']||[];
+ const own=records.filter(r=>r[field]===observer.id&&r.targetId===c.subjectId).at(-1);
+ const rivals=new Set(context.players.filter(p=>p.id!==observer.id&&p.claimed===role).map(p=>p.id));
+ const evidence=[...(c.evidence||[]),...(source?.evidence||[])];
+ const rivalEvidence=evidence.some(e=>[e.source,...(e.sources||[])].filter(Boolean).some(s=>rivals.has(s.snapshot?.[field])));
+ const independent=(c.evidence||[]).some(e=>e.type==='publicBehaviorObservation'||['publicRoleConfirmation','publicBreakdown'].includes(e.type)||e.source?.snapshot?.[field]===observer.id);
+ const roleSupport=p.issue==='roleTrust'&&p.direction==='affirm'&&rivals.has(c.subjectId);
+ const roleIndependent=(c.evidence||[]).some(e=>e.type==='publicBehaviorObservation'||e.type==='publicRoleConfirmation');
+ const onlyOne=(context.publicRoleCounts?.[role]??0)===1;
+ if(roleSupport&&['trust','agree','defend'].includes(c.command)&&(onlyOne||!roleIndependent))return {allow:false,reason:'rivalTruthWithoutIndependentGround'};
+ if(c.command!=='agree'||!source)return {allow:true};
+ if(p.issue==='wolf'&&own&&['affirm','deny'].includes(p.direction)){
+  if((p.direction==='affirm')!==!!own.black)return {allow:false,reason:'contradictsOwnPublicResult'};
+  if(sourceP?.issue==='wolf'&&sourceP.direction===p.direction&&(rivals.has(source.speakerId)||rivalEvidence))return {allow:true,resultMatch:true};
+ }
+ if(rivalEvidence&&!independent&&!q4PolicyOf(c)&&['wolf','roleTrust'].includes(p.issue))return {allow:false,reason:'rivalResultOnly'};
+ return {allow:true};
+}
+const q81PreviousProposition=discussionProposition;
+discussionProposition=(e,context=state,useStored=true)=>{
+ if(e.variant!=='publicPositionReservation')return q81PreviousProposition(e,context,useStored);
+ if(useStored&&e.proposition?.schemaVersion===1)return e.proposition;
+ const source=context.discussion?.events.find(x=>x.id===e.replyTo),p=source?discussionProposition(source,context):null;
+ return {schemaVersion:1,issue:p?.issue||'unknown',role:p?.role||null,subjectId:e.subjectId??null,direction:'unknown',confidence:'unknown',evidenceRefs:discussionEvidenceReferences(e.evidence||[])};
+};
+const q81PreviousReply=semanticReplyAllowed;
+semanticReplyAllowed=(observer,c,context=state)=>{
+ if(c.variant!=='publicPositionReservation')return q81PreviousReply(observer,c,context);
+ const source=context.discussion?.events.find(e=>e.id===c.replyTo);
+ if(!source||q4PolicyOf(source)||c.command!=='hold'||source.speakerId===observer.id||c.subjectId===observer.id||c.subjectId!==source.subjectId||c.recipientId!==source.speakerId||(source.depth||0)>=3)return false;
+ return !q81RivalDecision(observer,{...c,command:'agree',variant:source.variant,topicForReason:source.topic||source.topicForReason,proposition:discussionProposition(source,context)},context).allow;
+};
+const q81PreviousCandidates=discussionCandidates;
+discussionCandidates=observer=>{
+ const list=q81PreviousCandidates(observer).filter(c=>q81RivalDecision(observer,c).allow);
+ if(!['seer','medium'].includes(observer.claimed))return list;
+ const known=grayKnownEventIds(observer),day=discussionDay();
+ for(const source of (state.discussion?.events||[]).slice(-8)){
+  if(source.day!==state.day||source.speakerId===observer.id||source.subjectId===observer.id||q4PolicyOf(source)||!known.has(source.id)||state.discussion.events.some(e=>e.speakerId===observer.id&&e.replyTo===source.id))continue;
+  const c={command:'hold',subjectId:source.subjectId,recipientId:source.speakerId,replyTo:source.id,originEventId:source.id,claim:null,variant:'publicPositionReservation',evidence:[discussionRef(source)],weight:.08};
+  c.semanticReasonKey=discussionSemanticKey(c);if(!day.keys.includes(c.semanticReasonKey)&&semanticReplyAllowed(observer,c))list.push(describeDiscussionSemantics(observer,c));
+ }
+ return list;
+};
+const q81PreviousCommit=commitDiscussionSpeech;
+commitDiscussionSpeech=(observer,c)=>q81RivalDecision(observer,c).allow?q81PreviousCommit(observer,c):null;
+const q81PreviousText=discussionText;
+discussionText=(observer,c)=>{
+ if(c.variant==='publicPositionReservation')return ['melbon','cortes','naminami'].includes(observer.characterId)?'その結論は保留します。対抗の結果だけでは判断できません。':'その結論は保留したい。対抗の結果だけでは判断できない。';
+ if(c.command==='agree'&&q81RivalDecision(observer,c).resultMatch)return `${CONVERSATION_FIRST_PERSON[observer.characterId]||'僕'}の${observer.claimed==='seer'?'占い':'霊媒'}結果とも合う。その結論は一致している。`;
+ return q81PreviousText(observer,c);
+};
+
+
+// Matching a rival's reported color is not independent credit for that claimant.
+const q81PreviousEvaluationRows=q4EvaluationRows;
+q4EvaluationRows=(observer,pub,decision,outlook)=>q81PreviousEvaluationRows(observer,pub,decision,outlook).filter(row=>{
+ if(!['seer','medium'].includes(observer.claimed)||byId(row.actorId)?.claimed!==observer.claimed||row.actorId===observer.id||row.delta<=0||!['opinionAgreement','sharedSuspicion','groundedInference'].includes(row.selectedReason))return true;
+ const event=state.discussion?.events.find(e=>e.id===row.statementId),field=observer.claimed==='seer'?'seerId':'mediumId',evidence=event?.evidence||[];
+ const resultOnly=evidence.some(e=>e.source?.snapshot?.[field]===row.actorId)&&!evidence.some(e=>['publicBehaviorObservation','publicRoleConfirmation','publicBreakdown'].includes(e.type));
+ return !resultOnly;
+});
+
 $("#loadBtn").onclick=load;
 $("#debugBtnTop").onclick=()=>$("#debugPanel").classList.toggle("hidden");
 $("#resetBtnTop").onclick=reset;
@@ -7852,7 +8017,7 @@ $("#logPersonFilter").addEventListener("change",e=>{
   if(!state)return;
   state.logPersonFilterId=e.target.value===""?null:+e.target.value;
   renderLog();
-  localStorage.setItem("jinro_v04_state",JSON.stringify(state));
+  q81Persist('operation');
 });
 $("#logToggleBtn").onclick=()=>{
   const e=$("#log"),collapsed=e.classList.toggle("collapsed");

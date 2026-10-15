@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-quality7.1</title>
+<title>個人用人狼アプリ v2.20.0-quality8-partial</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -142,7 +142,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title" title="v2.20.0-quality7.1">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title" title="v2.20.0-quality8-partial">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row topbar-actions"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -251,7 +251,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
 </section>
 <script>
-const GAME_VERSION="2.20.0-quality7.1";
+const GAME_VERSION="2.20.0-quality8-partial";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -5857,7 +5857,7 @@ function discussionState(){
  return state.discussion;
 }
 function discussionDay(){const d=discussionState();return d.dayState[state.day]??={runs:0,counts:{},keys:[],recentSpeakers:[],pairs:{}};}
-function discussionLimits(n=living().length){return n<=7?{utterances:4,runs:2}:n<=11?{utterances:5,runs:3}:n<=15?{utterances:6,runs:3}:{utterances:7,runs:4};}
+function discussionLimits(n=living().length){return {utterances:n<=7?4:n<=11?5:n<=15?6:7};}
 function discussionPublicEvent(e){return JSON.parse(JSON.stringify({id:e.id,day:e.day,phase:e.phase,command:e.command,speakerId:e.speakerId,subjectId:e.subjectId,recipientId:e.recipientId,replyTo:e.replyTo,evidence:e.evidence,text:e.text,claim:e.claim}));}
 function discussionEvidenceValid(evidence){
  if(!Array.isArray(evidence))return false;
@@ -6044,19 +6044,19 @@ function runDiscussionBatch(limit,allowedSpeakers=null){
 function encourageDiscussion(){
  if(!state||state.phase!=='day'||state.winner)return [];
  if(!isDiscussionVillage()){log('この旧保存の村は従来の発言ルールで進行します。新しい村で議論ボタンを利用できます。','system');return [];}
- const day=discussionDay(),limits=discussionLimits();if(day.runs>=limits.runs){renderDiscussionControls();return [];}
- day.runs++;
+ const day=discussionDay(),limits=discussionLimits();
+ day.runs=(day.runs||0)+1;
  const result=runDiscussionBatch(limits.utterances);
- if(!result.length)log('追加で話せる新しい材料がありません。公開結果やCOが出た後に、また議論を促せます。','system');
+ day.noNewOpinion=!result.length;
  save();renderAll();return result;
 }
 function renderDiscussionControls(){
  const button=$('#discussionBtn'),label=$('#discussionStatus');if(!button||!label)return;
  if(!state){button.disabled=true;return;}
  if(!isDiscussionVillage()){button.disabled=true;label.textContent='旧保存：従来の発言ルール';return;}
- const limit=discussionLimits(),day=state.discussion?.dayState?.[state.day],remaining=Math.max(0,limit.runs-(day?.runs||0));
- button.disabled=state.phase!=='day'||!!state.winner||remaining===0;
- label.textContent=`追加1回 最大${limit.utterances}発言 ／ 今日あと${remaining}回`;
+ const limit=discussionLimits(),day=state.discussion?.dayState?.[state.day];
+ button.disabled=state.phase!=='day'||!!state.winner;
+ label.textContent=`1回あたり最大${limit.utterances}発言`+(day?.noNewOpinion?' ／ 今は新しい意見がなさそうだ。':'');
 }
 const legacyStage1DaySpeeches=runDaySpeeches;
 runDaySpeeches=()=>{
@@ -6530,12 +6530,13 @@ const beforeQualityAffinityTone=affinityTone;
 const AFFINITY_SHORT_ADDRESS={joshua:['ねえ、','その点は、'],geode:['なあ、','さて、'],albert:['君の話を聞こう。','その点を確認したい。'],momiji:['なあ、','ちょっと聞かせてくれ！'],kaede:['……ねえ、','……確認したい。'],francois:['君の話を聞こうか。','さて、'],melbon:['どうぞお聞かせください。','その点を伺いたいのですが。'],milk:['ねえ、','ちょっときいていい？'],max:['君の話を聞こうか。','そこは確かめたいね。'],cortes:['お話を伺います。','その点をお確かめしたく。'],zaemon:['話してみよ。','さて、'],yamato:['話を聞こう。','その点を確かめたい。'],henry:['……ねえ、','あの……、'],dominic:['なあ、','ちょっと聞かせてくれ！'],pattino:['ねえ、','そこ聞いていい？'],makimura:['なあ、','その点は聞かせてくれ。'],rixis:['話を聞かせてくれ。','そこは確かめたい。'],wanunu_iii:['なあ、','ちょっと、きくぞ。'],naminami:['お話を聞きます！','そこを確かめたいです！']};
 affinityTone=(observer,c,text)=>{
  const toned=beforeQualityAffinityTone(observer,c,text);if(toned===text)return text;
+ if(c.command!=='question')return text;
  const naturalTone=toned.replace(/^……ちゃんと聞きたいから。/,'……ちゃんと聞きたい。').replace(/^一緒に考えたいから、/,'一緒に考えよう。');
  const key=[state.affinity.seed,discussionState().nextId,observer.id,c.command].join('|');if(affinityHash(key)%2===0)return naturalTone;
  const h=affinityFor(observer.id,['agree','rebut','question','answer'].includes(c.command)||c.replyTo&&c.command==='hold'?c.recipientId:c.subjectId);
  // close/distantを本文から推測せず、元の同じ抽選を再現（専用のローカル乱数のみ）。
  const weights=[Math.exp(.8*h/5),2,Math.exp(-.8*h/5)],rng=affinityRng(state.affinity.seed,'D'+discussionState().nextId,observer.id,'voice');let draw=affinityNext(rng)*weights.reduce((a,b)=>a+b,0),tone=2;for(let i=0;i<weights.length;i++){draw-=weights[i];if(draw<0){tone=i;break;}}
- return (AFFINITY_SHORT_ADDRESS[observer.characterId]||AFFINITY_SHORT_ADDRESS.joshua)[tone===0?0:1]+text;
+ return c.command==='question'?(AFFINITY_SHORT_ADDRESS[observer.characterId]||AFFINITY_SHORT_ADDRESS.joshua)[tone===0?0:1]+text:text;
 };
 function naturalConversationText(text){
  const names=[];let t=String(text);
@@ -6629,7 +6630,8 @@ function discussionLogHTML(e){
  const command=e.relation?.type==='supplement'?'補足':LOG_COMMAND_LABELS[e.command]||'発言';
  const about=(['question','answer','agree','rebut'].includes(e.command)||e.relation?.type==='supplement')&&e.subjectId!=null&&byId(e.subjectId)&&e.subjectId!==recipient?`<div class="discussion-context">話題：${escapeHtml(byId(e.subjectId).name)}</div>`:'';
  const source=state.discussion?.events.find(x=>x.id===e.replyTo),question=source?.command==='question'?source:null;
- const reference=question?`<details class="discussion-reference"><summary>元の質問</summary><div>${escapeHtml(byId(question.speakerId)?.name||'')}：${escapeHtml(question.text)}</div></details>`:'';
+ const agreement=e.command==='agree'&&source&&source.speakerId!==e.speakerId?source:null;
+ const reference=agreement?`<details class="discussion-reference"><summary>元の発言</summary><div>${escapeHtml(byId(agreement.speakerId)?.name||'')}：${escapeHtml(agreement.text)}</div></details>`:question?`<details class="discussion-reference"><summary>元の質問</summary><div>${escapeHtml(byId(question.speakerId)?.name||'')}：${escapeHtml(question.text)}</div></details>`:'';
  return `<div class="discussion-row"><div class="discussion-head"><span class="discussion-speaker">${escapeHtml(speaker.name)}</span><span class="discussion-command">${command}${target}</span></div>${about}<div class="discussion-body">${escapeHtml(e.text)}</div>${reference}</div>`;
 }
 renderLog=()=>{
@@ -7311,7 +7313,7 @@ semanticReplyAllowed=(observer,c,context=state)=>{
 };
 const q3PolicyGap=grayQuestionGap;
 grayQuestionGap=(e,context=state)=>{const flow=q4PolicyOf(e);if(!flow)return q3PolicyGap(e,context);if(e.command!=='propose')return null;return {kind:'policyReview',sourceEventId:e.id,key:JSON.stringify(['policyReview',e.speakerId,flow.key])};};
-function q4ValidDescriptor(flow,context=state){if(!flow)return false;const domain={gray:'execution',mediumRoll:'execution',seerCompare:flow.domain,broken:'execution',reconsider:'information',guardSeer:'guard',guardOther:'guard'};if(domain[flow.action]!==flow.domain||!['pool','person'].includes(flow.selection)||new Set(flow.targets||[]).size!==(flow.targets||[]).length)return false;const b=context.deliberation?.boards?.[flow?.boardId];return !!b&&flow.schemaVersion===1&&flow.day===b.facts.day&&['execution','guard','information'].includes(flow.domain)&&['gray','mediumRoll','seerCompare','broken','reconsider','guardSeer','guardOther'].includes(flow.action)&&Array.isArray(flow.targets)&&flow.targets.every(id=>b.facts.livingIds.includes(id))&&flow.certainty==='inferred'&&(!(flow.action==='mediumRoll'||flow.action==='seerCompare')||flow.targets.length>=2)&&(!(flow.action==='mediumRoll'||flow.action==='seerCompare'||flow.action==='guardSeer')||flow.targets.every(id=>b.facts.claims.some(c=>c.id===id&&c.role===(flow.action==='mediumRoll'?'medium':'seer'))))&&(flow.action!=='broken'||flow.targets.every(id=>b.facts.brokenIds.includes(id)))&&flow.key===JSON.stringify([flow.day,flow.domain,flow.action,flow.selection||'pool',flow.selection==='person'?flow.targets:[],flow.completeRoll||false])&&(!flow.completeRoll||flow.action==='mediumRoll'&&b.facts.slots>=flow.targets.length);}
+function q4ValidDescriptor(flow,context=state){if(!flow)return false;const domain={gray:'execution',mediumRoll:'execution',catRun:'execution',seerCompare:flow.domain,broken:'execution',reconsider:'information',guardSeer:'guard',guardOther:'guard'};if(domain[flow.action]!==flow.domain||!['pool','person'].includes(flow.selection)||new Set(flow.targets||[]).size!==(flow.targets||[]).length)return false;const b=context.deliberation?.boards?.[flow?.boardId];return !!b&&flow.schemaVersion===1&&flow.day===b.facts.day&&['execution','guard','information'].includes(flow.domain)&&['gray','mediumRoll','catRun','seerCompare','broken','reconsider','guardSeer','guardOther'].includes(flow.action)&&Array.isArray(flow.targets)&&flow.targets.every(id=>b.facts.livingIds.includes(id))&&flow.certainty==='inferred'&&(!(flow.action==='mediumRoll'||flow.action==='seerCompare')||flow.targets.length>=2)&&(!(flow.action==='mediumRoll'||flow.action==='seerCompare'||flow.action==='guardSeer')||flow.targets.every(id=>b.facts.claims.some(c=>c.id===id&&c.role===(flow.action==='mediumRoll'?'medium':'seer'))))&&(flow.action!=='catRun'||flow.role==='cat'&&b.facts.counts.cat>0&&flow.targets.length>0&&b.facts.claims.filter(c=>c.role==='cat').length>=2&&flow.targets.every(id=>b.facts.claims.some(c=>c.id===id&&c.role==='cat')&&!b.facts.confirmed.some(c=>c.id===id&&c.role==='cat')))&& (flow.action!=='broken'||flow.targets.every(id=>b.facts.brokenIds.includes(id)))&&flow.key===JSON.stringify([flow.day,flow.domain,flow.action,flow.selection||'pool',flow.selection==='person'?flow.targets:[],flow.completeRoll||false])&&(!flow.completeRoll||flow.action==='mediumRoll'&&b.facts.slots>=flow.targets.length);}
 const q3PolicyEvidence=discussionEvidenceValid;
 discussionEvidenceValid=evidence=>q3PolicyEvidence(evidence)&&evidence.every(e=>e.type!=='publicPolicyBoard'||state.deliberation?.boards?.[e.boardId]&&JSON.stringify(state.deliberation.boards[e.boardId])===JSON.stringify(e.snapshot))&&evidence.every(e=>e.type!=='argumentAssessment'||state.deliberation?.argumentRecords?.[e.snapshot.key]&&JSON.stringify(state.deliberation.argumentRecords[e.snapshot.key].descriptor)===JSON.stringify(e.snapshot)&&e.snapshot.scope!=='withheld');
 function q4PolicySpeechCandidate(observer,policy,command='propose',source=null){
@@ -7358,10 +7360,10 @@ function q4FlowSentence(observer,flow){const board=q4State().boards[flow.boardId
  default:return `今は処刑先を急いで決めず、結果と説明をもう一度確かめたい。今の人数では処刑は約${b.slots}回だ。`;
  }
 }
-function q4FlowLabel(action){return {gray:'グレー処刑',mediumRoll:'霊媒ローラー',seerCompare:'占いCOの比較・処刑',broken:'破綻したCO者の処刑',reconsider:'方針の再検討',guardSeer:'占い護衛',guardOther:'その他の護衛'}[action]||'方針の検討';}
+function q4FlowLabel(action){return {catRun:'猫ラン',gray:'グレー処刑',mediumRoll:'霊媒ローラー',seerCompare:'占いCOの比較・処刑',broken:'破綻したCO者の処刑',reconsider:'方針の再検討',guardSeer:'占い護衛',guardOther:'その他の護衛'}[action]||'方針の検討';}
 function q4ArgumentText(observer,d){const opinion=d.issue==='roleTrust'?(d.ownDirection==='affirm'?'本物寄りに見ている':'偽物寄りに見ている'):(d.ownDirection==='affirm'?'疑っている':'人狼ではなさそうと見ている');const name=id=>q4Name(observer,id),actor=name(d.actorId),target=name(d.subjectId)+(d.issue==='roleTrust'?'の'+morningRoleLabel(d.role)+'CO':'');const lines={opinionAgreement:`${actor}のこの意見には納得できる。${target}については、こちらも${opinion}。同じ意見であることと、村側かどうかは別だけど。`,sharedSuspicion:`${actor}のこの意見には納得できる。${target}については${d.ownDirection==='affirm'?'僕も疑っている':'僕も人狼ではなさそうと見ている'}。同じ意見だから村側だと決まるわけではないけど。`,opposedTarget:`${actor}の${target}への見方には引っかかる。こちらは${opinion}から、そこは違って見える。`,groundedInference:`${actor}のこの指摘は、実際の発言と照らしている。その意見は参考にしたい。`,consistentOpinion:`${actor}は前にも同じ根拠で同じ見方を説明していた。この点は一貫している。`,reasonedUpdate:`${actor}は新しい材料を挙げて見方を変えていた。その変更には筋が通っている。`,appropriateAnswer:`${actor}は聞かれた話に合う具体的な理由を答えていた。その説明は参考にしたい。`,cautiousJudgement:`${actor}はその根拠で断定できる範囲を確かめていた。急いで決めない姿勢は評価したい。`,weakRepeatedDefense:`${actor}は特定の相手を何度か庇っていたけど、理由がまだ具体的でない。そこは気になる。`,publicRefutation:`${actor}のこの見方は、${target}について今分かっていることと食い違う。意見が合うかどうかより、その反証を重く見たい。`};return (lines[d.kind]||'この発言の根拠を確認したい。').replaceAll('僕も',(CONVERSATION_FIRST_PERSON[observer.characterId]||'僕')+'も');}
 const q3PolicyText=discussionText;
-discussionText=(observer,c)=>{const d=c.topic?.details?.assessment||c.topicForReason?.details?.assessment,flow=q4PolicyOf(c);if(!d&&!flow)return q3PolicyText(observer,c);let text;if(c.command==='organize'&&c.topic?.details?.comparedPolicyIds){text=c.topic.details.comparedPolicyIds.map(id=>{const e=state.discussion.events.find(e=>e.id===id);return `${q4Name(observer,e.speakerId)}は${q4FlowLabel(q4PolicyOf(e).action)}を優先している。`;}).join('')+`この二つの案を、処刑の余裕と新しい結果で比べたい。`;}else if(d)text=q4ArgumentText(observer,d);else if(c.command==='question')text=`${q4Name(observer,c.recipientId)}、その方針は、どんな結果が出たら見直す${['melbon','cortes','naminami'].includes(observer.characterId)?'お考えですか？':'？'}`;else if(c.command==='answer'){text=`${q4Name(observer,c.recipientId)}、`+(flow.action==='mediumRoll'?'霊媒結果や破綻、新しいCOで内訳の見方が変われば、続けるか考え直す。処刑回数が足りなくなった時も同じだ。':flow.domain==='guard'?'新しいCOや破綻、真と分かる役職が出れば、護衛候補の優先順位を変える。':'新しい結果や具体的な疑い、破綻が出れば、処刑候補を考え直す。残りの処刑回数も見直す。');}else text=(c.command==='agree'?conversationFill(conversationVoice(observer).agree,{to:q4Name(observer,c.recipientId)}):c.command==='rebut'?conversationFill(conversationVoice(observer).rebut,{to:q4Name(observer,c.recipientId)}):'')+q4FlowSentence(observer,flow);const change=c.topic?.details?.policyChange;if(change)text=change.reason+'、'+q4FlowLabel(change.before.action)+'を優先する方針を見直した。'+text;return isAffinityVillage()?affinityTone(observer,c,naturalConversationText(text)):naturalConversationText(text);};
+discussionText=(observer,c)=>{const d=c.topic?.details?.assessment||c.topicForReason?.details?.assessment,flow=q4PolicyOf(c);if(!d&&!flow)return q3PolicyText(observer,c);let text;if(c.command==='organize'&&c.topic?.details?.comparedPolicyIds){text=c.topic.details.comparedPolicyIds.map(id=>{const e=state.discussion.events.find(e=>e.id===id);return `${q4Name(observer,e.speakerId)}は${q4FlowLabel(q4PolicyOf(e).action)}を優先している。`;}).join('')+`この二つの案を、処刑の余裕と新しい結果で比べたい。`;}else if(d)text=q4ArgumentText(observer,d);else if(c.command==='question')text=`${q4Name(observer,c.recipientId)}、その方針は、どんな結果が出たら見直す${['melbon','cortes','naminami'].includes(observer.characterId)?'お考えですか？':'？'}`;else if(c.command==='answer'){text=`${q4Name(observer,c.recipientId)}、`+(flow.action==='mediumRoll'?'霊媒結果や破綻、新しいCOで内訳の見方が変われば、続けるか考え直す。処刑回数が足りなくなった時も同じだ。':flow.domain==='guard'?'新しいCOや破綻、真と分かる役職が出れば、護衛候補の優先順位を変える。':'新しい結果や具体的な疑い、破綻が出れば、処刑候補を考え直す。残りの処刑回数も見直す。');}else text=(c.command==='agree'?conversationFill(conversationVoice(observer).agree,{to:q4Name(observer,c.recipientId)}):c.command==='rebut'?conversationFill(conversationVoice(observer).rebut,{to:q4Name(observer,c.recipientId)}):'')+q4FlowSentence(observer,flow);const change=c.topic?.details?.policyChange;if(change)text=change.reason+'、今日は'+q4FlowLabel(flow.action)+'を考えたい。'+(flow.action==='catRun'?'真猫の道連れには気をつけたい。':'');return isAffinityVillage()?affinityTone(observer,c,naturalConversationText(text)):naturalConversationText(text);};
 const q3PolicyAssessment=affinityLogicalAssessment;
 affinityLogicalAssessment=(observer,e)=>{const a=e.topic?.details?.assessment||e.topicForReason?.details?.assessment;if(!a&&e.relation?.type!=='supplement')return q3PolicyAssessment(observer,q4PolicyOf(e)?{...e,claim:null}:e);const known=grayKnownEventIds(observer),refs=a?.sourceEventIds||[e.replyTo],valid=refs.every(id=>known.has(id))&&(a?['consistentOpinion','groundedInference','reasonedUpdate','appropriateAnswer','cautiousJudgement','publicRefutation'].includes(a.kind):publicFoxPossibility(e.subjectId,buildSpeechPublicInformation()));const baseStatus=valid?'correct':'pending',L=personalityProfile(observer)?.stats.logic??3,rng=affinityRng(state.affinity.seed,e.id,observer.id,'logic'),status=valid&&affinityNext(rng)<[.22,.15,.08,.03,.01][L-1]?'incorrect':baseStatus;return {visibility:'private',baseStatus,status,misunderstood:status!==baseStatus,strength:1,hard:false,publicRelation:null,knownRefIds:refs.filter(id=>known.has(id))};};
 const q3PolicyCommit=commitDiscussionSpeech;
@@ -7484,7 +7486,7 @@ discussionCandidates=observer=>{const list=quality4DiscussionCandidates(observer
  const coherent=new Map();for(let c of list){if(c.command==='propose'&&!c.replyTo&&!q4PolicyOf(c)&&c.subjectId!=null){const chosen=state.deliberation?.policies?.[observer.id]?.domains.execution.first;if(!chosen||chosen.public.selection!=='person'||!chosen.targets.includes(c.subjectId))continue;const planned=q4PolicySpeechCandidate(observer,chosen);c={...planned,weight:Math.max(planned.weight,c.weight)};}const key=c.semanticReasonKey||discussionSemanticKey(c),previous=coherent.get(key);if(!previous||previous.weight<c.weight)coherent.set(key,c);}
  return [...coherent.values()].filter(c=>!grayCandidateUsed(c)&&(!c.topic?.details?.boardSummary||!q5Store().used[c.semanticReasonKey])&&(!q4PolicyOf(c)||c.replyTo||!state.discussion.events.some(e=>e.day===state.day&&e.command==='propose'&&q4PolicyOf(e)?.key===q4PolicyOf(c).key)));};
 const quality4DiscussionText=discussionText;
-discussionText=(observer,c)=>{if(c.variant==='blackQualification'){const f=q4PolicyOf(c),r=f.publicGrounds.find(e=>e.type==='reportedResult');return `${q4Name(observer,c.recipientId)}、${q4Name(observer,r.source.snapshot.seerId)}が真と決まっていない以上、その黒だけで${q4Name(observer,f.targets[0])}を処刑するのは早い。占い師の信用と、本人の説明を比べたい。`;}const summary=c.topic?.details?.boardSummary;if(!summary){let text=quality4DiscussionText(observer,c);const source=state.discussion?.events.find(e=>e.id===c.replyTo),white=source&&q5WhiteCondition(source);if(c.variant==='semanticSupplement'&&white){const seer=byId(white.snapshot.seerId),pub=buildSpeechPublicInformation();if(pub.roles.roles.seer[seer.id]?.status!=='true')text=`${q4Name(observer,seer.id)}が真なら、${q4Name(observer,c.subjectId)}は人狼でも妖狐でもない。妖狐の可能性を残すなら、まず占い師が偽かどうかを考える必要がある。`;}return text;}
+discussionText=(observer,c)=>{if(c.variant==='blackQualification'){const f=q4PolicyOf(c),r=f.publicGrounds.find(e=>e.type==='reportedResult');return `${q4Name(observer,c.recipientId)}、${q4Name(observer,r.source.snapshot.seerId)}が真と決まっていない以上、その黒だけで${q4Name(observer,f.targets[0])}を処刑するのは早い。占い師の信用と、本人の説明を比べたい。`;}const summary=c.topic?.details?.boardSummary;if(!summary){let text=quality4DiscussionText(observer,c);const source=state.discussion?.events.find(e=>e.id===c.replyTo),white=source&&q5WhiteCondition(source);if(c.variant==='semanticSupplement'&&white){const seer=byId(white.snapshot.seerId),pub=buildSpeechPublicInformation();if(pub.roles.roles.seer[seer.id]?.status!=='true')text=`${q4Name(observer,seer.id)}が真なら、${q4Name(observer,c.subjectId)}は生きているし、狐でもないはずだ。`;}return text;}
  const s=summary.data,n=id=>q4Name(observer,id);let text;
  if(summary.kind==='board'){text=`生存は${s.livingCount}人。毎晩1人襲撃で減るなら、処刑はあと${s.slots}回くらい。${s.countsKnown?'公開配役と確定情報から残る人外の上限は'+s.hostileUpper+'人だ。':'公開配役が記録されていないので、人外数の上限は計算できない。'}平和や呪殺、猫又の道連れで回数は変わる。`;const claims=['seer','medium','knight','cat'].map(role=>({role,n:s.players.filter(p=>p.alive&&p.claimed===role).length})).filter(p=>p.n);if(claims.length)text+=claims.map(p=>`${morningRoleLabel(p.role)}COは${p.n}人`).join('、')+'。';}
  else if(summary.kind==='night'){if(s.night.peace)text=s.night.peaceCauses.includes('guard')&&s.night.peaceCauses.includes('foxAttack')?'今日は平和だね。護衛成功か、妖狐への襲撃が考えられる。誰が守られたかはまだ分からない。':s.night.peaceCauses.includes('guard')?'今日は平和だね。この配役なら護衛成功を考えたい。襲撃先は分からない。':'今日は死体が出ていない。原因はまだ判断できない。';else {const descriptions=s.night.combinations.map(c=>c.attack==='cat'?(c.foxDeaths?'呪殺と猫又襲撃・狼道連れ':'猫又襲撃と人狼道連れ'):c.foxDeaths?(c.attack==='ordinary'?'呪殺と通常襲撃':'呪殺だけで襲撃死なし'):'通常襲撃');text=`今朝は${s.deathIds.length}人が死亡している。${descriptions.length?descriptions.join('、')+'が成立する。':'この情報だけでは内訳を絞れない。'}${s.night.catPairCertain?'他の死因が成立しないので、この2人は猫又と人狼の組み合わせだ。':s.night.combinations.length>1?'まだ内訳は確定しない。':''}${(s.counts.cat||0)>0&&!s.night.catCoRequested?'猫又のCOを求めて確かめたい。提案だけでは不在と分からない。':''}`;}}
@@ -7753,6 +7755,8 @@ function q71ObserveHeader(){
 q71ObserveHeader();
 
 function q71DisplayBreakdown(reason){
+ if(String(reason).includes('配役上の猫又枠が真確定した猫又で埋まっている')){const confirmed=getPublicConfirmations();const cats=[...confirmed.keys()].filter(id=>publiclyKnownRoleFor(id,confirmed)==='cat');if(cats.length)return '猫又は'+cats.map(id=>byId(id)?.name).filter(Boolean).join('・')+'で確定している。';}
+
  const s=String(reason),wolves=s.match(/人狼を割り当てられるのは最大(\d+)人.*配役の(\d+)人に足りない/),mad=s.match(/の(\d+)人が狂人である必要があり、配役の(\d+)人を超える/);
  if(wolves)return `人狼候補は最大${wolves[1]}人で、配役の${wolves[2]}人に足りない。`;
  if(mad)return `狂人が${mad[1]}人必要になるが、配役は${mad[2]}人。`;
@@ -7793,6 +7797,47 @@ $("#discussionBtn").onclick=encourageDiscussion;
 $("#playerCount").addEventListener("input",()=>{selectedRolePreset=null;renderRoleConfig()});
 $("#firstVictimEnabled").addEventListener("change",()=>{if(selectedRolePreset!=null)applyRolePreset(selectedRolePreset);else updateSum()});
 $("#startBtn").onclick=startGame;
+
+// quality8: single-day cat selection, not a complete role roller.
+const q8PreviousPolicyCandidates=q4PolicyCandidates;
+q4PolicyCandidates=(observer,pub,board,decision,outlook,credit)=>{
+ const out=q8PreviousPolicyCandidates(observer,pub,board,decision,outlook,credit),f=board.facts;
+ const cats=f.claims.filter(p=>p.role==='cat'),eligible=cats.filter(p=>!f.confirmed.some(c=>c.id===p.id&&c.role==='cat'));
+ if(cats.length<2||!eligible.length||!(f.counts.cat>0))return out;
+ const targets=eligible.map(p=>p.id),stats=personalityProfile(observer)?.stats||{logic:3},gray=out.find(c=>c.action==='gray');
+ const chance=clamp((cats.length-f.counts.cat)/cats.length,0,1);
+ const realRisk=f.confirmed.some(c=>c.role==='cat')?0:Math.min(1,f.counts.cat/cats.length);
+ const motive=q4PolicyMotive(observer,{action:'catRun',domain:'execution',targets},{grayTargets:gray?.targets||[]},board);
+ if(observer.role==='wolf'&&motive.goal==='neutral'){const allies=buildPrivateInfo(observer).knownWolfAllies;if((gray?.targets||[]).some(id=>allies.includes(id))){motive.goal='protectAllyByCatRun';motive.bonus=1.4*(personalityProfile(observer)?.stats.coordination??3)/3;}}
+ const components={catchChance:.85*chance,information:.5,risk:realRisk*(1+(stats.logic||3)*.06),slack:clamp((f.slots-1)/5,-.5,.4),personal:clamp((50-Math.min(...targets.map(id=>decision.people.people[id]?.score??50)))/100,-.25,.4),strategy:motive.bonus,counter:0};
+ const c={action:'catRun',domain:'execution',role:'cat',selection:'pool',targets,completeRoll:false,components,motive,confidence:clamp(1-components.risk,.15,.85),reviewConditions:['newCatClaim','publicCatChain','newBreakdown','newResult','changedCapacity']};
+ c.score=4*components.catchChance+3*components.information-4*components.risk+2*components.slack+2*components.personal+components.strategy+components.counter;
+ c.public=q4PolicyDescriptor(c,board);out.push(c);return out;
+};
+const q8PreviousFlow=q4FlowSentence;
+q4FlowSentence=(observer,f)=>{
+ const n=id=>q4Name(observer,id),b=q4State().boards[f.boardId]?.facts;
+ if(f.action==='catRun'){
+ const lines={joshua:'今日は猫候補から一人、処刑先を考えたいな。',geode:'今日は猫候補から一人、吊る案もありじゃないかねえ。',albert:'今日は猫候補から処刑する一人を選びたい。',momiji:'今日は猫候補から一人、吊り先を考えてみようぜ！',kaede:'……今日は猫候補から一人、処刑先を考えたい。',francois:'今日は猫候補から一人、処刑を検討してはどうかな。',melbon:'今日は猫候補から一人、処刑先を検討いたしませんか。',milk:'今日は、ねこの候補から一人えらぶのはどう？',max:'今日は猫候補から処刑する一人を選んでもいいんじゃないか。',cortes:'本日は猫候補から一人、処刑を検討いたしたく存じます。',zaemon:'今日は猫候補から一人、処刑する案はどうじゃ。',yamato:'今日は猫候補から一人、処刑先を選ぶ案を出そう。',henry:'今日は猫候補から一人、処刑を考えてもいいかな……。',dominic:'今日は猫候補から一人、吊り先を考えようぜ！',pattino:'今日は猫候補から一人、吊るのもありじゃね？',makimura:'今日は猫候補から一人、処刑を考えてみないか。',rixis:'今日は猫候補から一人、処刑先を選ぶ案を考えたい。',wanunu_iii:'きょうは、ねこのこうほから、ひとりえらぶのはどうだ？',naminami:'今日は猫候補から一人、処刑先を考えてみませんか？'};
+ const polite=['melbon','cortes','naminami'].includes(observer.characterId),simple=['milk','wanunu_iii'].includes(observer.characterId);
+ const reason=b?.confirmed.some(c=>c.role==='cat')?(polite?'真と分かった猫は候補から外しましょう。':'真と分かった猫は候補から外そう。'):simple?(observer.characterId==='milk'?'でも、ほんもののねこなら、だれかがまきこまれるよ。':'でも、ほんもののねこなら、だれかがまきこまれるぞ。'):(b&&b.claims.filter(c=>c.role==='cat').length>(b.counts.cat||0)?(polite?'偽物は混じっていますが、真猫なら道連れも出ます。':'偽物は混じっているが、真猫なら道連れも出る。'):(polite?'ただし、真猫なら道連れも出ます。':'ただし、真猫なら道連れも出る。'));
+ return (lines[observer.characterId]||lines.joshua)+reason;
+ }
+ if(f.action==='seerCompare')return f.domain==='execution'?'今日は占い候補の結果と説明を比べて、処刑先を考えたい。':'まず占い候補の結果と説明を比べたい。';
+ if(f.action==='broken')return `${f.targets.map(n).join('・')}は破綻している。今日は処刑候補として優先したい。`;
+ if(f.action==='gray')return `${f.selection==='person'?f.targets.map(n).join('・')+'を':'グレーの発言を比べて'}処刑候補に考えたい。`+(f.proposalKind==='black'?'占いで黒が出ているのを重く見ている。':f.proposalKind==='grayEvidence'?'説明が足りない点が気になる。':'');
+ if(f.action==='guardSeer'&&!(observer.claimed==='seer'&&f.targets.includes(observer.id)))return `${f.targets.length===1?n(f.targets[0]):'占い候補'}を護衛候補として優先したい。${b?.missingEnabled&&!b.missingExcludedRoles?.includes('seer')?'占い師の役欠けはあり得る。':'次の占い結果を残したい。'}`;
+ if(f.action==='mediumRoll')return `霊媒を順に処刑する案を考えたい。${f.completeRoll?'新しい結果が出たら、続けるか見直そう。':'処刑の余裕がないので、全員を吊り切る前提にはしない。'}`;
+ if(f.action==='guardOther')return `${f.targets.map(n).join('・')}も護衛候補に考えたい。${b?.confirmed.some(p=>f.targets.includes(p.id))?'役職の分かっている人物を残したい。':'霊媒結果を残す価値もある。'}`;
+ return q8PreviousFlow(observer,f);
+};
+const q8PreviousText=discussionText;
+const Q8_AGREE={joshua:'僕もその意見に賛成だよ。',geode:'俺もその考えでいいと思うねえ。',albert:'その意見を支持する。',momiji:'俺もそれでいいと思うぞ！',kaede:'……僕も、その意見に賛成。',francois:'その意見には、私も賛成だよ。',melbon:'私もそのお考えに賛成です。',milk:'ぼくも、そう思う！',max:'僕もその意見でいいと思うよ。',cortes:'私もそのお考えを支持いたします。',zaemon:'儂もその意見に賛成じゃ。',yamato:'拙者もその意見を支持する。',henry:'僕も、その意見でいいと思う……。',dominic:'俺もその意見に賛成だぜ！',pattino:'俺もそれ、いいと思う。',makimura:'俺もその考えに賛成だ。',rixis:'俺もその意見を支持する。',wanunu_iii:'ぼくも、そのかんがえに、さんせいだ！',naminami:'私もその考えに賛成です！'};
+discussionText=(observer,c)=>{
+ if(c.command==='agree'){const source=state.discussion?.events.find(e=>e.id===c.replyTo);if(source&&source.speakerId!==observer.id)return Q8_AGREE[observer.characterId]||Q8_AGREE.joshua;}
+ return q8PreviousText(observer,c);
+};
+
 $("#loadBtn").onclick=load;
 $("#debugBtnTop").onclick=()=>$("#debugPanel").classList.toggle("hidden");
 $("#resetBtnTop").onclick=reset;

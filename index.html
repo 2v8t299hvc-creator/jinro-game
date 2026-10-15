@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-quality8.1-partial</title>
+<title>個人用人狼アプリ v2.20.0-quality8.2-partial</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -142,7 +142,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title" title="v2.20.0-quality8.1-partial">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title" title="v2.20.0-quality8.2-partial">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row topbar-actions"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -208,7 +208,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
       <button id="logToggleBtn" class="log-toggle">ログを全部見る</button>
     </div>
 
-    <div class="card compact-section" id="saveNotice"><div id="saveStatus" class="muted" aria-live="polite">進行は端末に自動保存します。</div><button id="retrySaveBtn" class="secondary" hidden>もう一度保存する</button><details><summary>保存・議論の診断</summary><div id="saveDiagnostic" class="muted"></div></details></div>
+    <div class="card compact-section" id="saveNotice"><div id="saveStatus" class="muted" aria-live="polite">進行は端末に自動保存します。</div><button id="retrySaveBtn" class="secondary" hidden>もう一度保存する</button><div class="row"><button id="exportSaveBtn" class="secondary">現在の村をファイルに退避</button><button id="importSaveBtn" class="secondary">退避ファイルを開く</button><input id="importSaveFile" type="file" accept=".json,.jinro,application/json" hidden></div><div id="transferStatus" class="muted" aria-live="polite"></div><details><summary>保存・議論の診断</summary><div id="saveDiagnostic" class="muted"></div></details></div>
     <div class="card compact-section"><button id="discussionBtn">議論を促す</button><button id="playerDiscussionBtn" class="secondary" hidden disabled style="display:none">自分の意見を話す</button><div id="discussionStatus" class="muted" aria-live="polite"></div></div>
     <div id="actionPanel" class="hidden"></div>
 
@@ -252,7 +252,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
 </section>
 <script>
-const GAME_VERSION="2.20.0-quality8.1-partial";
+const GAME_VERSION="2.20.0-quality8.2-partial";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -5732,16 +5732,15 @@ function isValidSavedGame(value){
     value.players.every(p=>p&&Number.isInteger(p.id)&&typeof p.name==="string"&&
       typeof p.alive==="boolean"&&ROLES.some(([role])=>role===p.role));
 }
-function load(){
-  const previousState=state;
-  try{
-    const r=localStorage.getItem("jinro_v04_state");
-    if(!r){alert("保存データがありません");return}
-    const candidate=JSON.parse(r);
-    if(!isValidSavedGame(candidate))throw new Error("Invalid saved game");
+function q82RestoreCandidate(candidate,preserveDerived=false){
+ const previousState=state;
+ try{
+  if(!isValidSavedGame(candidate))throw new Error('Invalid saved game');
+  preserveDerived=preserveDerived||/^2\.20\.0-quality8\.[12](?:-partial)?$/.test(candidate.version);
     const hasGuardInstructions=Array.isArray(candidate.publicRecords?.guardInstructions);
     state=candidate;
-    q81Diagnostics.splice(0,q81Diagnostics.length,...(Array.isArray(candidate.runtimeDiagnostics81)?candidate.runtimeDiagnostics81.slice(-12):[]));
+    const priorDiagnostics=candidate.saveMeta81?.villageId&&candidate.saveMeta81.villageId===previousState?.saveMeta81?.villageId?q81Diagnostics.slice(-12):[];
+    q81Diagnostics.splice(0,q81Diagnostics.length,...(Array.isArray(candidate.runtimeDiagnostics81)?candidate.runtimeDiagnostics81.slice(-12):priorDiagnostics));
     state.selectionMode=null;state.selectionTitle=null;state._selectionAllowed=null;state._selectionCallback=null;
     if(state.logPersonFilterId===undefined)state.logPersonFilterId=null;
     if(!state.uiSettings)state.uiSettings={showConfirmedBadges:true,showBrokenBadges:true};
@@ -5767,10 +5766,19 @@ function load(){
       for(const [id] of getPublicBreakdowns())system.breakdowns[id]={order:socialOrder(),day:null};
     }
     state.version=GAME_VERSION;
-    q81RefreshDerived(false);
+    if(!preserveDerived)q81RefreshDerived(false);
     q81LastSave={ok:true,day:state.day,phase:state.phase,revision:state.saveMeta81?.revision??null,stage:"load"};
     try{showGame();}catch(e){q81Diagnostic("render","LOAD_RENDER_FAILED",e);q81RenderSafely();}q81RenderSaveStatus();
-  }catch(e){state=previousState;q81Diagnostic("load", "LOAD_FAILED",e);q81RenderSaveStatus();alert("保存データを読み込めませんでした")}
+  return true;
+ }catch(e){state=previousState;q81Diagnostic('load','LOAD_FAILED',e);q81RenderSaveStatus();return false;}
+}
+function load(){
+ try{
+  const raw=localStorage.getItem('jinro_v04_state');if(!raw){alert('保存データがありません');return;}
+  const decoded=q82Read(raw);
+  if(!q82RestoreCandidate(decoded.state,decoded.stats.format==='q82-lz77-v1'))throw new Error('Invalid saved game');
+  q82StorageStats={...decoded.stats,topKeys:q82Profile(state),origin:q82OriginUsage()};q81RenderSaveStatus();
+ }catch(e){q81Diagnostic('load','LOAD_FAILED',e);q81RenderSaveStatus();alert('保存データを読み込めませんでした');}
 }
 function reset(){
   if(confirm("現在のゲームを終了して設定画面に戻りますか？")){
@@ -7870,40 +7878,41 @@ let q81LastSave=null;
 function q81Diagnostic(stage,code,error=null){
  const row={day:state?.day??null,phase:state?.phase??null,stage,code,errorName:error?.name||null,time:Date.now()};
  q81Diagnostics.push(row);if(q81Diagnostics.length>12)q81Diagnostics.shift();
- if(state&&stage!=='load')state.runtimeDiagnostics81=q81Diagnostics.map(x=>({...x}));return row;
+ return row;
 }
 function q81RenderSaveStatus(){
  try{
  const status=$('#saveStatus'),retry=$('#retrySaveBtn'),detail=$('#saveDiagnostic');if(!status||!retry)return;
- const labels={QUOTA:'端末の保存容量が足りない',CIRCULAR:'データの循環参照',SERIALIZE:'データ変換エラー',STORAGE:'端末の保存領域を利用できない',VERIFY:'書き込みを確認できない',STALE:'別の画面に、より新しい保存がある',SAVE_EXCEPTION:'保存処理の例外'};
+ const labels={QUOTA:'端末の保存容量が足りない',CIRCULAR:'データの循環参照',SERIALIZE:'データ変換エラー',STORAGE:'端末の保存領域を利用できない',VERIFY:'書き込みを確認できない',STALE:'別の画面に、より新しい保存がある',SAVE_EXCEPTION:'保存処理の例外',CORRUPT_EXISTING:'保存済みデータの破損を検出',CODEC:'圧縮・形式変換のエラー'};
  if(q81LastSave){status.textContent=q81LastSave.ok?`${q81LastSave.day}日目・${q81LastSave.phase==='night'?'夜':q81LastSave.phase==='end'?'終了':'昼'}を保存したよ。`:`保存できなかったよ（${labels[q81LastSave.code]||'保存エラー'}）。画面の状態は残っているよ。`;retry.hidden=q81LastSave.ok;}
+ if(q81LastSave?.ok&&q82StorageStats)status.textContent+=` 形式: ${q82StorageStats.format}、保存データ ${q82StorageStats.storedUtf8Bytes.toLocaleString()} B（UTF-8）、UTF-16換算 ${q82StorageStats.storedUtf16Estimate.toLocaleString()} B、元データの${(100*q82StorageStats.storedUtf16Estimate/q82StorageStats.rawUtf16Estimate).toFixed(1)}%。`;
  const problem=q81Diagnostics.filter(x=>['derived','render','discussion','load'].includes(x.stage)).at(-1);
  if(q81LastSave?.ok&&problem)status.textContent+=' 更新に問題があったので、診断を確認してね。';
- if(detail)detail.textContent=JSON.stringify({lastSave:q81LastSave,discussion:state?.discussion?.lastBatchDiagnostic||null,recent:q81Diagnostics},null,2);
+ if(detail)detail.textContent=JSON.stringify({lastSave:q81LastSave,discussion:state?.discussion?.lastBatchDiagnostic||null,recent:q81Diagnostics,storage:q82StorageStats},null,2);
  }catch{}
 }
 function q81Persist(stage='manual'){
  if(!state)return false;
  let raw,meta,wrote=false,previous=state.saveMeta81;
  try{
-  const disk=localStorage.getItem('jinro_v04_state');
-  let saved=null;try{saved=disk?JSON.parse(disk):null;}catch{}
-  if(previous?.villageId&&saved?.saveMeta81&&(saved.saveMeta81.villageId!==previous.villageId||saved.saveMeta81.revision>previous.revision)){const e=new Error('Newer save');e.saveCode='STALE';throw e;}
-  if(previous&&disk){
-   let unchanged;try{unchanged=JSON.stringify(state)===disk;}catch(e){e.saveCode=/circular|cyclic/i.test(e.message)?'CIRCULAR':'SERIALIZE';throw e;}
-   if(unchanged){q81LastSave={ok:true,day:state.day,phase:state.phase,revision:previous.revision,bytesEstimate:disk.length*2,stage,unchanged:true};q81RenderSaveStatus();return true;}
+  const disk=localStorage.getItem('jinro_v04_state'),permit=stage==='import-confirmed'&&q82ImportPermit?.disk===disk;let stored=null;
+  try{stored=disk?q82Read(disk):null;}catch(e){if(previous?.villageId&&!permit){e.saveCode='CORRUPT_EXISTING';throw e;}}
+  const saved=stored?.state;
+  if(previous?.villageId&&saved?.saveMeta81&&(saved.saveMeta81.villageId!==previous.villageId||saved.saveMeta81.revision>previous.revision)&&!permit){const e=new Error('Newer save');e.saveCode='STALE';throw e;}
+  if(previous&&stored?.stats.format==='q82-lz77-v1'){
+   let unchanged;try{unchanged=JSON.stringify(state)===stored.json;}catch(e){e.saveCode=/circular|cyclic/i.test(e.message)?'CIRCULAR':'SERIALIZE';throw e;}
+   if(unchanged){q82StorageStats={...stored.stats,topKeys:q82Profile(state),origin:q82OriginUsage()};q81LastSave={ok:true,day:state.day,phase:state.phase,revision:previous.revision,stage,unchanged:true};q81RenderSaveStatus();return true;}
   }
-  meta={schemaVersion:1,villageId:previous?.villageId||q81SaveSession+'-'+(++q81SaveNonce),revision:(previous?.revision||0)+1,day:state.day,phase:state.phase,time:Date.now()};
-  state.saveMeta81=meta;
+  const revision=permit&&saved?.saveMeta81?.villageId===previous?.villageId?Math.max(previous?.revision||0,saved.saveMeta81.revision||0):(previous?.revision||0);
+  meta={schemaVersion:1,villageId:previous?.villageId||q81SaveSession+'-'+(++q81SaveNonce),revision:revision+1,day:state.day,phase:state.phase,time:Date.now()};state.saveMeta81=meta;
   try{raw=JSON.stringify(state);}catch(e){e.saveCode=/circular|cyclic/i.test(e.message)?'CIRCULAR':'SERIALIZE';throw e;}
-  localStorage.setItem('jinro_v04_state',raw);wrote=true;
-  if(localStorage.getItem('jinro_v04_state')!==raw){const e=new Error('Save verification');e.saveCode='VERIFY';throw e;}
-  q81LastSave={ok:true,day:state.day,phase:state.phase,revision:meta.revision,bytesEstimate:raw.length*2,stage};
-  q81RenderSaveStatus();return true;
+  let packed;try{packed=q82Pack(raw);}catch(e){e.saveCode='CODEC';throw e;}q82StorageStats={...packed.stats,topKeys:q82Profile(state),origin:q82OriginUsage()};
+  localStorage.setItem('jinro_v04_state',packed.text);wrote=true;
+  try{const verified=localStorage.getItem('jinro_v04_state');if(verified!==packed.text||q82Read(verified).json!==raw)throw Error('Save verification');}catch(e){e.saveCode='VERIFY';throw e;}
+  q81LastSave={ok:true,day:state.day,phase:state.phase,revision:meta.revision,stage};q81RenderSaveStatus();return true;
  }catch(e){
   if(!wrote){if(previous===undefined)delete state.saveMeta81;else state.saveMeta81=previous;}
-  const code=e.saveCode||((e.name==='QuotaExceededError'||e.code===22||e.code===1014)?'QUOTA':'STORAGE');
-  q81LastSave={ok:false,code,day:state.day,phase:state.phase,stage};q81Diagnostic('save',code,e);q81RenderSaveStatus();return false;
+  const code=e.saveCode||((e.name==='QuotaExceededError'||e.code===22||e.code===1014)?'QUOTA':'STORAGE');q81LastSave={ok:false,code,day:state.day,phase:state.phase,stage};q81Diagnostic('save',code,e);q81RenderSaveStatus();return false;
  }
 }
 function q81RefreshDerived(includeSocial=true){
@@ -8002,6 +8011,62 @@ q4EvaluationRows=(observer,pub,decision,outlook)=>q81PreviousEvaluationRows(obse
  const resultOnly=evidence.some(e=>e.source?.snapshot?.[field]===row.actorId)&&!evidence.some(e=>['publicBehaviorObservation','publicRoleConfirmation','publicBreakdown'].includes(e.type));
  return !resultOnly;
 });
+
+// quality8.2: lossless bounded LZ77 byte codec, UTF-8, base64, CRC32; no external dependencies.
+let q82StorageStats=null,q82ImportPermit=null;
+const Q82_MAX_BYTES=64*1024*1024,Q82_B64='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const q82CrcTable=Uint32Array.from({length:256},(_,n)=>{let c=n;for(let k=0;k<8;k++)c=c&1?0xedb88320^(c>>>1):c>>>1;return c>>>0;});
+function q82Crc(bytes){let c=0xffffffff;for(const b of bytes)c=q82CrcTable[(c^b)&255]^(c>>>8);return ((c^0xffffffff)>>>0).toString(16).padStart(8,'0');}
+function q82Utf8(s){
+ let size=0;for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);if(c<128)size++;else if(c<2048)size+=2;else if(c>=0xd800&&c<=0xdbff&&i+1<s.length&&(s.charCodeAt(i+1)&0xfc00)===0xdc00){size+=4;i++;}else size+=3;}
+ const out=new Uint8Array(size);let n=0;for(let i=0;i<s.length;i++){let c=s.charCodeAt(i);if(c<128)out[n++]=c;else if(c<2048){out[n++]=192|(c>>>6);out[n++]=128|(c&63);}else if(c>=0xd800&&c<=0xdbff&&i+1<s.length&&(s.charCodeAt(i+1)&0xfc00)===0xdc00){c=0x10000+((c-0xd800)<<10)+(s.charCodeAt(++i)-0xdc00);out[n++]=240|(c>>>18);out[n++]=128|((c>>>12)&63);out[n++]=128|((c>>>6)&63);out[n++]=128|(c&63);}else{out[n++]=224|(c>>>12);out[n++]=128|((c>>>6)&63);out[n++]=128|(c&63);}}return out;
+}
+function q82Text(bytes){
+ const parts=[],units=[];for(let i=0;i<bytes.length;){const b=bytes[i++];let cp,count,min;if(b<128){cp=b;count=0;min=0;}else if(b>=194&&b<=223){cp=b&31;count=1;min=128;}else if(b>=224&&b<=239){cp=b&15;count=2;min=2048;}else if(b>=240&&b<=244){cp=b&7;count=3;min=65536;}else throw Error('Invalid UTF-8');
+  if(i+count>bytes.length)throw Error('Truncated UTF-8');while(count--){const t=bytes[i++];if((t&192)!==128)throw Error('Invalid UTF-8');cp=(cp<<6)|(t&63);}if(cp<min||cp>0x10ffff||cp>=0xd800&&cp<=0xdfff)throw Error('Invalid UTF-8');if(cp<65536)units.push(cp);else{cp-=65536;units.push(0xd800+(cp>>>10),0xdc00+(cp&1023));}if(units.length>=8192){parts.push(String.fromCharCode(...units));units.length=0;}}
+ if(units.length)parts.push(String.fromCharCode(...units));return parts.join('');
+}
+function q82Base64(bytes){const parts=[];let block='';for(let i=0;i<bytes.length;i+=3){const a=bytes[i],b=bytes[i+1],c=bytes[i+2];block+=Q82_B64[a>>>2]+Q82_B64[((a&3)<<4)|((b||0)>>>4)]+(i+1<bytes.length?Q82_B64[((b&15)<<2)|((c||0)>>>6)]:'=')+(i+2<bytes.length?Q82_B64[c&63]:'=');if(block.length>=8192){parts.push(block);block='';}}if(block)parts.push(block);return parts.join('');}
+function q82Unbase64(s){
+ if(typeof s!=='string'||s.length%4||s.length>Q82_MAX_BYTES*2)throw Error('Invalid base64');const padding=s.endsWith('==')?2:s.endsWith('=')?1:0,out=new Uint8Array(s.length/4*3-padding);let n=0;
+ for(let i=0;i<s.length;i+=4){const a=Q82_B64.indexOf(s[i]),b=Q82_B64.indexOf(s[i+1]),c=s[i+2]==='='?0:Q82_B64.indexOf(s[i+2]),d=s[i+3]==='='?0:Q82_B64.indexOf(s[i+3]);if(a<0||b<0||c<0||d<0||(s[i+2]==='='||s[i+3]==='=')&&i+4!==s.length||s[i+2]==='='&&s[i+3]!=='='||i+4===s.length&&(padding===2&&(b&15)||padding===1&&(c&3)))throw Error('Invalid base64');out[n++]=(a<<2)|(b>>>4);if(n<out.length)out[n++]=((b&15)<<4)|(c>>>2);if(n<out.length)out[n++]=((c&3)<<6)|d;}return out;
+}
+function q82Deflate(input){
+ const heads=new Int32Array(65536*4);heads.fill(-1);const out=new Uint8Array(input.length+Math.ceil(input.length/128)+8);let p=0,n=0,literal=0;
+ const hash=i=>(((input[i]*251+input[i+1])*251+input[i+2])&65535)*4;
+ const put=i=>{if(i+2>=input.length)return;const h=hash(i);heads[h+3]=heads[h+2];heads[h+2]=heads[h+1];heads[h+1]=heads[h];heads[h]=i;};
+ const flush=end=>{while(literal<end){const len=Math.min(128,end-literal);out[n++]=len-1;out.set(input.subarray(literal,literal+len),n);n+=len;literal+=len;}};
+ while(p<input.length){let best=0,distance=0;if(p+3<input.length){const h=hash(p);for(let k=0;k<4;k++){const old=heads[h+k],dist=p-old;if(old<0||dist>65535)continue;let len=0;while(len<130&&p+len<input.length&&input[old+len]===input[p+len])len++;if(len>best){best=len;distance=dist;}}}
+  if(best>=4){flush(p);out[n++]=128|(best-3);out[n++]=distance>>>8;out[n++]=distance&255;for(let k=0;k<best;k++)put(p+k);p+=best;literal=p;}
+  else{put(p);p++;if(p-literal===128)flush(p);}
+ }flush(p);return out.subarray(0,n);
+}
+function q82Inflate(input,size){
+ if(!Number.isInteger(size)||size<0||size>Q82_MAX_BYTES)throw Error('Invalid inflated size');const out=new Uint8Array(size);let i=0,n=0;
+ while(i<input.length){const c=input[i++];if(c<128){const len=c+1;if(i+len>input.length||n+len>size)throw Error('Invalid literal');out.set(input.subarray(i,i+len),n);i+=len;n+=len;}else{const len=(c&127)+3;if(i+2>input.length||n+len>size)throw Error('Invalid match');const dist=(input[i++]<<8)|input[i++];if(dist<1||dist>n)throw Error('Invalid distance');for(let k=0;k<len;k++){out[n]=out[n-dist];n++;}}}
+ if(n!==size)throw Error('Invalid output length');return out;
+}
+function q82Pack(json){
+ const bytes=q82Utf8(json);if(bytes.length>Q82_MAX_BYTES)throw Error('Save exceeds codec limit');const data=q82Deflate(bytes),value=JSON.parse(json),envelope={format:'jinro-save',schemaVersion:82,codec:'lz77-b64-v1',utf8Length:bytes.length,crc32:q82Crc(bytes),saveMeta81:value.saveMeta81??null,data:q82Base64(data)},text=JSON.stringify(envelope);
+ return {text,stats:{format:'q82-lz77-v1',rawChars:json.length,rawUtf8Bytes:bytes.length,rawUtf16Estimate:json.length*2,compressedBytes:data.length,storedUtf8Bytes:q82Utf8(text).length,storedUtf16Estimate:text.length*2,time:value.saveMeta81?.time??null}};
+}
+function q82Read(text){
+ if(typeof text!=='string'||text.length>Q82_MAX_BYTES*2)throw Error('Invalid save text');const env=JSON.parse(text);
+ if(env?.format!=='jinro-save')return {state:env,json:text,stats:{format:'legacy-json',rawChars:text.length,rawUtf8Bytes:q82Utf8(text).length,rawUtf16Estimate:text.length*2,storedUtf8Bytes:q82Utf8(text).length,storedUtf16Estimate:text.length*2}};
+ if(env.schemaVersion!==82||env.codec!=='lz77-b64-v1'||typeof env.crc32!=='string')throw Error('Unsupported save format');
+ const compressed=q82Unbase64(env.data),bytes=q82Inflate(compressed,env.utf8Length);if(q82Crc(bytes)!==env.crc32)throw Error('Save checksum mismatch');const json=q82Text(bytes),value=JSON.parse(json);if(JSON.stringify(env.saveMeta81)!==JSON.stringify(value.saveMeta81??null))throw Error('Save metadata mismatch');
+ return {state:value,json,stats:{format:'q82-lz77-v1',rawChars:json.length,rawUtf8Bytes:bytes.length,rawUtf16Estimate:json.length*2,compressedBytes:compressed.length,storedUtf8Bytes:q82Utf8(text).length,storedUtf16Estimate:text.length*2,time:value.saveMeta81?.time??null}};
+}
+function q82Profile(value){return Object.entries(value).map(([key,v])=>{const s=JSON.stringify(v)||'';return {key,chars:s.length,utf8Bytes:q82Utf8(s).length,utf16Estimate:s.length*2};}).sort((a,b)=>b.utf16Estimate-a.utf16Estimate).slice(0,8);}
+function q82OriginUsage(){try{if(typeof localStorage.key!=='function')return {available:false};let chars=0;for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(key!=='jinro_v04_state')chars+=key.length+(localStorage.getItem(key)||'').length;}return {otherKeysUtf16Estimate:chars*2,keys:localStorage.length};}catch{return {available:false};}}
+function q82CreateExport(){if(!state)throw Error('No village');const packed=q82Pack(JSON.stringify(state));return {filename:'jinro-save-day'+state.day+'-'+Date.now()+'.json',text:packed.text,stats:packed.stats};}
+function q82ImportText(text,ask=()=>confirm('現在の画面の村を、退避ファイルの村に置き換えて再開しますか？')){
+ const decoded=q82Read(text);if(!isValidSavedGame(decoded.state))throw Error('Invalid imported game');let disk=null;try{disk=localStorage.getItem('jinro_v04_state');}catch{}if(!ask())return {restored:false,cancelled:true};
+ if(!q82RestoreCandidate(decoded.state,decoded.stats.format==='q82-lz77-v1'))throw Error('Cannot restore import');q82ImportPermit={disk};let persisted=false;try{persisted=q81Persist('import-confirmed');}finally{q82ImportPermit=null;}q81RenderSafely();return {restored:true,persisted};
+}
+$('#exportSaveBtn').onclick=()=>{try{const file=q82CreateExport(),url=URL.createObjectURL(new Blob([file.text],{type:'application/json;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download=file.filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);$('#transferStatus').textContent='退避ファイルを作成したよ。ダウンロード先を確認してね。端末内の通常保存とは別だよ。';}catch(e){$('#transferStatus').textContent='退避ファイルを作成できなかったよ。';q81Diagnostic('export','EXPORT_FAILED',e);q81RenderSaveStatus();}};
+$('#importSaveBtn').onclick=()=>$('#importSaveFile').click();
+$('#importSaveFile').addEventListener('change',event=>{const input=event.target,file=input.files?.[0];if(!file)return;if(file.size>Q82_MAX_BYTES*2){$('#transferStatus').textContent='ファイルが大きすぎるよ。';input.value='';return;}const reader=new FileReader();reader.onload=()=>{try{const result=q82ImportText(String(reader.result));$('#transferStatus').textContent=result.cancelled?'読み込みを取り消したよ。':result.persisted?'退避ファイルから再開し、端末にも保存したよ。':'退避ファイルを開いたよ。端末保存はまだできていないので、退避ファイルも残してね。';}catch(e){$('#transferStatus').textContent='退避ファイルを開けなかったよ。形式・破損を確認してね。';q81Diagnostic('import','IMPORT_FAILED',e);q81RenderSaveStatus();}finally{input.value='';}};reader.onerror=()=>{$('#transferStatus').textContent='ファイルを読み取れなかったよ。';input.value='';};reader.readAsText(file);});
 
 $("#loadBtn").onclick=load;
 $("#debugBtnTop").onclick=()=>$("#debugPanel").classList.toggle("hidden");

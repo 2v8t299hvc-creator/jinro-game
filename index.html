@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-quality8.3-partial</title>
+<title>個人用人狼アプリ v2.20.0-quality8.4-partial</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -156,7 +156,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title" title="v2.20.0-quality8.3-partial">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title" title="v2.20.0-quality8.4-partial">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row topbar-actions"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -267,7 +267,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
 </section>
 <script>
-const GAME_VERSION="2.20.0-quality8.3-partial";
+const GAME_VERSION="2.20.0-quality8.4-partial";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -5027,9 +5027,13 @@ function morningVoiceFor(observer){
 }
 function morningName(observer,id){
   if(id===observer.id)return CONVERSATION_FIRST_PERSON[observer.characterId]||"僕";
-  const name=byId(id)?.name||"その人";
-  return name+(["melbon","cortes"].includes(observer.characterId)?"様":observer.characterId==="naminami"?"さん":"");
+  const target=byId(id),name=target?.name||"その人";
+  if(!target)return name;
+  if(observer.characterId==='cortes'&&target.characterId==='max')return '坊ちゃま';
+  const honor=observer.characterId==='kaede'?(target.characterId==='momiji'?'':'さん'):["melbon","cortes"].includes(observer.characterId)?"様":observer.characterId==="naminami"?"さん":"";
+  return honor&&name.endsWith(honor)?name:name+honor;
 }
+
 function morningRoleLabel(role){return ({seer:"占い師",medium:"霊媒師",knight:"騎士"})[role]||"役職";}
 // 理由は公開の構造記録から再構成。details.reasonの自由文・私的判断文は使わない。
 function morningReason(observer,topic){
@@ -5751,7 +5755,7 @@ function q82RestoreCandidate(candidate,preserveDerived=false){
  const previousState=state;
  try{
   if(!isValidSavedGame(candidate))throw new Error('Invalid saved game');
-  preserveDerived=preserveDerived||/^2\.20\.0-quality8\.[123](?:-partial)?$/.test(candidate.version);
+  preserveDerived=preserveDerived||/^2\.20\.0-quality8\.[1234](?:-partial)?$/.test(candidate.version);
     const hasGuardInstructions=Array.isArray(candidate.publicRecords?.guardInstructions);
     state=candidate;
     const priorDiagnostics=candidate.saveMeta81?.villageId&&candidate.saveMeta81.villageId===previousState?.saveMeta81?.villageId?q81Diagnostics.slice(-12):[];
@@ -8177,6 +8181,211 @@ discussionText=(observer,c)=>{
  if(summary.kind==='night')return q83NightText(observer,c,s);
  if(summary.kind==='board')return q83Voice(observer,`今は${s.livingCount}人生存で、夜に一人ずつ減るなら処刑はあと${s.slots}回ほどになる`,s.countsKnown?`平和や呪殺で変わるけれど、残る人外は最大${s.hostileUpper}人と見積もる`:'配役の記録がないので、残る人外数は絞れない');
  return q83PreviousText(observer,c);
+};
+
+// quality8.4: inference stays in the existing models; this layer chooses a public speech act.
+// All references are IDs. Existing semantic, knowledge, strategy and candidate weights remain authoritative.
+function q84Event(id){return state.discussion?.events.find(e=>e.id===id);}
+function q84Evidence(c){return c.evidence||c.topic?.details?.evidence||c.topicForReason?.details?.evidence||[];}
+function q84Young(p){return ['milk','wanunu_iii'].includes(p.characterId);}
+function q84Reason(p,c){
+ const evidence=q84Evidence(c),topic=c.topic||c.topicForReason;
+ if(evidence.some(e=>e.type==='subjectiveIntuition')&&!evidence.some(e=>e.source?.snapshot||e.type==='publicBehaviorObservation'))return p.characterId==='wanunu_iii'?'なんとなく、ひっかかるぞ':p.characterId==='milk'?'なんか、へんな感じがするんだ':p.characterId==='momiji'?'なんか引っかかるんだ':'なんとなく、引っかかった';
+ if(q84Young(p)||p.characterId==='momiji'){
+  const intuition=evidence.find(e=>e.type==='subjectiveIntuition');
+  if(intuition)return p.characterId==='wanunu_iii'?'なんとなく、ひっかかるぞ':p.characterId==='milk'?'なんか、へんな感じがするんだ':'勘だけど、なんか引っかかるんだ';
+  const row=evidence.find(e=>e.source?.snapshot?.targetId===(c.subjectId??topic?.targetId)&&e.source.snapshot.seerId!=null)?.source.snapshot;
+  if(row)return `${morningName(p,row.seerId)}が、${morningName(p,row.targetId)}に${row.black?'黒':'白'}って言ってた${p.characterId==='wanunu_iii'?'ぞ':p.characterId==='milk'?'んだよ':'からな'}`;
+ }
+ return conversationReason(p,c);
+}
+function q84OpinionText(p,c){
+ const t=c.topic||c.topicForReason;if(!t)return null;
+ // Known results and surviving divination retain the existing certainty/conditional renderer.
+ if(!['basicSuspect','gutSuspect','basicTrust','roleTruth'].includes(t.variant)||String(t.details?.certainty||'').startsWith('confirmed')||q6OwnPublishedResult(p,t))return null;
+ const prop=discussionProposition(c),n=morningName(p,c.subjectId??t.targetId),first=CONVERSATION_FIRST_PERSON[p.characterId]||'僕';
+ const doubt=t.variant==='basicSuspect'||t.variant==='gutSuspect',role=t.variant==='roleTruth',wolfLead=doubt&&t.variant!=='gutSuspect'&&q84Evidence(c).some(e=>e.source?.snapshot?.seerId!=null&&e.source.snapshot.targetId===(c.subjectId??t.targetId)&&e.source.snapshot.black);
+ const claim=role?`${n}を本物寄りに見ている`:doubt?`${n}が怪しい`:`${n}は狼じゃなさそう`;
+ const lines={
+ joshua:()=>role?`${n}が本物だと思うよ。`:doubt?`${first}は${n}を疑ってる。`:`${n}は狼じゃないと思う。`,
+ geode:()=>role?`俺は${n}が本物だと踏んでるねえ。`:doubt?(wolfLead?`${n}が狼じゃないかと踏んでるねえ。`:`${n}、ちょっと臭うんだよねえ。`):`${n}を狼と見るのは違う気がするねえ。`,
+ albert:()=>role?`${n}を真寄りに見る。`:doubt?(wolfLead?`${n}が狼だと見ている。`:`${n}を疑っている。`):`${n}は狼ではないと見ている。`,
+ momiji:()=>role?`俺は${n}が本物だと思うぞ！`:doubt?(wolfLead?`${n}が狼なんじゃないか？俺は疑ってるぞ！`:`${n}が怪しいと思うんだ！`):`${n}は狼じゃない気がするぞ！`,
+ kaede:()=>role?`${n}が本物かな、と思ってる。`:doubt?`${n}、ちょっと気になる。`:`${n}は狼じゃないと思う。`,
+ francois:()=>role?`${n}を本物と見ておこうかな。`:doubt?(wolfLead?`私は${n}を狼と見ているよ。`:`私は${n}を疑っているよ。`):`${n}を狼と疑う気には、今はなれないね。`,
+ melbon:()=>role?`私は${n}が本物だと考えております。`:doubt?`${n}には、少し引っかかっております。`:`${n}は狼ではなさそうですね。`,
+ milk:()=>role?`ぼく、${n}がほんものだと思う！`:doubt?`ぼく、${n}があやしいと思う！`:`${n}、おおかみじゃないと思うよ！`,
+ max:()=>role?`僕は${n}を本物だと見ているよ。`:doubt?(wolfLead?`${n}が狼ではないのか？僕はそう見ている。`:`${n}が怪しい。僕はそう見ている。`):`${n}は狼ではないだろう。`,
+ cortes:()=>role?`${n}が本物かと存じます。`:doubt?`${n}のことは、少々気にかかっております。`:`${n}は狼ではないと考えております。`,
+ zaemon:()=>role?`儂は${n}を本物と見ておる。`:doubt?`${n}が怪しいのう。`:`${n}は狼ではなかろう。`,
+ yamato:()=>role?`${n}を真と見ている。`:doubt?`${n}を疑っておる。`:`${n}は狼ではないと見る。`,
+ henry:()=>role?`${n}が本物かな……僕はそう思う。`:doubt?`${n}のことが、気になってるんだ。`:`${n}は狼じゃない気がするよ。`,
+ dominic:()=>role?`${n}が本物だと俺は思うぜ！`:doubt?`俺は${n}が怪しいと思うぜ！`:`${n}は狼じゃないと思うんだ！`,
+ pattino:()=>role?`${n}って本物っぽくね？`:doubt?`${n}、なんか怪しくね？`:`${n}は狼って感じしないなー。`,
+ makimura:()=>role?`俺は${n}を本物と見ているよ。`:doubt?`${n}を少し疑ってる。`:`${n}は狼じゃないと見ているよ。`,
+ rixis:()=>role?`${n}を真寄りに見るよ。`:doubt?`今は${n}を疑っている。`:`${n}が狼という線は薄いと読む。`,
+ wanunu_iii:()=>role?`${n}、ほんものだとおもうぞ。`:doubt?`${n}、あやしいとおもうぞ。`:`${n}、おおかみじゃなさそうだぞ。`,
+ naminami:()=>role?`私は${n}が本物だと思います！`:doubt?`${n}が怪しいと考えています！`:`${n}は狼ではなさそうです！`
+ };
+ const reason=q84Reason(p,c);if(!reason)return null;
+ return (lines[p.characterId]||(()=>claim+'。'))()+reason.replace(/。$/,'')+'。';
+}
+function q84Summary(c){
+ const refs=(c.summaryIds||[]).map(q84Event).filter(Boolean);
+ for(let i=0;i<refs.length;i++)for(let j=i+1;j<refs.length;j++){
+  const a=refs[i],b=refs[j];if(a.speakerId===b.speakerId||a.subjectId==null||a.subjectId===a.speakerId&&b.subjectId===b.speakerId)continue;
+  if(classifyDiscussionRelation(a,b)==='rebut')return {kind:'contrast',aId:a.id,bId:b.id,subjectId:a.subjectId,issue:discussionProposition(a).issue};
+ }
+ return null;
+}
+function q84SummaryText(p,summary){
+ const a=q84Event(summary.aId),b=q84Event(summary.bId);if(!a||!b)return null;
+ const subject=morningName(p,summary.subjectId),left=morningName(p,a.speakerId),right=morningName(p,b.speakerId);
+ const issue={wolf:'狼かどうか',fox:'狐かどうか',roleTrust:'COを信用するか',personReliability:'話を信用するか',execution:'吊るか残すか'}[summary.issue]||'見方';
+ if(p.characterId==='albert')return `${subject}の${issue}で、${left}と${right}の意見が割れている。二人の根拠を比べたい。`;
+ if(p.characterId==='milk')return `${subject}のこと、${left}と${right}はちがうこと言ってるね。どっちの話が合ってるか、考えたい！`;
+ if(p.characterId==='wanunu_iii')return `${subject}のはなしで、${left}と${right}は、いけんがちがうぞ。りゆうをくらべたいぞ。`;
+ const polite=['melbon','cortes','naminami'].includes(p.characterId);
+ return `${subject}の${issue}について、${left}と${right}の意見が分かれています${polite?'。お二人の理由を比べたいですね。':'……二人の根拠を比べたい。'}`;
+}
+function q84ViewText(p,s){
+ if(!['milk','wanunu_iii','momiji'].includes(p.characterId))return q83ViewText(p,s);
+ const who=id=>morningName(p,id),end=p.characterId==='wanunu_iii'?'ぞ。':p.characterId==='milk'?'ってことだよね。':'ってことだな！';
+ if(s.contradictions.length)return `${who(s.seerId)}がほんものだとすると、今の話が合わない${p.characterId==='wanunu_iii'?'ぞ':'ね'}。`;
+ const facts=[],black=s.black.filter(id=>id!==p.id),white=s.white.filter(x=>x.id!==p.id).at(-1),falseRivals=s.rivals.filter(x=>x.roles.length&&!x.roles.includes('seer'));
+ if(black.length)facts.push(`${who(black.at(-1))}は${p.characterId==='momiji'?'狼':'おおかみ'}だ`);
+ if(falseRivals.length&&falseRivals.length===s.rivals.length)facts.push('ほかの占いの人は、にせものだ');
+ if(!facts.length&&white)facts.push(`${who(white.id)}は${white.notFox?'おおかみでもきつねでもない':'おおかみじゃない'}`);
+ if(!facts.length)return '';
+ return `${who(s.seerId)}が${p.characterId==='momiji'?'本物':'ほんもの'}なら、${facts[0]}${end}`+(facts[1]?`それなら、${facts[1]}${end}`:'');
+}
+function q84GrayReason(p,row){
+ if(!q84Young(p))return grayObservationReason(p,row);
+ const actor=morningName(p,row.actorId),target=morningName(p,row.targetId),reason={
+ explainedChange:`${actor}は${target}への考えを変えたけど、変えたわけも話していた`,
+ unexplainedChange:`${actor}の${target}への話は前と逆なのに、変えたわけが聞けていない`,
+ openViewAnswer:`${actor}は気になる人を挙げて、そのわけも話していた`,
+ responsiveAnswer:`${actor}は${target}のことを聞かれて、そのわけを話していた`,
+ focusedDefense:`${actor}は${target}を何度もかばっている`,
+ focusedPressure:`${actor}は${target}のことを何度も気にしている`,
+ repeatedAgreement:`${actor}は${target}のいろんな話に、何度もさんせいしている`,
+ repeatedDeferral:`${actor}は何度か聞かれても、まだ答えを出していない`,
+ concreteReasoning:`${actor}はいろんな話で、わけを説明していた`,
+ discussionOrganizer:`${actor}はみんなのちがう話を、聞いてまとめていた`,
+ candidUncertainty:`${actor}は聞かれて、まだ決められないと言っていた`
+ }[row.kind];return reason||null;
+}
+function q84BoardText(p,s){
+ if(!s.countsKnown)return null;
+ // Numbers are upper bounds / the existing attack-every-night estimate, never true remaining roles.
+ if(p.characterId==='milk')return `吊れるのはあと${s.slots}回くらいなんだ。悪いやつがまだ${s.hostileUpper}人もいたら、${s.hostileUpper>=s.slots?'のんびりできないよ！':'ちゃんと考えてえらばなきゃ！'}`;
+ if(p.characterId==='wanunu_iii')return `あと${s.slots}回くらい、つれるんだな。わるいやつが${s.hostileUpper}人もいたら、${s.hostileUpper>=s.slots?'いそがないとだめだぞ。':'よくかんがえて、えらぶぞ。'}`;
+ return `今の減り方なら処刑はあと${s.slots}回ほど。人外が最大の${s.hostileUpper}人残っていると考えると、${s.hostileUpper>=s.slots?'今日は外したくない。':'処刑先を絞るために、今ある疑いを比べたい。'}`;
+}
+function q84NightText(p,c,s){
+ if(!['momiji','milk','wanunu_iii'].includes(p.characterId))return q83NightText(p,c,s);
+ const cmp=c.topic.details.nightComparison||q83CompareNight(p,s),night=s.night,who=id=>morningName(p,id);
+ if(night.peace)return p.characterId==='wanunu_iii'?'だれも、しんでないぞ。きのうのはなしも、もういちどかんがえるぞ。':'今日は誰も死んでないんだ。昨日の話も、もう一度考えたいな。';
+ const curse=night.combinations.some(x=>x.foxDeaths>0),cat=night.combinations.some(x=>x.attack==='cat');
+ const cause=night.catPairCertain?'猫を噛んで、狼も道連れになったんだ':curse&&cat?'狐を占ったか、猫を噛んで道連れになったか、どっちだろう':curse?'狐を占ったから、こんなに死んだのかもしれない':cat?'猫を噛んで、道連れになったんだと思う':'どうしてこんなに死んだのか、考えたい';
+ let comparison=cmp.pattern==='allSameCorpse'?'占いの人たちはみんな、同じ死んだ人に白って言ってる':cmp.pattern==='allDifferentCorpses'?'占いの人たちはみんな死んだ人に白を出してるけど、占った相手は分かれてる':cmp.pattern==='oneCorpseWhite'?`${who(cmp.whiteSeerIds[0])}だけが、死んだ人に白って言ってる`:cmp.pattern==='someCorpseWhite'?'死んだ人に白って言ってる占いの人が何人かいる':cmp.missingIds.length?'まだ占いの結果を言ってない人の話も聞きたい':'';
+ if(p.characterId==='wanunu_iii')return `${s.deathIds.length}人も、しんでるぞ。${cause.replaceAll('狐','きつね').replaceAll('狼','おおかみ').replaceAll('道連れ','まきぞえ')}。${comparison?comparison+'ぞ。':''}`;
+ return `${s.deathIds.length}人も死んだんだ。${cause}。${comparison?comparison+(p.characterId==='momiji'?'んだよな！':'んだね。'):''}`;
+}
+const q84PreviousFlow=q4FlowSentence;
+q4FlowSentence=(p,f)=>{
+ if(!['guardSeer','guardOther'].includes(f.action))return q84PreviousFlow(p,f);
+ const b=q4State().boards[f.boardId]?.facts;if(!b)return '';
+ const ids=f.targets.filter(id=>b.livingIds.includes(id)),names=ids.map(id=>morningName(p,id)),young=q84Young(p),self=ids.includes(p.id)&&p.claimed==='seer';
+ if(!ids.length)return f.action==='guardOther'?(young?'うらないの人とは別の人を、守ってほしい。':'今日は占い以外を守る方がいいと思う。'):'';
+ const target=names.join(young?'か':'・');
+ if(f.action==='guardSeer'){
+  if(self&&ids.length===1&&['melbon','cortes','naminami'].includes(p.characterId))return '私の護衛をお願いします。明日も占い結果をお伝えしたいので。';
+  if(self&&ids.length===1)return young?'ぼくを守ってほしい。あしたも占いの結果を言いたいんだ。':`${CONVERSATION_FIRST_PERSON[p.characterId]||'僕'}を護衛してほしい。明日も占い結果を残したい。`;
+  if(young)return `${target}${ids.length===2?'のどちらか':ids.length>2?'のだれか':''}を守ってほしい${p.characterId==='wanunu_iii'?'ぞ':'な'}。あしたも占いの話を聞きたい${p.characterId==='wanunu_iii'?'ぞ':'んだ'}。`;
+  if(['melbon','cortes','naminami'].includes(p.characterId))return `${target}${ids.length>1?'のいずれか':''}の護衛を優先したく存じます。次の占い結果を残したいからです。`;
+  return `${target}${ids.length>1?'のいずれか':''}の護衛を優先したい。次の占い結果を残したいから${['melbon','cortes','naminami'].includes(p.characterId)?'です':'だ'}。`;
+ }
+ const confirmed=b.confirmed.some(x=>ids.includes(x.id)),medium=b.claims.some(x=>ids.includes(x.id)&&x.role==='medium');
+ const reason=confirmed?(young?'ほんものだと分かってる人を、残したい':'真と分かっている人物を残したい'):medium?(young?'あしたも霊媒の結果を聞きたい':'次の霊媒結果を残したい'):null;
+ if(reason&&['melbon','cortes','naminami'].includes(p.characterId))return `${target}${ids.length>1?'のいずれか':''}の護衛をお願いいたします。${reason}と考えております。`;
+ if(!reason)return young?'今日は、うらないの人とは別の人を守ってほしい。':'今日は占い以外の護衛を考えたい。';
+ return `${target}${ids.length>1?'のいずれか':''}を${young?'守ってほしい':'護衛してほしい'}${p.characterId==='wanunu_iii'?'ぞ。':'。'}${reason}${young?(p.characterId==='wanunu_iii'?'ぞ。':'んだ。'):'からだ。'}`;
+};
+function q84AssessmentText(p,d){
+ const actor=morningName(p,d.actorId),target=morningName(p,d.subjectId),positive=d.direction==='affirm';
+ const reason={
+ opinionAgreement:`${target}への見方は、${CONVERSATION_FIRST_PERSON[p.characterId]||'僕'}も同じだ`,
+ sharedSuspicion:`${target}は、${CONVERSATION_FIRST_PERSON[p.characterId]||'僕'}も${d.ownDirection==='deny'?'狼ではなさそうと見ている':'疑っている'}`,
+ opposedTarget:`${target}への見方が、${CONVERSATION_FIRST_PERSON[p.characterId]||'僕'}とは違う`,
+ groundedInference:'実際の発言を挙げて説明している',consistentOpinion:'前に話していた理由と、今の説明がつながっている',reasonedUpdate:'新しい理由を出して、考えを変えている',appropriateAnswer:'聞かれたことに、理由をつけて答えている',cautiousJudgement:'分からないところを、先に確かめようとしている',weakRepeatedDefense:'同じ人を何度も庇っているのに、理由がはっきりしない',publicRefutation:`${target}についての話が、今分かっていることと食い違う`
+ }[d.kind];if(!reason)return null;
+ // Actor==subject has a separate existing grounding check; never invent independent agreement.
+ if(d.actorId===d.subjectId){const r=q71SelfArgumentReason(p,d);return r?positive?`${actor}の説明は、${r}という点と合っている。`:`${actor}の説明には引っかかる。${r}。`:null;}
+ if(q84Young(p))return `${actor}の話、${positive?'いいと思う':'へんだと思う'}${p.characterId==='wanunu_iii'?'ぞ':'よ'}。${reason}。`;
+ return `${actor}のこの意見は${positive?'納得できる':'引っかかる'}。${reason}。`;
+}
+function q84Plan(p,c){
+ if(!p||!c)return null;
+ const refs=q84Evidence(c).filter(e=>e.type==='discussionStatement').map(e=>e.eventId),flow=q4PolicyOf(c),t=c.topic||c.topicForReason,summary=t?.details?.boardSummary;
+ const plan={schemaVersion:1,purpose:null,referenceIds:refs};
+ if(c.variant==='conversationSummary'||c.summaryIds){const relation=q84Summary(c);return relation?{...plan,purpose:'compareDisagreement',summary:relation}:null;}
+ if(c.variant==='noConclusion'&&!c.replyTo||t?.variant==='basicWait'||t?.variant==='morningInfo')return null;
+ if(c.variant==='semanticSupplement'&&q84Evidence(c).every(e=>e.type==='discussionStatement'))return null;
+ if(summary){
+  if(summary.kind==='night'&&summary.data.night.peace)return null;
+  if(summary.kind==='board'&&(!summary.data.countsKnown||summary.data.hostileUpper<summary.data.slots))return null;
+  if(summary.kind==='view'&&!summary.data.contradictions.length&&!summary.data.black.some(id=>id!==p.id)&&!summary.data.white.some(x=>x.id!==p.id)&&!summary.data.rivals.some(x=>x.roles.length&&!x.roles.includes('seer')))return null;
+  return {...plan,purpose:summary.kind==='view'?'stateHypothesis':summary.kind==='night'?'compareNightResults':'capacityConcern'};
+ }
+ if(flow){if(t?.details?.comparedPolicyIds){const refs=t.details.comparedPolicyIds.map(q84Event);if(refs.length!==2||refs.some(e=>!e)||classifyDiscussionRelation(refs[0],refs[1])!=='rebut')return null;}if(['guardSeer','guardOther'].includes(flow.action)&&!q4FlowSentence(p,flow))return null;return {...plan,purpose:c.command==='question'?'askPolicyReview':c.command==='answer'?'explainPolicy':c.replyTo?'respondToPolicy':'proposeAction'};}
+ const a=t?.details?.assessment;if(a&&!q84AssessmentText(p,a))return null;
+ if(c.command==='organize'&&!a&&!t?.details?.comparedPolicyIds&&!(t?.variant==='grayBehavior'&&['focusedDefense','focusedPressure','repeatedAgreement','unexplainedChange','repeatedDeferral'].includes(q84Evidence(c).find(e=>e.type==='publicBehaviorObservation')?.snapshot?.kind)))return null;
+ if(c.command==='hold'&&!c.replyTo)return null;
+ if(c.command==='suspect'||c.command==='trust')return {...plan,purpose:c.command==='suspect'?'expressSuspicion':'expressTrust'};
+ return {...plan,purpose:({question:'ask',answer:'answer',rebut:'challenge',defend:'defend',agree:'support',propose:'proposeAction',hold:'deferResponse'})[c.command]||'respond'};
+}
+const q84PreviousText=discussionText;
+discussionText=(p,c)=>{
+ const plan=q84Plan(p,c);if(!plan)return '';
+ if(plan.summary)return q84SummaryText(p,plan.summary)||'';
+ const t=c.topic||c.topicForReason,summary=t?.details?.boardSummary,flow=q4PolicyOf(c),a=t?.details?.assessment;
+ if(summary)return summary.kind==='board'?q84BoardText(p,summary.data):summary.kind==='night'?q84NightText(p,c,summary.data):q84ViewText(p,summary.data);
+ if(a)return q84AssessmentText(p,a)||'';
+ if(c.variant==='selfDefense'&&['milk','wanunu_iii','momiji'].includes(p.characterId)){
+  const issue=discussionProposition(c).issue,to=morningName(p,c.recipientId);
+  if(issue==='wolf')return p.characterId==='milk'?`${to}、ぼくはおおかみじゃないよ！その疑いはちがうよ！`:p.characterId==='wanunu_iii'?`${to}、ぼくはおおかみじゃないぞ。`:`${to}、俺は狼じゃない！その疑いは違うぞ！`;
+ }
+ if(flow){
+  if(c.command==='agree')return q84PreviousText(p,c);
+  const compared=t?.details?.comparedPolicyIds;if(compared){const events=compared.map(q84Event);if(events.some(e=>!e)||classifyDiscussionRelation(events[0],events[1])!=='rebut')return '';const label=e=>{const f=q4PolicyOf(e);return f.selection==='person'?f.targets.map(id=>morningName(p,id)).join('・')+'を吊る案':({gray:'グレーから吊る案',mediumRoll:'霊媒を順に吊る案',catRun:'猫候補から吊る案',seerCompare:'占い候補から吊る案',broken:'破綻したCO者を吊る案'})[f.action]||'処刑案';};return `${morningName(p,events[0].speakerId)}は${label(events[0])}、${morningName(p,events[1].speakerId)}は${label(events[1])}を出している。${q4FlowSentence(p,flow)}`;}
+  if(c.command==='question'||c.command==='answer'){
+   if(q84Young(p)&&flow.domain==='guard'){
+    const target=flow.targets.map(id=>morningName(p,id)).join('か'),to=morningName(p,c.recipientId);
+    if(c.command==='question')return `${to}、${target||'その人'}があやしくなっても、守ってほしいの？`;
+    return `${to}、${target||'その人'}がにせものだと分かったら、守ってほしい人を考えなおす${p.characterId==='wanunu_iii'?'ぞ':'よ'}。`;
+   }
+   return q84PreviousText(p,c);
+  }
+  const change=t?.details?.policyChange,lead=change?(q84Young(p)?'話を聞いて、考えを変えた。':change.reason+'、'):'';
+  return (c.command==='agree'?(Q8_AGREE[p.characterId]||Q8_AGREE.joshua):c.command==='rebut'?conversationFill(conversationVoice(p).rebut,{to:morningName(p,c.recipientId)}):'')+lead+q4FlowSentence(p,flow);
+ }
+ if(['suspect','trust'].includes(c.command)||c.variant==='positionAnswer'){
+  const text=q84OpinionText(p,c);if(text)return c.variant==='positionAnswer'?morningName(p,c.recipientId)+'、'+text:text;
+ }
+ if(c.topic?.variant==='grayBehavior'){
+  const row=q84Evidence(c).find(e=>e.type==='publicBehaviorObservation')?.snapshot,reason=row&&q84GrayReason(p,row);if(!reason)return '';
+  return reason+'。'+(row.interpretation.direction==='affirm'?(q84Young(p)?'ぼく、その話はいいと思う。':'この説明は納得できる。'):row.interpretation.direction==='deny'?(q84Young(p)?'ぼく、そこが気になる。':'その点を疑っている。'):'この人の考えを、もう少し聞きたい。');
+ }
+ return q84PreviousText(p,c);
+};
+const q84PreviousCandidates=discussionCandidates;
+discussionCandidates=p=>q84PreviousCandidates(p).filter(c=>!!q84Plan(p,c));
+const q84PreviousCommit=commitDiscussionSpeech;
+commitDiscussionSpeech=(p,c)=>{
+ const presentation=q84Plan(p,c);if(!presentation||!discussionText(p,c).trim())return null;
+ // Existing commit performs public evidence, self-target, stance and semantic-reply checks.
+ const event=q84PreviousCommit(p,c);if(event)event.presentation84=presentation;return event;
 };
 
 $("#loadBtn").onclick=load;

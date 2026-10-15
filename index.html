@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-quality8.4-partial</title>
+<title>個人用人狼アプリ v2.20.0-quality8.5-partial</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -156,7 +156,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title" title="v2.20.0-quality8.4-partial">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title" title="v2.20.0-quality8.5-partial">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row topbar-actions"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -267,7 +267,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
 </section>
 <script>
-const GAME_VERSION="2.20.0-quality8.4-partial";
+const GAME_VERSION="2.20.0-quality8.5-partial";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -5755,7 +5755,7 @@ function q82RestoreCandidate(candidate,preserveDerived=false){
  const previousState=state;
  try{
   if(!isValidSavedGame(candidate))throw new Error('Invalid saved game');
-  preserveDerived=preserveDerived||/^2\.20\.0-quality8\.[1234](?:-partial)?$/.test(candidate.version);
+  preserveDerived=preserveDerived||/^2\.20\.0-quality8\.[12345](?:-partial)?$/.test(candidate.version);
     const hasGuardInstructions=Array.isArray(candidate.publicRecords?.guardInstructions);
     state=candidate;
     const priorDiagnostics=candidate.saveMeta81?.villageId&&candidate.saveMeta81.villageId===previousState?.saveMeta81?.villageId?q81Diagnostics.slice(-12):[];
@@ -8387,6 +8387,182 @@ commitDiscussionSpeech=(p,c)=>{
  // Existing commit performs public evidence, self-target, stance and semantic-reply checks.
  const event=q84PreviousCommit(p,c);if(event)event.presentation84=presentation;return event;
 };
+
+// quality8.5: public composition, five speech purposes, and private strategic motives.
+const Q85_PURPOSES=['elicit','execution','protect','divination','respond'];
+function q85Role(role,context=state){
+ const counts=context?.publicRoleCounts,known=!!counts&&Object.values(counts).some(n=>Number.isInteger(n)&&n>0);
+ return {known,count:known?(Number.isInteger(counts[role])?counts[role]:0):null,possible:!known||(counts[role]||0)>0};
+}
+function q85AbsentClaim(c,context=state){
+ const t=c.topic||c.topicForReason,p=context.players.find(p=>p.id===(c.subjectId??t?.targetId));
+ return !!p?.claimed&&!q85Role(p.claimed,context).possible;
+}
+function q85TopicAllowed(t,context=state){
+ if(!t)return true;
+ const d=t.details||{},p=context.players.find(p=>p.id===t.targetId),negative=['roleFalse','absentRoleClaim85'].includes(t.variant);
+ if(t.variant==='divinationProposal85'&&!q85Role('seer',context).possible)return false;
+ if(d.reason85==='lookForFox'&&!q85Role('fox',context).possible)return false;
+ if(d.requestedRole85&&!q85Role(d.requestedRole85,context).possible)return false;
+ if(['nonFox','wolfKeep'].includes(t.variant)&&!q85Role('fox',context).possible)return false;
+ if(d.role&&!q85Role(d.role,context).possible&&!negative)return false;
+ if(t.variant==='roleTruth'&&p?.claimed&&!q85Role(p.claimed,context).possible)return false;
+ return true;
+}
+function q85Allowed(c,context=state){
+ if(!q85TopicAllowed(c.topic,context)||!q85TopicAllowed(c.topicForReason,context))return false;
+ if(c.variant==='absentRoleClaim85')return q85AbsentClaim(c,context);
+ const prop=discussionProposition(c,context),flow=q4PolicyOf(c);
+ if(prop.issue==='fox'&&!q85Role('fox',context).possible)return false;
+ if(flow){const required={catRun:'cat',mediumRoll:'medium',seerCompare:'seer',guardSeer:'seer'}[flow.action];if(required&&!q85Role(required,context).possible)return false;if(flow.domain==='guard'&&!q85Role('knight',context).possible)return false;if(flow.action==='guardOther'&&flow.targets.some(id=>{const p=context.players.find(p=>p.id===id);return p?.claimed&&!q85Role(p.claimed,context).possible;}))return false;}
+ const subject=context.players.find(p=>p.id===c.subjectId);
+ if(prop.issue==='roleTrust'&&prop.direction==='affirm'&&subject?.claimed&&!q85Role(subject.claimed,context).possible)return false;
+ return true;
+}
+const q85MorningCandidates=buildMorningSpeechCandidates;
+buildMorningSpeechCandidates=p=>q85MorningCandidates(p).filter(t=>q85TopicAllowed(t));
+const q85PolicyCandidates=q4PolicyCandidates;
+q4PolicyCandidates=(p,...args)=>q85PolicyCandidates(p,...args).filter(c=>{
+ const role={catRun:'cat',mediumRoll:'medium',seerCompare:'seer',guardSeer:'seer'}[c.action];
+ return (!role||q85Role(role).possible)&&(c.domain!=='guard'||q85Role('knight').possible)&&!(c.action==='guardOther'&&c.targets.some(id=>byId(id)?.claimed&&!q85Role(byId(id).claimed).possible));
+});
+const q85FlowText=q4FlowSentence;
+q4FlowSentence=(p,f)=>q85Allowed({flowPolicy:f,subjectId:null,evidence:[]})?q85FlowText(p,f):'';
+// Projection only: zero fox slots remove fox negation from displayed white results, not from stored logic.
+const q85ViewAdult=q83ViewText,q85ViewYoung=q84ViewText;
+function q85DisplayView(s){return q85Role('fox').possible?s:{...s,white:s.white.map(x=>({...x,notFox:false}))};}
+q83ViewText=(p,s)=>q85ViewAdult(p,q85DisplayView(s));
+q84ViewText=(p,s)=>q85ViewYoung(p,q85DisplayView(s));
+const q85MorningText=formatMorningConsideration;
+formatMorningConsideration=(p,t)=>q85TopicAllowed(t)?q85MorningText(p,t):'';
+const q85EvidenceCheck=discussionEvidenceValid;
+discussionEvidenceValid=evidence=>q85EvidenceCheck(evidence)&&evidence.every(e=>e.type!=='publicComposition85'||JSON.stringify(e.snapshot)===JSON.stringify(state.publicRoleCounts));
+DISCUSSION_ISSUES.push('divinationPolicy');
+const q85Proposition=discussionProposition;
+discussionProposition=(e,context=state,useStored=true)=>{
+ const t=e.topic||e.topicForReason;
+ if(t?.variant==='divinationProposal85')return {schemaVersion:1,issue:'divinationPolicy',role:'seer',subjectId:e.subjectId??t.targetId,direction:'affirm',confidence:'inferred',evidenceRefs:discussionEvidenceReferences(e.evidence||t.details.evidence||[])};
+ if(t?.variant==='absentRoleClaim85')return {schemaVersion:1,issue:'roleTrust',role:t.details.role,subjectId:e.subjectId??t.targetId,direction:'deny',confidence:'certain',evidenceRefs:discussionEvidenceReferences(e.evidence||t.details.evidence||[])};
+ return q85Proposition(e,context,useStored);
+};
+function q85CoEvidence(role=null){return (state.publicRecords.coEvents||[]).flatMap((r,index)=>r.kind==='claim'&&(!role||r.role===role)?[{type:'publicRoleClaim85',visibility:'public',source:{collection:'coEvents',index,snapshot:{...r}}}]:[]);}
+function q85Purpose(p,c){
+ if(!q85Allowed(c))return null;
+ const t=c.topic||c.topicForReason,flow=q4PolicyOf(c),a=t?.details?.assessment;
+ let purpose,effect;
+ if(c.command==='defend'){purpose='protect';effect='reconsiderPressure';}
+ else if(c.replyTo){purpose=c.command==='question'?'elicit':'respond';effect=c.command==='question'?'explainReason':'respondToStatement';}
+ else if(c.variant==='positionQuestion'){purpose='elicit';effect='stateCurrentView';}
+ else if(t?.variant==='divinationProposal85'){purpose='divination';effect='obtainResult';}
+ else if(c.variant==='absentRoleClaim85'){purpose='elicit';effect='explainImpossibleClaim';}
+ else if(flow){purpose=flow.domain==='execution'?'execution':flow.domain==='guard'?'protect':flow.action==='seerCompare'?'elicit':null;effect=flow.domain==='execution'?'chooseExecution':flow.domain==='guard'?'preservePublicSource':'compareSeerClaims';}
+ else if(c.command==='suspect'){purpose='elicit';effect='respondToSuspicion';}
+ else if(c.command==='trust'&&t?.variant!=='nonFox'){purpose='protect';effect='hearMoreBeforeExecution';}
+ else if(c.command==='propose'&&['lynchProposal','gutLynch'].includes(t?.variant)){purpose='execution';effect='chooseExecution';}
+ // Standalone summaries and white/fox exclusions are internal material, not a sixth speaking purpose.
+ if(!purpose||!Q85_PURPOSES.includes(purpose))return null;
+ return {schemaVersion:1,purpose,targetId:c.recipientId??c.subjectId??null,subjectId:c.subjectId??null,publicBasis:discussionEvidenceReferences(c.evidence||[]),desiredEffect:effect,replyTo:c.replyTo??null,...(flow?{targetIds:[...flow.targets],targetRole:flow.role??null,actionDomain:flow.domain}:{}),...(t?.details?.requestedRole85?{questionRole:t.details.requestedRole85}:{})};
+}
+function q85NewCandidate(p,c){
+ c.evidence??=[];c.recipientId??=null;c.replyTo??=null;c.claim??=null;
+ c=describeDiscussionSemantics(p,c);c.semanticReasonKey=discussionSemanticKey(c);
+ if(discussionDay().keys.includes(c.semanticReasonKey)||!discussionEvidenceValid(c.evidence)||!semanticReplyAllowed(p,c)||!grayCandidateSelfAllowed(p,c)||!q85Allowed(c))return null;
+ return c;
+}
+function q85DivinationCandidates(p,pub,base){
+ if(!q85Role('seer').possible||!pub.context.people.some(x=>x.alive&&x.claimed==='seer'&&!pub.context.broken.has(x.id)))return [];
+ const decision=buildSpeechDecisionInformation(p,pub),outlook=buildCharacterOutlook(p,pub,p.role==='wolf'),sources=q85CoEvidence('seer'),out=[];
+ for(const target of pub.context.people.filter(x=>x.alive&&x.id!==p.id&&!x.claimed&&!pub.context.confirmed.has(x.id))){
+  const rows=pub.context.seerRows.filter(r=>r.record.targetId===target.id),accepted=rows.filter(r=>decision.roles.roles.seer[r.record.seerId]?.status==='true');
+  if(accepted.length)continue;
+  const supported=rows.filter(r=>(decision.roles.roles.seer[r.record.seerId]?.score??50)>=58&&!pub.context.broken.has(r.record.seerId));
+  const conflict=rows.some(r=>rows.some(s=>s.record.seerId!==r.record.seerId&&s.record.black!==r.record.black));
+  if(supported.some(r=>!r.record.black)&&!conflict)continue;
+  const suspicion=base.find(c=>c.subjectId===target.id&&c.command==='suspect'&&q84Evidence(c).length),reason=conflict?'compareResults':suspicion?'checkSuspicion':q85Role('fox').possible&&outlook.people[target.id]?.wolfView==='nonWolfLeaning'&&outlook.people[target.id]?.foxView==='possible'?'lookForFox':'clarifyView';
+  if((state.discussion?.events||[]).some(e=>e.day===state.day&&e.topic?.variant==='divinationProposal85'&&e.subjectId===target.id))continue;
+  const evidence=suspicion?copyPublicSpeechEvidence(suspicion.evidence):conflict?rows.map(r=>({type:'reportedResult',visibility:'public',source:r.source})):sources.slice(-1);
+  const topic={kind:'information',variant:'divinationProposal85',targetId:target.id,details:{certainty:'inferred',reason85:reason,evidence}};
+  const c=q85NewCandidate(p,{command:'propose',subjectId:target.id,variant:'divinationProposal85',topic,evidence,weight:.12*(.6+.1*(personalityProfile(p)?.stats.logic??3))});
+  if(c){c.weight*=affinityCandidateFactor(p,c);if(isStrategicDiscussionVillage())c.weight*=strategicCandidateFactor(p,c,buildDiscussionPlan(p,pub));out.push(c);}
+ }
+ return out.sort((a,b)=>({compareResults:0,checkSuspicion:1,lookForFox:2,clarifyView:3}[a.topic.details.reason85]-{compareResults:0,checkSuspicion:1,lookForFox:2,clarifyView:3}[b.topic.details.reason85])).slice(0,3);
+}
+const q85StrategicGoal=strategyCandidateGoal;
+strategyCandidateGoal=(p,c,plan)=>{
+ if((c.topic||c.topicForReason)?.variant!=='divinationProposal85')return q85StrategicGoal(p,c,plan);
+ if(p.role==='wolf'){const allies=buildPrivateInfo(p).knownWolfAllies;if(allies.includes(c.subjectId))return c.subjectId===plan.cutId?'cutAlly':'avoidAllyPressure';return c.subjectId===plan.pressureId?'redirectPressure':'neutral';}
+ if(p.role==='madman')return c.subjectId===plan.protectId?'avoidPredictedWolfPressure':c.subjectId===plan.pressureId?'redirectPressure':'neutral';
+ return p.role==='fox'?'divertDivination':'neutral';
+};
+const q85Candidates=discussionCandidates;
+discussionCandidates=p=>{
+ const pub=buildSpeechPublicInformation();let list=q85Candidates(p).filter(c=>!!q85Purpose(p,c));
+ // Reuse the existing bounded current-view question, with explicit seer scope when there is a comparison.
+ if(q85Role('seer').possible&&pub.context.people.filter(x=>x.alive&&x.claimed==='seer').length>=2)list=list.map(c=>{
+  if(c.variant!=='positionQuestion')return c;
+  const evidence=[...c.evidence],details={requestedRole85:'seer',evidence},board=q5Board();
+  if(board.deathIds.length>=2){const comparison=q83CompareNight(p,board,pub);details.nightCase85=comparison.pattern;details.boardId85=board.id;evidence.push(q5Ref(board),...comparison.reports.map(r=>({type:'reportedResult',visibility:'public',source:r.source})));}
+  return q85NewCandidate(p,{...c,evidence,topicForReason:{kind:'information',variant:'roleQuestion85',targetId:c.subjectId,details}});
+ }).filter(Boolean);
+ for(const q of state.discussion.questions.filter(q=>q.status==='open'&&q.recipientId===p.id)){
+  const question=q84Event(q.eventId),requested=question?.topicForReason?.details?.requestedRole85;if(!requested)continue;
+  list=list.filter(c=>c.replyTo!==question.id||c.variant!=='positionAnswer'||c.topicForReason?.details?.role===requested);
+  const roleTopic=buildMorningSpeechCandidates(p).find(t=>['roleTruth','roleFalse'].includes(t.variant)&&t.details?.role===requested);
+  if(roleTopic&&!list.some(c=>c.replyTo===question.id&&c.command==='answer')){
+   const c=q85NewCandidate(p,{command:'answer',variant:'positionAnswer',subjectId:question.subjectId,recipientId:question.speakerId,replyTo:question.id,topicForReason:roleTopic,evidence:[...(roleTopic.details.evidence||[]),discussionRef(question)],weight:2.4});if(c)list.push(c);
+  }
+ }
+ for(const target of pub.context.people.filter(x=>x.alive&&x.id!==p.id&&x.claimed&&!q85Role(x.claimed).possible)){
+  const evidence=[{type:'publicComposition85',visibility:'public',snapshot:{...state.publicRoleCounts}},...q85CoEvidence(target.claimed).filter(e=>e.source.snapshot.playerId===target.id).slice(-1)];
+  const topic={kind:'suspect',variant:'absentRoleClaim85',targetId:target.id,details:{role:target.claimed,certainty:'confirmedFalse',evidence}};
+  const c=q85NewCandidate(p,{command:'suspect',subjectId:target.id,claim:'negative',variant:'absentRoleClaim85',topic,evidence,weight:.4});if(c&&!state.discussion.events.some(e=>e.day===state.day&&e.subjectId===target.id&&e.variant==='absentRoleClaim85'))list.push(c);
+ }
+ list.push(...q85DivinationCandidates(p,pub,list));
+ return list.filter(c=>!!q85Purpose(p,c)).map(c=>({...c,publicPurpose85:q85Purpose(p,c)}));
+};
+function q85DivinationText(p,c){
+ if(!q85Allowed(c))return '';
+ const name=morningName(p,c.subjectId),reason=(c.topic||c.topicForReason)?.details?.reason85,young=q84Young(p);
+ const why=reason==='compareResults'?(young?'占いの人たちの答えがちがうから、たしかめたい':'占い結果が割れているので、比べる材料を増やしたい'):reason==='checkSuspicion'?(young?'あやしいと思ってるから、たしかめたい':'疑っているので、色を確かめたい'):reason==='lookForFox'?(young?'きつねかどうか、たしかめたい':'狐を狙って調べたい'):(young?'この人のこと、はっきりさせたい':'この人への見方をはっきりさせたい');
+ const proposals={joshua:`${name}を占ってほしいな。`,geode:`${name}を占ってみないかい？`,albert:`${name}の占いを提案する。`,momiji:`${name}を占ってくれよ！`,kaede:`${name}を占ってもらえたらと思う。`,francois:`${name}を占っていただけないかな。`,melbon:`${name}の占いをお願いしたいですね。`,milk:`${name}をうらなってほしいな！`,max:`${name}を占ってみるべきじゃないか。`,cortes:`${name}の占いをお願いしたく存じます。`,zaemon:`${name}を占ってはどうじゃ。`,yamato:`${name}を占う案を出そう。`,henry:`${name}を占ってもらってもいいかな。`,dominic:`${name}を占ってほしいぜ！`,pattino:`${name}、占ってみたらどう？`,makimura:`${name}を占ってみないか。`,rixis:`${name}を占って確かめたい。`,wanunu_iii:`${name}を、うらなってほしいぞ。`,naminami:`${name}を占ってみませんか？`};
+ return (proposals[p.characterId]||proposals.joshua)+why+(p.characterId==='wanunu_iii'?'ぞ。':young?'んだ。':'。');
+}
+const q85Text=discussionText;
+discussionText=(p,c)=>{
+ const purpose=q85Purpose(p,c);if(!purpose)return '';
+ const t=c.topic||c.topicForReason;
+ if(c.variant==='absentRoleClaim85')return `${morningName(p,c.subjectId)}の${roleName(t.details.role)}COは、配役と合わない。今回は${roleName(t.details.role)}がいないから${q84Young(p)?'だよ':'だ'}。`;
+ if(t?.variant==='divinationProposal85')return q85DivinationText(p,c);
+ if(c.variant==='positionQuestion'&&t?.details?.requestedRole85==='seer'){
+  const night=t.details.nightCase85,lead=night==='allSameCorpse'?'占いの人たちはみんな、同じ死んだ人に白を出してるね。':night==='allDifferentCorpses'?'みんな死んだ人に白を出してるけど、占った相手は分かれてるね。':'';
+  const to=morningName(p,c.recipientId),questions={joshua:`${to}、占いの人は誰を信じてる？`,geode:`${to}、占いの連中、誰が本物だと踏んでるんだい？`,albert:`${to}、占いCOの誰を真と見る？`,momiji:`${to}、占いの誰が本物だと思う？聞かせてくれ！`,kaede:`${to}、占いの人は、誰を信じてる？`,francois:`${to}、どの占い師を本物と見ているのかな？`,melbon:`${to}、占い師のどなたを信用していらっしゃいますか？`,milk:`${to}、うらないの人、だれがほんものだと思う？`,max:`${to}、君はどの占い師を信用しているんだ？`,cortes:`${to}、占い師のどなたを本物とお考えでしょうか。`,zaemon:`${to}、占いの誰を本物と見ておる？申してみよ。`,yamato:`${to}、どの占い師を信用している？聞かせてくれ。`,henry:`${to}、誰が本物の占い師だと思う……？`,dominic:`${to}、どの占い師を信じてる？聞かせてくれよ！`,pattino:`${to}、占いって誰が本物っぽい感じ？`,makimura:`${to}、どの占い師を頼りにしてる？`,rixis:`${to}、占い師の誰を真と見ている？`,wanunu_iii:`${to}、うらないの人、だれがほんものだとおもう？`,naminami:`${to}、どの占い師を本物だと思いますか？`};
+  return lead+(questions[p.characterId]||questions.joshua);
+ }
+ if(c.command==='answer'){
+  const q=q84Event(c.replyTo),original=q84Event(q?.replyTo);
+  if(original?.topic?.variant==='divinationProposal85')return `${morningName(p,c.recipientId)}、`+q85DivinationText(p,{...original,topicForReason:null});
+ }
+ // Current-view questions address the respondent; the answer's opinion is about topicForReason.targetId.
+ if(c.variant==='positionAnswer'&&c.topicForReason?.targetId!=null)return q85Text(p,{...c,subjectId:c.topicForReason.targetId});
+ if(c.command==='trust'&&!c.replyTo){
+  const name=morningName(p,c.subjectId),reason=q84Reason(p,c),young=q84Young(p);
+  return `${name}は今日は${young?'のこして、もっと話を聞きたい':'残して、もう少し話を聞きたい'}${p.characterId==='wanunu_iii'?'ぞ。':'。'}${reason?reason.replace(/。$/,'')+'。':''}`;
+ }
+ return q85Text(p,c);
+};
+const q85Commit=commitDiscussionSpeech;
+commitDiscussionSpeech=(p,c)=>{
+ const intent=q85Purpose(p,c);if(!intent||!discussionText(p,c).trim())return null;
+ const event=q85Commit(p,c);if(!event)return null;
+ event.publicPurpose85=intent;
+ if(isStrategicDiscussionVillage()&&['wolf','madman','fox'].includes(p.role)){
+  const plan=buildDiscussionPlan(p),goal=strategyCandidateGoal(p,c,plan),record=state.strategicDiscussion.intentions[event.id];
+  if(record)record.purpose85={visibility:'private',ownerId:p.id,goal,publicPurpose:intent.purpose,desiredTarget:c.subjectId??null};
+ }
+ return event;
+};
+const q85PublicEvent=discussionPublicEvent;
+discussionPublicEvent=e=>({...q85PublicEvent(e),...(e.publicPurpose85?{publicPurpose85:e.publicPurpose85}:{})});
 
 $("#loadBtn").onclick=load;
 $("#debugBtnTop").onclick=()=>{const panel=$("#debugPanel");panel.classList.toggle("hidden");if(!panel.classList.contains("hidden")){renderDebug();q81RenderSaveStatus();}};

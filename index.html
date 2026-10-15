@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-quality7-partial</title>
+<title>個人用人狼アプリ v2.20.0-quality7.1</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -17,7 +17,7 @@ button.secondary{background:var(--panel2)}
 button.danger{background:var(--danger)}
 button.ghost{background:transparent;border:1px solid var(--line)}
 button:disabled{opacity:.45}
-.wrap{max-width:980px;margin:auto;padding:76px 14px 118px}
+.wrap{max-width:980px;margin:auto;padding:calc(var(--topbar-height, 76px) + 8px) 14px 118px}
 h1{font-size:22px;margin:0 0 4px}
 h2{font-size:17px;margin:0 0 10px}
 .muted{color:var(--muted)}
@@ -129,12 +129,21 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 
 /* quality5 compact cards: independent note button with 44px touch area */
 .player-list{grid-template-columns:repeat(2,minmax(0,1fr))}.player-row{position:relative;display:grid;grid-template-columns:minmax(0,1fr);gap:3px;padding:8px 46px 8px 8px;font-size:13px;min-height:60px}.player-row .player-name{grid-column:1;white-space:normal;overflow-wrap:anywhere}.player-row .player-co{grid-column:1;white-space:normal;font-size:12px}.player-row .player-life{grid-column:1;grid-row:auto;text-align:left;font-size:11px}.player-row .person-note-btn{position:absolute;grid-column:auto;grid-row:auto;left:auto;bottom:auto;justify-self:auto;right:0;top:0;margin:0;width:44px;min-height:44px;padding:4px;font-size:19px;line-height:1;background:transparent}.player-row .broken-badge,.player-row .confirmed-badge{font-size:10px}@media(max-width:520px){.player-row{font-size:13px;grid-template-columns:minmax(0,1fr);padding:7px 46px 7px 7px}.player-list{gap:5px}}
+
+/* 7.1 fixed-header clearance; do not cover the role tabs. */
+.topbar-inner{padding-top:calc(10px + env(safe-area-inset-top));gap:8px}
+.topbar-inner>div:first-child{min-width:0;flex:1}
+.topbar-title{font-size:16px;overflow-wrap:anywhere}
+.topbar-mini{overflow-wrap:anywhere}
+.topbar-actions{flex:0 0 auto;flex-wrap:nowrap;gap:5px}
+.topbar-actions button{white-space:nowrap;padding:8px 9px;font-size:12px;min-height:40px}
+@media(max-width:375px){.topbar-inner{padding-left:10px;padding-right:10px}.topbar-actions button{padding-left:7px;padding-right:7px}}
 </style>
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title">個人用人狼 v2.20.0-quality7-partial</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
-  <div class="row"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
+  <div><div class="topbar-title" title="v2.20.0-quality7.1">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div class="row topbar-actions"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
 
@@ -242,7 +251,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
 </section>
 <script>
-const GAME_VERSION="2.20.0-quality7-partial";
+const GAME_VERSION="2.20.0-quality7.1";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -1193,6 +1202,12 @@ function ensurePublicRecords(){
     r.confirmedProofs=[];
     r.truthRulesVersion=3;
   }
+  if(r.resonatorTruthRevision!==71||r.confirmedProofs.some(p=>p.truthRevision!==71)){
+    const old=r.confirmedProofs.filter(p=>p.truthRevision!==71);
+    if(old.length)r.archivedTruthProofs71=[...(r.archivedTruthProofs71||[]),...old];
+    r.confirmedProofs=r.confirmedProofs.filter(p=>p.truthRevision===71);
+    r.resonatorTruthRevision=71;delete state.publicRoleConstraints;
+  }
   if(!state.publicRoleCounts)state.publicRoleCounts=null;
 }
 function pushPublicRecord(kind,record,keyFields=[]){
@@ -1225,7 +1240,7 @@ function publishedGuardRecord(knight,targetId,day){
   pushPublicRecord("guards",{knightId:knight.id,targetId,day,order:nextPublicationOrder()},["knightId","targetId","day"]);
 }
 function publishedResonatorClaim(p,partnerIds){
-  pushPublicRecord("resonatorClaims",{playerId:p.id,partnerIds:[...partnerIds].sort((a,b)=>a-b),day:state.day,order:nextPublicationOrder()},["playerId","day"]);
+  pushPublicRecord("resonatorClaims",{playerId:p.id,partnerIds:[...partnerIds].sort((a,b)=>a-b),day:state.day,order:nextPublicationOrder()},["playerId","day","order"]);
 }
 function publicRoleCount(role){
   return state.publicRoleCounts?.[role] ?? null;
@@ -1355,7 +1370,7 @@ function renderClaimBoard(){
     const cr=confirmedReasonsFor(p.id);
     const showBr=showBrokenAssist()&&br.length;
     const showCr=showConfirmedAssist()&&cr.length;
-    const broken=showBr?`<div class="broken-reason">⚠ 破綻：${escapeHtml(br.join(" / "))}</div>`:"";
+    const broken=showBr?`<div class="broken-reason">⚠ 破綻：${escapeHtml(q71BreakdownSummary(br))}</div>`:"";
     const confirmed=showCr?`<div class="confirmed-reason">✓ 真確定：${escapeHtml(cr.join(" / "))}</div>`:"";
     return `<div class="claim-card"><div class="claim-head"><div class="claim-name">${escapeHtml(p.name)}${p.alive?"":"（死亡）"}</div><div class="claim-role">${role==="villager"?"村人CO":roleName(role)+"CO"}${showBr?` <span class="broken-badge">破綻</span>`:""}${showCr?` <span class="confirmed-badge">真確定</span>`:""}</div></div>${detail}${broken}${confirmed}</div>`
   }).join("");
@@ -1399,7 +1414,7 @@ function renderAll(){
   });
 
   renderClaimBoard();
-  renderLog();
+  renderLog();q71SyncHeader();
   if(state.selectionMode){$("#selectionHint").textContent=`${state.selectionTitle}：名前パネルをタップして選択`;$("#selectionHint").classList.remove("hidden")}else{$("#selectionHint").classList.add("hidden")}
   document.querySelectorAll(".bottom-nav button").forEach(b=>b.disabled=!!state.winner);
   renderDebug();
@@ -1852,11 +1867,11 @@ function prepareRoleCoResponses(role,snap){
 function recordFullRoleCoRequest(role,response){
   const records=state.publicRecords.fullCoRequests;
   // 最初の明示的な応答を保存し、再指示で抽選し直さない。
-  if(records.some(r=>r.role===role&&Array.isArray(r.respondentIds)))return;
+  if(records.some(r=>r.role===role&&Array.isArray(r.respondentIds)&&(role!=="resonator"||!!q71ResonatorEvidence(r))))return;
   const respondents=role==="resonator"?roleLiving(role):[...response.real,...response.fakes];
   records.push({role,day:state.day,aliveIds:living().map(p=>p.id),
     priorDeadIds:state.players.filter(p=>!p.alive).map(p=>p.id),
-    respondentIds:respondents.map(p=>p.id),order:nextPublicationOrder()});
+    respondentIds:respondents.map(p=>p.id),order:nextPublicationOrder(),responsePending71:role==="resonator"});
 }
 function publishResonatorCoGroup(){
   const partners=roleLiving("resonator");
@@ -1870,7 +1885,7 @@ function publishResonatorCoGroup(){
   });
 }
 function publishRoleCoResponses(role,{real,fakes,preparedFakeReports}){
-  if(role==="resonator")publishResonatorCoGroup();
+  if(role==="resonator"){publishResonatorCoGroup();q71CaptureResonatorResponse();}
   else [...real,...fakes].forEach(p=>announceRole(p,role,true,preparedFakeReports.get(p.id)??null));
 }
 function completeCoInstruction(){
@@ -1883,6 +1898,7 @@ function forceRoleCO(role){
   const response=prepareRoleCoResponses(role,snap);
   recordFullRoleCoRequest(role,response);
   if(!response.real.length&&!response.fakes.length){
+    if(role==="resonator")q71CaptureResonatorResponse();
     log(`【${roleName(role)}CO指示】CO指示を出しました。`,"system");
     completeCoInstruction();return;
   }
@@ -3612,36 +3628,7 @@ function excludesDeadRoleCandidate(id,role,confirmed){
     publiclyKnownRoleFor(r.mediumId,confirmed)==="medium");
 }
 
-function confirmPublicResonators({confirmed,broken,addConfirmed}){
-  const request=(state.publicRecords.fullCoRequests||[]).find(x=>x.role==="resonator");
-  const count=publicRoleCount("resonator");
-  if(!request||count==null||count<2)return false;
-  const latest=latestResonatorClaims(state.publicRecords.resonatorClaims);
-  const involved=resonatorLineMembers(latest);
-  if(involved.size!==count)return false;
-  for(const id of involved){
-    const player=byId(id),claim=latest.get(id);
-    if(!player||player.claimed!=="resonator"||broken.has(id)||!claim)return false;
-    if(!matchingResonatorPartners(claim,involved,id))return false;
-  }
-  // 指示時点の死亡者を最優先。旧保存形式は死亡日から保守的に復元する。
-  const priorDeadIds=priorDeadIdsForFullCo(request);
-  for(const id of priorDeadIds){
-    // 相互宣言済みの死者は潜伏不明枠ではない。ただし死亡後の宣言は証拠に使えない。
-    const claim=latest.get(id);
-    const death=(state.publicRecords.deaths||[]).find(d=>d.playerId===id);
-    if(involved.has(id)&&claim&&death&&claim.day<death.day)continue;
-    const knownRole=publiclyKnownRoleFor(id,confirmed);
-    const certainlyWolf=(state.publicRecords.mediumResults||[]).some(r=>r.targetId===id&&r.black&&
-      publiclyKnownRoleFor(r.mediumId,confirmed)==="medium");
-    if(openingAllowsRole(id,"resonator")&&!(knownRole&&knownRole!=="resonator")&&!certainlyWolf)return false;
-  }
-  let changed=false;
-  for(const id of involved){
-    if(addConfirmed(id,`共鳴者の全員CO後、${count}人の相方関係が相互一致し、死亡潜伏真の可能性を排除した`))changed=true;
-  }
-  return changed;
-}
+function confirmPublicResonators(truth){return q71ConfirmResonators(truth);}
 
 function confirmFullCoRoles({confirmed,broken,addConfirmed},fullCoRoles){
   let changed=false;
@@ -3758,7 +3745,7 @@ function commitPublicTruthProofs(){
   state.publicRoleConstraints=resolved.constraints;
   for(const [id,reasons] of confirmations){
     if(!known.has(id)&&reasons.length){
-      state.publicRecords.confirmedProofs.push({id,role:publiclyKnownRoleFor(id,confirmations)||(publicCatIds.has(id)?"cat":byId(id)?.claimed),day:state.day,reason:reasons[0]});
+      state.publicRecords.confirmedProofs.push({id,role:publiclyKnownRoleFor(id,confirmations)||(publicCatIds.has(id)?"cat":byId(id)?.claimed),day:state.day,reason:reasons[0],truthRevision:71});
       known.add(id);
     }
   }
@@ -5026,7 +5013,7 @@ function morningRoleLabel(role){return ({seer:"占い師",medium:"霊媒師",kni
 function morningReason(observer,topic){
   const d=topic.details,evidence=copyPublicSpeechEvidence(d.evidence||[]),name=id=>morningName(observer,id);
   const broken=evidence.find(e=>e.type==="publicBreakdown");
-  if(broken)return `「${broken.snapshot.reasons[0]}」という公開の矛盾がある`;
+  if(broken)return q71DisplayBreakdown(broken.snapshot.reasons[0]).replace(/。$/,'');
   const confirmed=evidence.find(e=>e.type==="publicRoleConfirmation");
   if(confirmed)return `公開情報で真${morningRoleLabel(confirmed.snapshot.role)}と確定している`;
   const village=evidence.find(e=>e.type==="publicConfirmedVillage");
@@ -5783,7 +5770,7 @@ function reset(){
 }
 function renderDebug(){
   if(!state)return;
-  $("#debugText").innerHTML=state.players.map(p=>`${escapeHtml(p.name)}：${roleName(p.role)} / ${p.alive?"生存":"死亡"} / CO ${publicClaim(p)} / 騙り予定 ${p.fakeClaimRole?roleName(p.fakeClaimRole):"なし"} / 共鳴相方 ${(p.resonancePartners||[]).map(id=>byId(id)?.name).filter(Boolean).join("・")||"なし"} / CO確認 ${p.coCheckedNone?"COなし":publicClaim(p)} / 村人回答 ${p.villagerClaim===null?"未確認":(p.villagerClaim?"村人":"非村人")}`).join("<br>");
+  $("#debugText").innerHTML=`<div>v${GAME_VERSION}</div>`+state.players.map(p=>`${escapeHtml(p.name)}：${roleName(p.role)} / ${p.alive?"生存":"死亡"} / CO ${publicClaim(p)} / 騙り予定 ${p.fakeClaimRole?roleName(p.fakeClaimRole):"なし"} / 共鳴相方 ${(p.resonancePartners||[]).map(id=>byId(id)?.name).filter(Boolean).join("・")||"なし"} / CO確認 ${p.coCheckedNone?"COなし":publicClaim(p)} / 村人回答 ${p.villagerClaim===null?"未確認":(p.villagerClaim?"村人":"非村人")}`).join("<br>");
 }
 
 function openActionSheet(title,items){
@@ -7630,7 +7617,7 @@ function q7RoleDomains(truth,assumedSeerId=null){
   else if(day>1&&counts.seer===1&&seerRows.some(x=>x.day===day&&(x.targetId!==ids[0]||x.black)))ordinary.add(ids[0]);
  }
  const executedCats=new Set(r.catChains.map(x=>x.catId));
- const requests=r.fullCoRequests.filter(q7ActualFullRequest);
+ const requests=r.fullCoRequests.filter(r=>q7ActualFullRequest(r)&&(r.role!=='resonator'||!!q71ResonatorEvidence(r)));
  const resonatorRequests=requests.filter(x=>x.role==='resonator');
  const domains=state.players.map(p=>{
   let roles=ROLES.map(x=>x[0]).filter(role=>counts[role]>0&&openingAllowsRole(p.id,role));
@@ -7644,7 +7631,7 @@ function q7RoleDomains(truth,assumedSeerId=null){
    if(!['seer','medium','knight','cat','resonator'].includes(request.role))continue;
    if(request.aliveIds.includes(p.id)&&!request.respondentIds.includes(p.id))roles=roles.filter(role=>role!==request.role);
   }
-  if(resonatorRequests.some(x=>x.respondentIds.includes(p.id)))roles=roles.filter(role=>role==='resonator');
+  // Responding is not by itself a proof of the claimed role.
   for(const x of [...seerRows,...mediumRows].filter(x=>x.targetId===p.id))roles=roles.filter(role=>x.black?role==='wolf':role!=='wolf');
   for(const x of seerRows.filter(x=>x.targetId===p.id&&!x.black&&divinationKillsFox(x.day))){
    const death=(r.deaths||[]).find(d=>d.playerId===p.id);
@@ -7655,12 +7642,17 @@ function q7RoleDomains(truth,assumedSeerId=null){
   if(ordinary.has(p.id))roles=roles.filter(role=>!['wolf','fox','cat'].includes(role));
   return {id:p.id,roles};
  });
- return {counts,domains,ordinaryDeathIds:[...ordinary],assumedSeerId};
+ return {counts,domains,ordinaryDeathIds:[...ordinary],assumedSeerId,resonatorGroups:q71ResonatorGroups(domains,counts,requests)};
 }
 function q7RoleMatch(model,id=null,role=null){
  if(!model)return null;
  const domains=id==null?model.domains:model.domains.map(d=>d.id===id?{...d,roles:d.roles.filter(x=>x===role)}:d);
- return matchOpeningHypothesisRoles(domains,model.counts);
+ if(model.resonatorGroups==null)return matchOpeningHypothesisRoles(domains,model.counts);
+ for(const pair of model.resonatorGroups){
+  const constrained=domains.map(d=>({...d,roles:d.roles.filter(role=>pair.includes(d.id)?role==='resonator':role!=='resonator')}));
+  const assignment=matchOpeningHypothesisRoles(constrained,model.counts);if(assignment)return assignment;
+ }
+ return null;
 }
 function q7ApplyConstraints(truth){
  let changed=false;
@@ -7672,11 +7664,7 @@ function q7ApplyConstraints(truth){
   const d=model.domains.find(d=>d.id===p.id);candidates[p.id]=d.roles.filter(role=>q7RoleMatch(model,p.id,role));
  }
  truth.confirmed.q7Domains=new Map(Object.entries(candidates).map(([id,roles])=>[+id,roles]));
- const request=state.publicRecords.fullCoRequests.find(r=>r.role==='resonator'&&q7ActualFullRequest(r));
- if(request)for(const id of request.respondentIds){
-  truth.confirmed.publicRoles.set(id,'resonator');
-  if(truth.addConfirmed(id,'共鳴者の強制CO実行では、現行ルール上の真共鳴者だけが応答する'))changed=true;
- }
+ truth.q71Model=model;
  for(const [key,roles]of Object.entries(candidates))if(roles.length===1&&TEAM[roles[0]]==='村人陣営'){
   const id=+key;truth.confirmed.publicRoles.set(id,roles[0]);
   if(truth.addConfirmed(id,`公開配役・強制CO応答・死亡履歴から、この死者の候補役職は${q7RoleLabel(roles[0])}だけになる`))changed=true;
@@ -7696,6 +7684,110 @@ function q7ApplyConstraints(truth){
  }
  return changed;
 }
+
+// 7.1: a forced CO guarantees true holders respond; it does not prove every claimant true.
+function q71ResonatorEvidence(request){
+ if(!q7ActualFullRequest(request)||request.role!=='resonator')return null;
+ const e=request.publicResponse;
+ if(e?.revision!==71||e.requestOrder!==request.order||!Number.isInteger(e.completedOrder)||e.completedOrder<request.order||e.completedOrder>(state.publicRecords.publishClock||0)||!Array.isArray(e.claims)||!Array.isArray(e.respondentIds)||!Array.isArray(e.aliveIds)||!Array.isArray(e.deadIds))return null;
+ const same=(a,b)=>JSON.stringify([...a].sort((x,y)=>x-y))===JSON.stringify([...b].sort((x,y)=>x-y));
+ if(!same(e.aliveIds,request.aliveIds)||!same(e.deadIds,priorDeadIdsForFullCo(request))||!same(e.respondentIds,e.claims.map(c=>c.playerId)))return null;
+ if(e.claims.some(c=>c.day!==request.day||c.order<=request.order||c.order>e.completedOrder||!request.respondentIds.includes(c.playerId)||!e.aliveIds.includes(c.playerId)||!(state.publicRecords.resonatorClaims||[]).some(r=>JSON.stringify(r)===JSON.stringify(c))))return null;
+ return e;
+}
+function q71ResonatorGroups(domains,counts,requests){
+ if(counts.resonator!==2)return null;
+ const req=requests.find(r=>r.role==='resonator'),e=q71ResonatorEvidence(req);if(!e)return null;
+ const possible=domains.filter(d=>d.roles.includes('resonator')).map(d=>d.id),groups=[];
+ for(let a=0;a<possible.length;a++)for(let b=a+1;b<possible.length;b++){
+  const pair=[possible[a],possible[b]];
+  if(pair.some(id=>{
+   if(!e.aliveIds.includes(id))return false;
+   if(!e.respondentIds.includes(id))return true;
+   const claim=e.claims.find(c=>c.playerId===id);
+   return claim&&(!Array.isArray(claim.partnerIds)||claim.partnerIds.length!==1||claim.partnerIds[0]!==pair.find(x=>x!==id));
+  }))continue;
+  groups.push(pair);
+ }
+ return groups;
+}
+function q71ConfirmResonators(truth){
+ const m=truth.q71Model;if(!m||!state.publicRecords.fullCoRequests.some(r=>r.role==='resonator'&&q71ResonatorEvidence(r)))return false;
+ let changed=false;
+ for(const p of state.players.filter(p=>p.claimed==='resonator')){
+  const d=m.domains.find(d=>d.id===p.id);if(!d?.roles.includes('resonator')||truth.broken.has(p.id))continue;
+  if(d.roles.some(role=>role!=='resonator'&&q7RoleMatch(m,p.id,role)))continue;
+  truth.confirmed.publicRoles.set(p.id,'resonator');
+  if(truth.addConfirmed(p.id,'強制CO時点の死者と相方宣言を照合しても、真共鳴者を別の組合せに配置できない'))changed=true;
+ }
+ return changed;
+}
+function q71CaptureResonatorResponse(){
+ const request=state.publicRecords.fullCoRequests.find(r=>r.role==='resonator'&&q7ActualFullRequest(r)&&r.responsePending71);
+ if(!request||request.publicResponse)return;
+ const claims=(state.publicRecords.resonatorClaims||[]).filter(c=>c.day===request.day&&c.order>request.order&&request.respondentIds.includes(c.playerId));
+ request.publicResponse={revision:71,requestOrder:request.order,completedOrder:state.publicRecords.publishClock||request.order,aliveIds:[...request.aliveIds],deadIds:priorDeadIdsForFullCo(request),respondentIds:[...new Set(claims.map(c=>c.playerId))],claims:JSON.parse(JSON.stringify(claims))};delete request.responsePending71;
+}
+// Layout follows the actual fixed-header height, including safe area and enlarged fonts.
+function q71SelectClaimTab(role){
+ if(!state||!['seer','medium','knight','resonator','cat','villager'].includes(role))return;
+ state.claimTab=role;renderClaimBoard();
+ localStorage.setItem('jinro_v04_state',JSON.stringify(state));
+}
+function q71SyncHeader(){
+ const header=document.querySelector('.topbar'),root=document.documentElement;
+ if(!header?.getBoundingClientRect||!root?.style)return;
+ const height=Math.ceil(header.getBoundingClientRect().height);
+ if(height>0)root.style.setProperty('--topbar-height',height+'px');
+}
+function q71ObserveHeader(){
+ q71SyncHeader();
+ const header=document.querySelector('.topbar');
+ if(typeof ResizeObserver!=='undefined'&&header)new ResizeObserver(q71SyncHeader).observe(header);
+ if(typeof window!=='undefined'){
+  window.addEventListener('resize',q71SyncHeader);window.addEventListener('orientationchange',q71SyncHeader);
+  window.visualViewport?.addEventListener('resize',q71SyncHeader);
+ }
+ document.fonts?.ready?.then(q71SyncHeader);
+}
+q71ObserveHeader();
+
+function q71DisplayBreakdown(reason){
+ const s=String(reason),wolves=s.match(/人狼を割り当てられるのは最大(\d+)人.*配役の(\d+)人に足りない/),mad=s.match(/の(\d+)人が狂人である必要があり、配役の(\d+)人を超える/);
+ if(wolves)return `人狼候補は最大${wolves[1]}人で、配役の${wolves[2]}人に足りない。`;
+ if(mad)return `狂人が${mad[1]}人必要になるが、配役は${mad[2]}人。`;
+ if(s==='この占い師を真と仮定した公開結果・CO・死因と、公開配役の人数枠を同時に満たす役職割当が存在しない')return 'この占い師を真とすると、結果と配役人数が両立しない。';
+ return s;
+}
+function q71BreakdownSummary(reasons){return [...new Set(reasons.map(q71DisplayBreakdown))].join(' / ');}
+function q71SelfArgumentReason(observer,d){
+ const originals=(d.sourceEventIds||[]).map(id=>state.discussion?.events.find(e=>e.id===id)).filter(Boolean);
+ if(!originals.some(e=>e.speakerId===d.actorId&&e.subjectId===d.subjectId))return null;
+ const row=state.deliberation?.argumentRecords?.[d.key];
+ const evidence=(row?.publicEvidence||[]).filter(e=>e.visibility==='public'&&e.type!=='discussionStatement'&&e.type!=='argumentAssessment');
+ if(!evidence.length)return null;
+ return morningReason(observer,{targetId:d.actorId,details:{role:d.role,evidence}});
+}
+const quality7FlowWording=q4FlowSentence;
+q4FlowSentence=(observer,flow)=>{
+ if(flow.action==='guardSeer'&&observer.alive&&observer.claimed==='seer'&&flow.targets.includes(observer.id)){
+  const board=q4State().boards[flow.boardId],n=board?.facts.claims.filter(p=>p.role==='seer'&&!board.facts.brokenIds.includes(p.id)).length||flow.targets.length,first=CONVERSATION_FIRST_PERSON[observer.characterId]||'僕';
+  return `占いCOは${n}人。${flow.targets.length===1?first+'を護衛して、次の結果を残させてほしい。':'占い候補を護衛して、次の結果を残したい。'}${n>1?first+'の結果も対抗と見比べてほしい。':first+'の結果を次の判断材料にしてほしい。'}`;
+ }
+ return quality7FlowWording(observer,flow);
+};
+const quality7ArgumentWording=q4ArgumentText;
+q4ArgumentText=(observer,d)=>{
+ if(d.actorId!==d.subjectId)return quality7ArgumentWording(observer,d);
+ const reason=q71SelfArgumentReason(observer,d),actor=q4Name(observer,d.actorId);
+ if(!reason)return `${actor}の説明だけでは、正体はまだ判断できない。`;
+ return d.direction==='affirm'?`${actor}の説明は、${reason}という点と合っている。ただし、その説明への納得と正体の判断は分けたい。`:`${actor}の説明は聞いた。ただ、${reason}。この点は、説明と照らして考えたい。`;
+};
+function q71ArgumentAllowed(observer,c){const d=c.topic?.details?.assessment||c.topicForReason?.details?.assessment;return !d||d.actorId!==d.subjectId||!!q71SelfArgumentReason(observer,d);}
+const quality7SelfArgumentCandidates=discussionCandidates;
+discussionCandidates=observer=>quality7SelfArgumentCandidates(observer).filter(c=>q71ArgumentAllowed(observer,c));
+const quality7SelfArgumentCommit=commitDiscussionSpeech;
+commitDiscussionSpeech=(observer,c)=>q71ArgumentAllowed(observer,c)?quality7SelfArgumentCommit(observer,c):null;
 
 $("#discussionBtn").onclick=encourageDiscussion;
 $("#playerCount").addEventListener("input",()=>{selectedRolePreset=null;renderRoleConfig()});
@@ -7722,7 +7814,7 @@ $("#logToggleBtn").onclick=()=>{
   $("#logToggleBtn").textContent=collapsed?"ログを全部見る":"ログをたたむ";
 };
 document.querySelectorAll("[data-claimtab]").forEach(btn=>{
-  btn.onclick=()=>{if(!state)return;state.claimTab=btn.dataset.claimtab;save();renderClaimBoard()}
+  btn.onclick=()=>q71SelectClaimTab(btn.dataset.claimtab)
 });
 renderRoleConfig();
 renderRolePresets();

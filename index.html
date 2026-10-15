@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-quality8.2-partial</title>
+<title>個人用人狼アプリ v2.20.0-quality8.3-partial</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -138,11 +138,25 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 .topbar-actions{flex:0 0 auto;flex-wrap:nowrap;gap:5px}
 .topbar-actions button{white-space:nowrap;padding:8px 9px;font-size:12px;min-height:40px}
 @media(max-width:375px){.topbar-inner{padding-left:10px;padding-right:10px}.topbar-actions button{padding-left:7px;padding-right:7px}}
+
+/* quality8.3: shrink actual flex/grid contents, preserve local tab scrolling. */
+.wrap,.card,.grid,.row,.claim-board,.claim-card,.claim-head,.claim-head>*,.log-head-row>*,.topbar-inner>*,.bottom-nav-inner>*,.role-row>*,.player-list>*,.tabbar{min-width:0}
+.wrap{padding-left:calc(14px + env(safe-area-inset-left));padding-right:calc(14px + env(safe-area-inset-right))}
+.topbar-inner,.bottom-nav-inner{padding-left:calc(12px + env(safe-area-inset-left));padding-right:calc(12px + env(safe-area-inset-right))}
+.role-row{grid-template-columns:minmax(0,1fr) 84px}
+.claim-head{flex-wrap:wrap}.claim-name,.claim-role,.claim-results,.broken-reason,.confirmed-reason,.system-log,#saveNotice,#debugPanel,.role-summary{overflow-wrap:anywhere}
+.row button{max-width:100%;white-space:normal}
+.topbar-actions button{white-space:nowrap}
+#saveNotice .row{margin-top:7px}#saveNotice button{min-height:44px;font-size:12px}
+#saveDiagnostic{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 monospace;margin-top:8px}
+.save-warning{color:var(--warn);font-weight:700;border-left:3px solid var(--warn);padding:6px 8px}
+.action-sheet,.confirm-sheet,.notes-sheet{overflow-wrap:anywhere;min-width:0}
+.bottom-nav-inner{grid-template-columns:repeat(4,minmax(0,1fr))}
 </style>
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title" title="v2.20.0-quality8.2-partial">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title" title="v2.20.0-quality8.3-partial">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row topbar-actions"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -208,8 +222,8 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
       <button id="logToggleBtn" class="log-toggle">ログを全部見る</button>
     </div>
 
-    <div class="card compact-section" id="saveNotice"><div id="saveStatus" class="muted" aria-live="polite">進行は端末に自動保存します。</div><button id="retrySaveBtn" class="secondary" hidden>もう一度保存する</button><div class="row"><button id="exportSaveBtn" class="secondary">現在の村をファイルに退避</button><button id="importSaveBtn" class="secondary">退避ファイルを開く</button><input id="importSaveFile" type="file" accept=".json,.jinro,application/json" hidden></div><div id="transferStatus" class="muted" aria-live="polite"></div><details><summary>保存・議論の診断</summary><div id="saveDiagnostic" class="muted"></div></details></div>
     <div class="card compact-section"><button id="discussionBtn">議論を促す</button><button id="playerDiscussionBtn" class="secondary" hidden disabled style="display:none">自分の意見を話す</button><div id="discussionStatus" class="muted" aria-live="polite"></div></div>
+    <div class="card compact-section" id="saveNotice"><div id="saveStatus" class="muted" aria-live="polite">進行は端末に自動保存します。</div><button id="retrySaveBtn" class="secondary" hidden>もう一度保存する</button><div class="row"><button id="exportSaveBtn" class="secondary">現在の村をファイルに退避</button><button id="importSaveBtn" class="secondary">退避ファイルを開く</button><input id="importSaveFile" type="file" accept=".json,.jinro,application/json" hidden></div><div id="transferStatus" class="muted" aria-live="polite"></div></div>
     <div id="actionPanel" class="hidden"></div>
 
     <div id="actionSheet" class="action-sheet hidden">
@@ -238,6 +252,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
     <div id="debugPanel" class="card hidden">
       <h2>デバッグ情報</h2>
       <div id="debugText" class="muted"></div>
+      <details><summary>保存・議論の診断</summary><div id="saveDiagnostic" class="muted"></div></details>
     </div>
   </section>
 
@@ -252,7 +267,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
 </section>
 <script>
-const GAME_VERSION="2.20.0-quality8.2-partial";
+const GAME_VERSION="2.20.0-quality8.3-partial";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -5736,7 +5751,7 @@ function q82RestoreCandidate(candidate,preserveDerived=false){
  const previousState=state;
  try{
   if(!isValidSavedGame(candidate))throw new Error('Invalid saved game');
-  preserveDerived=preserveDerived||/^2\.20\.0-quality8\.[12](?:-partial)?$/.test(candidate.version);
+  preserveDerived=preserveDerived||/^2\.20\.0-quality8\.[123](?:-partial)?$/.test(candidate.version);
     const hasGuardInstructions=Array.isArray(candidate.publicRecords?.guardInstructions);
     state=candidate;
     const priorDiagnostics=candidate.saveMeta81?.villageId&&candidate.saveMeta81.villageId===previousState?.saveMeta81?.villageId?q81Diagnostics.slice(-12):[];
@@ -7503,7 +7518,7 @@ const quality4FlowSentence=q4FlowSentence;
 q4FlowSentence=(observer,f)=>{const n=id=>q4Name(observer,id);if(f.proposalKind==='black'){const result=f.publicGrounds.find(x=>x.type==='reportedResult');const own=result.source.snapshot.seerId===observer.id;return `${n(f.targets[0])}を今日の処刑候補に挙げたい。${own?'占い結果で黒が出ている。':'真寄りに見ている'+n(result.source.snapshot.seerId)+'から黒が出ている。'}${f.publicGrounds.some(x=>x.type==='publicBehaviorObservation')?'発言の変化にも説明が足りない。':''}${own?'ほかの候補や本人の説明も比べたい。':'占い師が偽なら、この黒だけでは決められない。'}`; }if(f.proposalKind==='grayEvidence'){const observation=f.publicGrounds.find(x=>x.type==='publicBehaviorObservation');return `${n(f.targets[0])}をグレーの処刑候補に考えたい。${observation.snapshot.kind==='unexplainedChange'?'見方を変えた理由がまだ説明されていない。':'質問への回答を何度か保留している。'}これだけで人狼とは決めない。`; }return quality4FlowSentence(observer,f)+(f.protection?'グレーから潜伏騎士を処刑したり、COさせたりする危険を減らす意味もある。':'');};
 const quality4BoardCore=grayCoreEvents;
 grayCoreEvents=(context=state)=>quality4BoardCore(context).filter(e=>e.topic?.variant!=='boardSummary'&&e.topicForReason?.variant!=='boardSummary');
-function q5Speech(observer,kind,data,evidence){const topic={kind:'information',variant:'boardSummary',targetId:null,details:{certainty:'inferred',boardSummary:{kind,data},evidence}},stats=personalityProfile(observer)?.stats||{};if(kind==='night'&&data.night.certainty==='unresolved'&&data.night.combinations.some(x=>x.foxDeaths>0)){const pub=buildSpeechPublicInformation(),white=pub.context.seerRows.find(r=>r.record.day===state.day&&!r.record.black&&data.deathIds.includes(r.record.targetId)&&pub.roles.roles.seer[r.record.seerId]?.status!=='false'&&(state.deliberation?.evaluations?.[observer.id]?.roleScores?.seer?.[r.record.seerId]??50)>51);if(white){topic.details.nightOpinion={certainty:'likely',scope:'subjective',favor:'curse',source:white.source};evidence.push({type:'reportedResult',visibility:'public',source:white.source});}}
+function q5Speech(observer,kind,data,evidence){const topic={kind:'information',variant:'boardSummary',targetId:null,details:{certainty:'inferred',boardSummary:{kind,data},evidence}},stats=personalityProfile(observer)?.stats||{};if(kind==='night'){topic.details.nightComparison=q83CompareNight(observer,data);for(const row of topic.details.nightComparison.reports)evidence.push({type:'reportedResult',visibility:'public',source:row.source});}
  const c={command:'organize',subjectId:null,recipientId:null,replyTo:null,claim:null,topic,evidence,weight:(kind==='night'?.14:.10)*(.5+.15*(kind==='night'?stats.observation:stats.logic))*(.5+.1*stats.assertiveness)};c.semanticReasonKey=JSON.stringify(['q5',state.day,kind,data.id||JSON.stringify(data),kind==='board'||kind==='night'?q6PublicRevision():null]);return describeDiscussionSemantics(observer,c);}
 const quality4BoardRelation=classifyDiscussionRelation;
 classifyDiscussionRelation=(a,b,context=state)=>b.variant==='blackQualification'&&b.replyTo===a.id&&q4PolicyOf(a)?.proposalKind==='black'?'rebut':quality4BoardRelation(a,b,context);
@@ -7884,11 +7899,8 @@ function q81RenderSaveStatus(){
  try{
  const status=$('#saveStatus'),retry=$('#retrySaveBtn'),detail=$('#saveDiagnostic');if(!status||!retry)return;
  const labels={QUOTA:'端末の保存容量が足りない',CIRCULAR:'データの循環参照',SERIALIZE:'データ変換エラー',STORAGE:'端末の保存領域を利用できない',VERIFY:'書き込みを確認できない',STALE:'別の画面に、より新しい保存がある',SAVE_EXCEPTION:'保存処理の例外',CORRUPT_EXISTING:'保存済みデータの破損を検出',CODEC:'圧縮・形式変換のエラー'};
- if(q81LastSave){status.textContent=q81LastSave.ok?`${q81LastSave.day}日目・${q81LastSave.phase==='night'?'夜':q81LastSave.phase==='end'?'終了':'昼'}を保存したよ。`:`保存できなかったよ（${labels[q81LastSave.code]||'保存エラー'}）。画面の状態は残っているよ。`;retry.hidden=q81LastSave.ok;}
- if(q81LastSave?.ok&&q82StorageStats)status.textContent+=` 形式: ${q82StorageStats.format}、保存データ ${q82StorageStats.storedUtf8Bytes.toLocaleString()} B（UTF-8）、UTF-16換算 ${q82StorageStats.storedUtf16Estimate.toLocaleString()} B、元データの${(100*q82StorageStats.storedUtf16Estimate/q82StorageStats.rawUtf16Estimate).toFixed(1)}%。`;
- const problem=q81Diagnostics.filter(x=>['derived','render','discussion','load'].includes(x.stage)).at(-1);
- if(q81LastSave?.ok&&problem)status.textContent+=' 更新に問題があったので、診断を確認してね。';
- if(detail)detail.textContent=JSON.stringify({lastSave:q81LastSave,discussion:state?.discussion?.lastBatchDiagnostic||null,recent:q81Diagnostics,storage:q82StorageStats},null,2);
+ if(q81LastSave){status.textContent=q81LastSave.ok?`保存済み（第${q81LastSave.day}日/${q81LastSave.phase==='night'?'夜':q81LastSave.phase==='end'?'終了':'昼'}）`:`保存できませんでした：${labels[q81LastSave.code]||'保存エラー'}。`;retry.hidden=q81LastSave.ok;status.classList.toggle('save-warning',!q81LastSave.ok);status.setAttribute?.('role',q81LastSave.ok?'status':'alert');}
+ if(detail)detail.textContent=JSON.stringify({lastSave:q81LastSave,discussion:state?.discussion?.lastBatchDiagnostic||null,recent:q81Diagnostics,storage:q82StorageStats,saveFormat:{schemaVersion:82,codec:'lz77-b64-v1',integrity:'CRC32・読込時照合'}},null,2);
  }catch{}
 }
 function q81Persist(stage='manual'){
@@ -8068,8 +8080,107 @@ $('#exportSaveBtn').onclick=()=>{try{const file=q82CreateExport(),url=URL.create
 $('#importSaveBtn').onclick=()=>$('#importSaveFile').click();
 $('#importSaveFile').addEventListener('change',event=>{const input=event.target,file=input.files?.[0];if(!file)return;if(file.size>Q82_MAX_BYTES*2){$('#transferStatus').textContent='ファイルが大きすぎるよ。';input.value='';return;}const reader=new FileReader();reader.onload=()=>{try{const result=q82ImportText(String(reader.result));$('#transferStatus').textContent=result.cancelled?'読み込みを取り消したよ。':result.persisted?'退避ファイルから再開し、端末にも保存したよ。':'退避ファイルを開いたよ。端末保存はまだできていないので、退避ファイルも残してね。';}catch(e){$('#transferStatus').textContent='退避ファイルを開けなかったよ。形式・破損を確認してね。';q81Diagnostic('import','IMPORT_FAILED',e);q81RenderSaveStatus();}finally{input.value='';}};reader.onerror=()=>{$('#transferStatus').textContent='ファイルを読み取れなかったよ。';input.value='';};reader.readAsText(file);});
 
+// quality8.3: public report comparison and concise, character-specific presentation.
+// No role/trust/strategy coefficients are changed here.
+function q83CompareNight(observer,board,pub=buildSpeechPublicInformation()){
+ const candidates=pub.context.people.filter(p=>p.alive&&p.claimed==='seer').map(p=>p.id),dead=new Set(board.deathIds);
+ const reports=pub.context.seerRows.filter(r=>r.record.day===state.day&&candidates.includes(r.record.seerId)).map(r=>({
+  seerId:r.record.seerId,targetId:r.record.targetId,black:!!r.record.black,day:r.record.day,order:r.record.order??null,
+  onCorpse:dead.has(r.record.targetId),publicStatus:pub.roles.roles.seer[r.record.seerId]?.status??'unknown',
+  observerTrust:state.deliberation?.evaluations?.[observer.id]?.roleScores?.seer?.[r.record.seerId]??pub.roles.roles.seer[r.record.seerId]?.score??50,source:r.source
+ })).sort((a,b)=>(a.order??0)-(b.order??0)||a.seerId-b.seerId);
+ const white=reports.filter(r=>!r.black&&r.onCorpse),reporting=[...new Set(reports.map(r=>r.seerId))],matching=[...new Set(white.map(r=>r.seerId))];
+ const all=candidates.length>0&&candidates.every(id=>matching.includes(id)),targets=[...new Set(white.map(r=>r.targetId))];
+ return {schemaVersion:1,scope:'publicReports',day:state.day,boardId:board.id,candidateIds:candidates,reportingIds:reporting,missingIds:candidates.filter(id=>!reporting.includes(id)),reports,
+  pattern:all?(targets.length===1?'allSameCorpse':'allDifferentCorpses'):matching.length===1?'oneCorpseWhite':matching.length?'someCorpseWhite':'noCorpseWhite',
+  whiteSeerIds:matching,whiteTargetIds:targets,relativeCredit:null};
+}
+// Inputs are finite factual/intent clauses, not complete rendered speeches.
+function q83Voice(observer,a,b=''){
+ const polite=s=>s.replace(/考えたい$/, '考えたいと存じます').replace(/見直したい$/, '見直したいと存じます').replace(/比べたい$/, '比べたいところです').replace(/聞きたい$/, '伺いたいところです').replace(/増やしたい$/, '増やしたいところです').replace(/比べられない$/, '比べられません').replace(/ならない$/, 'なりません').replace(/絞れない$/, '絞れません').replace(/できる$/, 'できます').replace(/になる$/, 'になります').replace(/見積もる$/, '見積もります').replace(/がある$/, 'があります');
+ const plain=b?'。'+b+'。':'。',lines={
+ joshua:()=>a+plain,
+ geode:()=>a+'ねえ'+(b?'。'+b+'ってわけだ。':'。'),
+ albert:()=>a+plain,
+ momiji:()=>a+'ぞ！'+(b?b+'な！':''),
+ kaede:()=>'……'+a+'。'+(b?b+'、と思う。':''),
+ francois:()=>a+'ね。'+(b?'さて、'+b+'。':''),
+ melbon:()=>polite(a)+'。'+(b?polite(b)+'。':''),
+ milk:()=>a.replaceAll('人狼','狼')+'よ。'+(b?b.replaceAll('人狼','狼')+'んだね。':''),
+ max:()=>a+'。'+(b?'そのうえで、'+b+'。':''),
+ cortes:()=>polite(a)+'。'+(b?'続いて、'+polite(b)+'。':''),
+ zaemon:()=>a+'ということじゃ。'+(b?b+'わけだな。':''),
+ yamato:()=>a+plain,
+ henry:()=>a+'……。'+(b?b+'、そう考えているよ。':''),
+ dominic:()=>a+'ぞ！'+(b?'そのうえで、'+b+'な！':''),
+ pattino:()=>a+'って感じ。'+(b?b+'ってことっしょ。':''),
+ makimura:()=>a+'。'+(b?'そこも踏まえて、'+b+'。':''),
+ rixis:()=>a+'。'+(b?'比べるなら、'+b+'。':''),
+ wanunu_iii:()=>a.replaceAll('人狼','狼')+'ぞ。'+(b?b.replaceAll('人狼','狼')+'んだな。':''),
+ naminami:()=>polite(a)+'！'+(b?polite(b)+'。':'')
+ };return (lines[observer.characterId]||lines.joshua)();
+}
+function q83ViewText(observer,s){
+ const n=id=>q4Name(observer,id),seer=n(s.seerId),facts=[];
+ if(s.contradictions.length)return q83Voice(observer,`${seer}を真とすると、今の記録と合わない点がある`,'この占い師を真と置く考えは見直したい');
+ const falseRivals=s.rivals.filter(p=>p.roles.length&&!p.roles.includes('seer'));
+ if(falseRivals.length===s.rivals.length&&falseRivals.length)facts.push(`対抗${falseRivals.length}人は偽になる`);
+ const black=s.black.filter(id=>id!==observer.id);if(black.length)facts.push(`${n(black.at(-1))}は人狼になる`);
+ const white=s.white.filter(x=>x.id!==observer.id).at(-1);if(white&&facts.length<2)facts.push(`${n(white.id)}は${white.notFox?'生きているので人狼でも狐でもない':'人狼ではない'}`);
+ if(!facts.length)facts.push(`少なくとも${s.exposedMinimum}人外が表に出ている計算になる`);
+ // The conditional scopes BOTH conclusions. White never excludes madman.
+ const a=facts[0],b=facts[1]||'',short=x=>x.replaceAll('人狼','狼'),lines={
+ joshua:()=>`${seer}が真なら、${a}と考えるよ。${b?b+'。':''}`,
+ geode:()=>`${seer}が本物って話なら、${a}ってわけだねえ。${b?'そうなると、'+b+'。':''}`,
+ albert:()=>`${seer}を真と置けば、${a}。${b?b+'。':''}`,
+ momiji:()=>`${seer}が本物なら、${short(a)}ってことだな！${b?'それなら'+short(b)+'ぞ！':''}`,
+ kaede:()=>`……${seer}が真なら、${a}と思う。${b?'その見方なら、'+b+'はずだから……。':''}`,
+ francois:()=>`${seer}が本物だとしてみようか。${a}${b?'し、'+b:''}というわけだね。`,
+ melbon:()=>`${seer}を真と見る場合、${a}と整理できます。${b?'その前提なら、'+b+'と考えております。':''}`,
+ milk:()=>`${seer}がほんものなら、${short(a)}んだよね。${b?'じゃあ、'+short(b)+'んだ！':''}`,
+ max:()=>`${seer}が真だとすれば、${a}だろう。${b?b+'ということも忘れるなよ。':''}`,
+ cortes:()=>`${seer}が真であると仮定いたしますと、${a}。${b?'その場合は、'+b+'と存じます。':''}`,
+ zaemon:()=>`${seer}が本物なら、${a}ということじゃ。${b?'ならば、'+b+'わけだな。':''}`,
+ yamato:()=>`${seer}が真であるなら、${a}。${b?'その前提で、'+b+'と見る。':''}`,
+ henry:()=>`${seer}が真なら……${a}と考えているよ。${b?b+'、という見方になるね。':''}`,
+ dominic:()=>`${seer}が本物だとすると、${short(a)}ってことだ！${b?'だったら'+short(b)+'な！':''}`,
+ pattino:()=>`${seer}が本物ってことで考えると、${short(a)}って感じじゃん。${b?'そしたら'+short(b)+'っしょ。':''}`,
+ makimura:()=>`${seer}を真として考えれば、${a}。${b?'その場合は'+b+'と見ているよ。':''}`,
+ rixis:()=>`${seer}を真と仮定するなら、${a}と読める。${b?'そこから、'+b+'という結論になる。':''}`,
+ wanunu_iii:()=>`${seer}がほんものなら、${short(a)}ぞ。${b?'なら、'+short(b)+'んだな。':''}`,
+ naminami:()=>`${seer}が真だとして考えると、${a}！${b?'その前提なら、'+b+'ということですね。':''}`
+ };
+ return (lines[observer.characterId]||lines.joshua)();
+}
+function q83NightText(observer,c,s){
+ const comparison=c.topic.details.nightComparison||q83CompareNight(observer,s),night=s.night;
+ if(night.peace){const causes=night.peaceCauses;return q83Voice(observer,causes.includes('guard')&&causes.includes('foxAttack')?'平和は護衛成功か、狐を襲った結果と考えられる':causes.includes('guard')?'この配役での平和なら、護衛成功を考えたい':'死者が出ていない理由は、まだ絞れない');}
+ let a,b='';
+ if(night.catPairCertain)a=`今朝の${s.deathIds.length}死体は、猫又襲撃と人狼の道連れで説明できる`;
+ else {
+  const curse=night.combinations.some(x=>x.foxDeaths>0),cat=night.combinations.some(x=>x.attack==='cat');
+  a=curse&&cat?`${s.deathIds.length}死体なら、呪殺を含む内訳か、猫又襲撃の道連れを考えたい`:curse?`${s.deathIds.length}死体は、呪殺を含む内訳で考えたい`:cat?`${s.deathIds.length}死体は、猫又襲撃の道連れで考えたい`:`今朝の${s.deathIds.length}死体だけでは、内訳を絞れない`;
+ }
+ if(comparison.pattern==='allSameCorpse')b='占い候補は全員、同じ死者に白を出しているので、それだけでは誰が真か比べられない';
+ else if(comparison.pattern==='allDifferentCorpses')b='占い候補はそれぞれ死者に白を出しているので、占い先の違いも比べたい';
+ else if(comparison.pattern==='oneCorpseWhite')b=`${q4Name(observer,comparison.whiteSeerIds[0])}だけが死者に白を出しているが、呪殺した証明にはならない`;
+ else if(comparison.pattern==='someCorpseWhite')b='死者への白を出した占い候補が複数いるので、その一致だけで真は選べない';
+ else if(comparison.missingIds.length)b='まだ結果を出していない占い候補の話も聞きたい';
+ else if((s.counts.cat||0)>0&&!night.catCoRequested&&!night.catPairCertain)b='猫又にもCOを求めて、情報を増やしたい';
+ return q83Voice(observer,a,b);
+}
+const q83PreviousText=discussionText;
+discussionText=(observer,c)=>{
+ const summary=c.topic?.details?.boardSummary;if(!summary)return q83PreviousText(observer,c);
+ const s=summary.data;
+ if(summary.kind==='view')return q83ViewText(observer,s);
+ if(summary.kind==='night')return q83NightText(observer,c,s);
+ if(summary.kind==='board')return q83Voice(observer,`今は${s.livingCount}人生存で、夜に一人ずつ減るなら処刑はあと${s.slots}回ほどになる`,s.countsKnown?`平和や呪殺で変わるけれど、残る人外は最大${s.hostileUpper}人と見積もる`:'配役の記録がないので、残る人外数は絞れない');
+ return q83PreviousText(observer,c);
+};
+
 $("#loadBtn").onclick=load;
-$("#debugBtnTop").onclick=()=>$("#debugPanel").classList.toggle("hidden");
+$("#debugBtnTop").onclick=()=>{const panel=$("#debugPanel");panel.classList.toggle("hidden");if(!panel.classList.contains("hidden")){renderDebug();q81RenderSaveStatus();}};
 $("#resetBtnTop").onclick=reset;
 $("#actionSheetClose").onclick=closeActionSheet;
 $("#confirmExecuteBtn").onclick=confirmExecution;

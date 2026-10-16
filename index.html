@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-quality8.5-partial</title>
+<title>個人用人狼アプリ v2.20.0-quality8.5-export1</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -156,7 +156,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title" title="v2.20.0-quality8.5-partial">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title" title="v2.20.0-quality8.5-export1">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row topbar-actions"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -223,7 +223,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
     </div>
 
     <div class="card compact-section"><button id="discussionBtn">議論を促す</button><button id="playerDiscussionBtn" class="secondary" hidden disabled style="display:none">自分の意見を話す</button><div id="discussionStatus" class="muted" aria-live="polite"></div></div>
-    <div class="card compact-section" id="saveNotice"><div id="saveStatus" class="muted" aria-live="polite">進行は端末に自動保存します。</div><button id="retrySaveBtn" class="secondary" hidden>もう一度保存する</button><div class="row"><button id="exportSaveBtn" class="secondary">現在の村をファイルに退避</button><button id="importSaveBtn" class="secondary">退避ファイルを開く</button><input id="importSaveFile" type="file" accept=".json,.jinro,application/json" hidden></div><div id="transferStatus" class="muted" aria-live="polite"></div></div>
+    <div class="card compact-section" id="saveNotice"><div id="saveStatus" class="muted" aria-live="polite">進行は端末に自動保存します。</div><button id="retrySaveBtn" class="secondary" hidden>もう一度保存する</button><div class="row"><button id="exportSaveBtn" class="secondary">現在の村をファイルに退避</button><button id="importSaveBtn" class="secondary">退避ファイルを開く</button><input id="importSaveFile" type="file" accept=".json,.jinro,application/json" hidden></div><div id="transferStatus" class="muted" aria-live="polite"></div><hr><div class="row"><button id="exportPublicBoardBtn" class="secondary">公開盤面を書き出す</button></div><div class="muted">計算機用・秘密の役職や非公開結果は含めません。</div><div id="publicBoardExportStatus" class="muted" aria-live="polite"></div></div>
     <div id="actionPanel" class="hidden"></div>
 
     <div id="actionSheet" class="action-sheet hidden">
@@ -267,7 +267,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
 </section>
 <script>
-const GAME_VERSION="2.20.0-quality8.5-partial";
+const GAME_VERSION="2.20.0-quality8.5-export1";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -5755,7 +5755,7 @@ function q82RestoreCandidate(candidate,preserveDerived=false){
  const previousState=state;
  try{
   if(!isValidSavedGame(candidate))throw new Error('Invalid saved game');
-  preserveDerived=preserveDerived||/^2\.20\.0-quality8\.[12345](?:-partial)?$/.test(candidate.version);
+  preserveDerived=preserveDerived||/^2\.20\.0-quality8\.[12345](?:-partial|-export1)?$/.test(candidate.version);
     const hasGuardInstructions=Array.isArray(candidate.publicRecords?.guardInstructions);
     state=candidate;
     const priorDiagnostics=candidate.saveMeta81?.villageId&&candidate.saveMeta81.villageId===previousState?.saveMeta81?.villageId?q81Diagnostics.slice(-12):[];
@@ -8563,6 +8563,58 @@ commitDiscussionSpeech=(p,c)=>{
 };
 const q85PublicEvent=discussionPublicEvent;
 discussionPublicEvent=e=>({...q85PublicEvent(e),...(e.publicPurpose85?{publicPurpose85:e.publicPurpose85}:{})});
+
+// Public-board bridge v1. Read-only projection: no solver, save, inference, or RNG calls.
+function createPublicViewpointBoard(source=state){
+ if(!source||!Array.isArray(source.players))throw Error('村がまだ始まっていません。');
+ const roles=['villager','seer','medium','knight','resonator','cat','wolf','madman','fox'];
+ const records=source.publicRecords||{},rows=key=>Array.isArray(records[key])?records[key]:[];
+ const id=x=>x==null?null:String(x),day=x=>Number.isInteger(x)&&x>=1?x:null,order=x=>Number.isInteger(x)&&x>=1?x:null;
+ const counts={};if(!source.publicRoleCounts)throw Error('この保存には公開配役が記録されていません。秘密の役職から配役を復元せず、書き出しを止めました。');
+ for(const role of roles){const n=source.publicRoleCounts[role];if(n!=null&&(!Number.isInteger(n)||n<0||n>20))throw Error('公開配役の人数が不正です。');counts[role]=n??0;}
+ const notes=['ゲームの公開情報から自動作成。死因が公開されていない死体は「不明」のまま。秘密の役職・非公開結果・プレイヤーのメモは含めていません。'];
+ const coRows=rows('coEvents');
+ const players=source.players.map(p=>({id:id(p.id),name:String(p.name),alive:p.alive===true,coStatus:p.claimed||p.villagerClaim===true||coRows.some(r=>id(r.playerId)===id(p.id)&&r.kind==='claim')?'claimed':p.coCheckedNone===true?'none':'unclaimed'}));
+ // Withdrawal remains a record: do not replace a public claim with actual role.
+ const claims=coRows.flatMap((r,i)=>{
+  if(r.kind==='deny'){notes.push(`CO補足 co-${i}: ${id(r.playerId)} が${roles.includes(r.role)?roleName(r.role):'役職'}を否定（${day(r.day)??'不明'}日／公開順${order(r.order)??'不明'}）。否定宣言は真役職の証明には使用しません。`);return [];}
+  if(!['claim','withdraw'].includes(r.kind)){notes.push(`CO記録 co-${i}: 未対応の公開宣言種別。`);return [];}
+  if(!roles.includes(r.role))throw Error('公開COに未対応の役職があります。');
+  return [{id:'co-'+i,playerId:id(r.playerId),role:r.role,day:day(r.day),order:order(r.order),action:r.kind}];
+ });
+ const results=['seer','medium'].flatMap(kind=>rows(kind+'Results').map((r,i)=>{
+  if(typeof r.black!=='boolean')throw Error('公開判定の白黒が不明です。');
+  return {id:kind+'-'+i,kind,speakerId:id(r[kind+'Id']),targetId:id(r.targetId),color:r.black?'black':'white',day:day(r.day),order:order(r.order)};
+ }));
+ const executions=rows('executions').map((r,i)=>({id:'execution-'+i,playerId:id(r.playerId),day:day(r.day)}));
+ // Execution is also present in public deaths in the game. Keep it only once.
+ rows('deaths').forEach((r,i)=>{if(r.label==='execution'&&!executions.some(x=>x.playerId===id(r.playerId)&&x.day===day(r.day)))executions.push({id:'execution-death-'+i,playerId:id(r.playerId),day:day(r.day)});});
+ const openingEnabled=source.firstVictimEnabled===true;
+ const openingCorpses=rows('deaths').filter(r=>r.day===1&&r.phase==='night'&&!executions.some(x=>x.playerId===id(r.playerId)&&x.day===1));
+ const openingIds=[...new Set(openingCorpses.map(r=>id(r.playerId)))];
+ // An enabled opening attack always has a victim. Only one public corpse => identified.
+ const victimId=openingEnabled&&openingIds.length===1?openingIds[0]:null;
+ if(openingEnabled&&victimId==null)notes.push('初日犠牲者の人物は公開死体から一意に決まりません。内部の襲撃対象を参照せず不明にしています。');
+ const catChains=rows('catChains');
+ const deaths=rows('deaths').flatMap((r,i)=>{
+  if(executions.some(x=>x.playerId===id(r.playerId)&&x.day===day(r.day)))return [];
+  const publicCatChain=r.label==='cat-chain'||catChains.some(c=>id(c.victimId)===id(r.playerId)&&c.day===r.day);
+  return [{id:'death-'+i,playerId:id(r.playerId),day:day(r.day),phase:['day','night'].includes(r.phase)?r.phase:'unknown',cause:publicCatChain?'cat':openingEnabled&&id(r.playerId)===victimId&&r.day===1?'firstVictim':'unknown'}];
+ });
+ const proofs=rows('confirmedProofs').flatMap((r,i)=>r.truthRevision===71&&roles.includes(r.role)?[{id:'proof-'+i,playerId:id(r.id),role:r.role,source:'公開確定記録 #'+i+(typeof r.reason==='string'?'：'+r.reason:'')}]:[]);
+ catChains.forEach((r,i)=>{if(!proofs.some(p=>p.playerId===id(r.catId)&&p.role==='cat'))proofs.push({id:'cat-proof-'+i,playerId:id(r.catId),role:'cat',source:`公開された猫道連れ記録 #${i}（${day(r.day)??'不明'}日）`});});
+ if(rows('confirmedProofs').some(r=>r.truthRevision!==71))notes.push('旧版の未更新な確定バッジは役職証明として採用していません。');
+ if(source.phase==='night')notes.push('現在は夜。入力日はゲーム表示の現在日。翌朝の非公開能力結果は含めていません。');
+ for(const p of players)if(p.coStatus==='claimed'&&!claims.some(c=>c.playerId===p.id))notes.push(p.name+'のCO履歴が保存にありません。日付・順序を推測して埋めていません。');
+ if([...claims,...results].some(r=>r.day==null||r.order==null))notes.push('旧公開記録に日付または公開順の欠落があります。欠落箇所はnullで保持しています。');
+ return {format:'jinro-public-viewpoint-0.1',day:day(source.day),counts,opening:{enabled:openingEnabled,victimId},players,claims,results,executions,deaths,proofs,assumptions:[],comment:notes.join('\n')};
+}
+function createPublicViewpointExport(){const board=createPublicViewpointBoard();return {filename:'jinro-public-board-day'+board.day+'-'+Date.now()+'.json',text:JSON.stringify(board,null,2)};}
+$('#exportPublicBoardBtn').onclick=()=>{
+ const status=$('#publicBoardExportStatus');
+ try{const file=createPublicViewpointExport(),url=URL.createObjectURL(new Blob([file.text],{type:'application/json;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download=file.filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);status.textContent='公開盤面を書き出したよ。計算機の「公開JSONを読み込む」で、このファイルを選んでね。';}
+ catch(e){status.textContent='公開盤面を書き出せませんでした：'+e.message;}
+};
 
 $("#loadBtn").onclick=load;
 $("#debugBtnTop").onclick=()=>{const panel=$("#debugPanel");panel.classList.toggle("hidden");if(!panel.classList.contains("hidden")){renderDebug();q81RenderSaveStatus();}};

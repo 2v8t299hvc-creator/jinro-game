@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-quality8.5-export2</title>
+<title>個人用人狼アプリ v2.20.0-quality8.5-export3</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -156,7 +156,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title" title="v2.20.0-quality8.5-export2">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title" title="v2.20.0-quality8.5-export3">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row topbar-actions"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -267,7 +267,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
 </section>
 <script>
-const GAME_VERSION="2.20.0-quality8.5-export2";
+const GAME_VERSION="2.20.0-quality8.5-export3";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -5755,7 +5755,7 @@ function q82RestoreCandidate(candidate,preserveDerived=false){
  const previousState=state;
  try{
   if(!isValidSavedGame(candidate))throw new Error('Invalid saved game');
-  preserveDerived=preserveDerived||/^2\.20\.0-quality8\.[12345](?:-partial|-export[12])?$/.test(candidate.version);
+  preserveDerived=preserveDerived||/^2\.20\.0-quality8\.[12345](?:-partial|-export[123])?$/.test(candidate.version);
     const hasGuardInstructions=Array.isArray(candidate.publicRecords?.guardInstructions);
     state=candidate;
     const priorDiagnostics=candidate.saveMeta81?.villageId&&candidate.saveMeta81.villageId===previousState?.saveMeta81?.villageId?q81Diagnostics.slice(-12):[];
@@ -8624,7 +8624,8 @@ function createPublicViewpointBoard(source=state){
   }
   return [{id:label,role:q.role,day:day(q.day),order:order(q.order),status:'complete',aliveIds:q.aliveIds.map(id),respondentIds:q.respondentIds.map(id)}];
  });
- return {format:'jinro-public-viewpoint-0.1',publicConstraintVersion:2,fullCoRequests,resonatorClaims,day:day(source.day),counts,opening:{enabled:openingEnabled,victimId},players,claims,results,executions,deaths,proofs,assumptions:[],comment:notes.join('\n')};
+ const publicDay=Math.max(day(source.day)||1,...['deaths','executions','seerResults','mediumResults'].flatMap(k=>rows(k).map(r=>day(r.day)||1)));
+ return {format:'jinro-public-viewpoint-0.1',publicConstraintVersion:3,gameStatus:source.phase==='end'?'ended':['day','night'].includes(source.phase)&&publicDay===day(source.day)?'ongoing':'unknown',fullCoRequests,resonatorClaims,day:publicDay,counts,opening:{enabled:openingEnabled,victimId,excludedIds:source.players.filter(p=>p.isSelf===true).map(p=>id(p.id))},players,claims,results,executions,deaths,proofs,assumptions:[],comment:notes.join('\n')};
 }
 function createPublicViewpointExport(){const board=createPublicViewpointBoard();return {filename:'jinro-public-board-day'+board.day+'-'+Date.now()+'.json',text:JSON.stringify(board,null,2)};}
 $('#exportPublicBoardBtn').onclick=()=>{

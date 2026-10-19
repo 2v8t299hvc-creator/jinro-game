@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-quality8.5-export3</title>
+<title>個人用人狼アプリ v2.20.0-quality8.5-export4</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -156,7 +156,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title" title="v2.20.0-quality8.5-export3">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title" title="v2.20.0-quality8.5-export4">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row topbar-actions"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -267,7 +267,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
 </section>
 <script>
-const GAME_VERSION="2.20.0-quality8.5-export3";
+const GAME_VERSION="2.20.0-quality8.5-export4";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -1747,7 +1747,7 @@ function migrateLegacyFullCoResponses(){
 }
 function wasFullRoleCoDeclined(p,role){
   return (state.publicRecords?.fullCoRequests||[]).some(r=>r.role===role&&
-    Array.isArray(r.respondentIds)&&(role==="seer"||r.day===state.day)&&r.aliveIds.includes(p.id)&&!r.respondentIds.includes(p.id));
+    Array.isArray(r.respondentIds)&&Array.isArray(r.aliveIds)&&r.aliveIds.includes(p.id)&&!r.respondentIds.includes(p.id));
 }
 function ensureWolfSeerPlan(){
   if(state.wolfSeerPlan?.version===1)return;
@@ -5755,7 +5755,7 @@ function q82RestoreCandidate(candidate,preserveDerived=false){
  const previousState=state;
  try{
   if(!isValidSavedGame(candidate))throw new Error('Invalid saved game');
-  preserveDerived=preserveDerived||/^2\.20\.0-quality8\.[12345](?:-partial|-export[123])?$/.test(candidate.version);
+  preserveDerived=preserveDerived||/^2\.20\.0-quality8\.[12345](?:-partial|-export[1234])?$/.test(candidate.version);
     const hasGuardInstructions=Array.isArray(candidate.publicRecords?.guardInstructions);
     state=candidate;
     const priorDiagnostics=candidate.saveMeta81?.villageId&&candidate.saveMeta81.villageId===previousState?.saveMeta81?.villageId?q81Diagnostics.slice(-12):[];
@@ -7082,7 +7082,7 @@ function grayObservationWeight(observer,row){
 function grayCandidates(observer){
  const known=grayKnownEventIds(observer),out=[],plan=isStrategicDiscussionVillage()?buildDiscussionPlan(observer):null;
  for(const row of grayObservationRows()){
-  if(row.actorId===observer.id||!byId(row.actorId)?.alive||row.day<state.day-2||!row.sourceEventIds.every(id=>known.has(id)))continue;
+  if(row.actorId===observer.id||!byId(row.actorId)?.alive||row.day<state.day-2||!row.sourceEventIds.every(id=>known.has(id))||!grayObservationReason(observer,row))continue;
   const evidence=[grayObservationEvidence(row),...row.sourceEventIds.map(id=>discussionRef(state.discussion.events.find(e=>e.id===id)))];
   const direction=row.interpretation.direction,command=direction==='affirm'?'trust':direction==='deny'?'suspect':'organize';
   const topic={kind:command==='trust'?'trust':command==='suspect'?'suspect':'information',variant:'grayBehavior',targetId:row.actorId,details:{certainty:'inferred',behaviorDirection:direction,evidence}};
@@ -7136,8 +7136,17 @@ discussionCandidates=observer=>{
  });
 };
 function grayObservationReason(observer,row){
- const name=id=>morningName(observer,id),events=row.sourceEventIds.map(id=>state.discussion.events.find(e=>e.id===id)),actor=name(row.actorId),target=row.targetId==null?null:name(row.targetId),days=[...new Set(events.map(e=>e.day))].join('・');
- const why={explainedChange:`${actor}は${target}への見方を変えたけど、前後の理由も話している`,unexplainedChange:`${actor}は${target}への見方を逆にしたのに、変えた理由がまだ分からない`,openViewAnswer:`${actor}は今気になる人物として${target}を挙げて、理由も答えている`,responsiveAnswer:`${actor}は${target}について聞かれて、その話に合う理由を答えている`,discussionOrganizer:`${actor}は皆の違う意見を拾って、話を整理している`,focusedDefense:`${actor}は${days}日目に${target}を繰り返し擁護している`,focusedPressure:`${actor}は${days}日目に${target}への追及や処刑提案を繰り返している`,repeatedAgreement:`${actor}は${target}の別々の発言に繰り返し賛成している`,candidUncertainty:`${actor}は今の考えを聞かれて、まだ決められないと答えている`,repeatedDeferral:`${actor}は別々の質問への答えを何度か保留している`,concreteReasoning:`${actor}は別々の話に、具体的な理由を挙げている`};
+ // A response may concern a policy rather than a named person. Keep its public references.
+ const events=(row.sourceEventIds||[]).map(id=>state.discussion?.events.find(e=>e.id===id));
+ if(!events.length||events.some(e=>!e)||!byId(row.actorId))return null;
+ const name=id=>morningName(observer,id),actor=name(row.actorId),target=row.targetId==null?null:byId(row.targetId)?name(row.targetId):null,days=[...new Set(events.map(e=>e.day))].join('・');
+ if(row.targetId!=null&&target==null)return null;
+ if(['explainedChange','unexplainedChange','openViewAnswer','focusedDefense','focusedPressure','repeatedAgreement'].includes(row.kind)&&target==null)return null;
+ if(row.kind==='responsiveAnswer'){
+  const answer=events.at(-1),question=events.find(e=>e.id===answer.replyTo),request=question&&discussionQuestionRequest(question);
+  if(answer.command!=='answer'||!request||request.respondentId!==row.actorId||request.kind==='currentView'||request.subjectId!==answer.subjectId||!topicMatchesStoredGrayQuestion(answer,request,state)||!graySpecificReason(answer))return null;
+ }
+ const why={explainedChange:`${actor}は${target}への見方を変えたけど、前後の理由も話している`,unexplainedChange:`${actor}は${target}への見方を逆にしたのに、変えた理由がまだ分からない`,openViewAnswer:`${actor}は今気になる人物として${target}を挙げて、理由も答えている`,responsiveAnswer:target==null?`${actor}は聞かれたことに沿って、理由を説明している`:`${actor}は${target}について聞かれて、その話に合う理由を答えている`,discussionOrganizer:`${actor}は皆の違う意見を拾って、話を整理している`,focusedDefense:`${actor}は${days}日目に${target}を繰り返し擁護している`,focusedPressure:`${actor}は${days}日目に${target}への追及や処刑提案を繰り返している`,repeatedAgreement:`${actor}は${target}の別々の発言に繰り返し賛成している`,candidUncertainty:`${actor}は今の考えを聞かれて、まだ決められないと答えている`,repeatedDeferral:`${actor}は別々の質問への答えを何度か保留している`,concreteReasoning:`${actor}は別々の話に、具体的な理由を挙げている`};
  return why[row.kind]||null;
 }
 const quality2GrayDescription=describeComSpeech;

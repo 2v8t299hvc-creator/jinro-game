@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-quality8.5-export4</title>
+<title>個人用人狼アプリ v2.20.0-quality8.6</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -156,7 +156,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title" title="v2.20.0-quality8.5-export4">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title" title="v2.20.0-quality8.6">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row topbar-actions"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -267,7 +267,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
 </section>
 <script>
-const GAME_VERSION="2.20.0-quality8.5-export4";
+const GAME_VERSION="2.20.0-quality8.6";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -1176,26 +1176,41 @@ function startGame(){
   renderLog();save();showGame();
 }
 
+// Persist one private entry plan. Only wolves coordinate; madman/fox never read it.
 function assignFakeClaims(){
-  // 狂人：占い騙りが中心。低確率で猫又騙りも選ぶ。
-  state.players.filter(p=>p.role==="madman").forEach(m=>{
-    const r=Math.random();
-    m.fakeClaimRole=r<0.56?"seer":r<0.73?"medium":r<0.77?"cat":r<0.84?"knight":null;
-  });
-
-  // 人狼：一定確率で1匹が騙り役。占い中心、霊媒、低確率で猫又。
-  const wolves=state.players.filter(p=>p.role==="wolf");
-  if(wolves.length&&Math.random()<0.65){
-    const liar=randomChoice(wolves);
-    const r=Math.random();
-    liar.fakeClaimRole=r<0.62?"seer":r<0.80?"medium":r<0.86?"cat":"knight";
+ const wolves=state.players.filter(p=>p.role==='wolf');
+ state.players.filter(hostile).forEach(p=>p.fakeClaimRole=null);
+ const draw=Math.random(),n=wolves.length;
+ const count=n===0?0:n===1?(draw<.45?0:1):n===2?(draw<.30?0:1):draw<.25?0:draw<.95?1:2;
+ const chosen=shuffle([...wolves]).slice(0,count);let firstRole=null;
+ for(const p of chosen){
+  const r=Math.random();let role=r<.70?'seer':r<.90?'medium':null;
+  if(chosen.length===2&&firstRole&&role===firstRole)role=firstRole==='seer'?'medium':'seer';
+  if(!firstRole)firstRole=role;
+  p.fakeClaimRole=role;
+ }
+ for(const p of state.players.filter(p=>p.role==='madman'||p.role==='fox')){
+  const r=Math.random();p.fakeClaimRole=p.role==='madman'?(r<.56?'seer':r<.73?'medium':r<.77?'cat':r<.84?'knight':null):(r<.16?'seer':r<.24?'medium':r<.255?'cat':r<.295?'knight':null);
+ }
+ state.fakeEntryPlan86={schemaVersion:1,visibility:'private',source:'newVillage',wolfCount:n,plannedWolfSlots:count,assignments:{},entryDecisions:{},openingStrategies:{}};
+ for(const p of state.players.filter(hostile)){
+  state.fakeEntryPlan86.assignments[p.id]=p.fakeClaimRole;
+  if(p.role==='wolf'&&p.fakeClaimRole==='seer'){
+   const r=Math.random();state.fakeEntryPlan86.openingStrategies[p.id]={mode:r<.10?'blackAttack':n>=3&&r<.15?'bus':'white',wolfCount:n};
   }
-
-  // 妖狐：騙り自体は控えめ。猫又騙りも低確率で残す。
-  state.players.filter(p=>p.role==="fox").forEach(f=>{
-    const r=Math.random();
-    f.fakeClaimRole=r<0.16?"seer":r<0.24?"medium":r<0.255?"cat":r<0.295?"knight":null;
-  });
+ }
+}
+function ensureFakeEntryPlan86(){
+ if(state.fakeEntryPlan86?.schemaVersion===1)return state.fakeEntryPlan86;
+ // Old games retain their already chosen roles and published results, without a fresh draw.
+ const plan={schemaVersion:1,visibility:'private',source:'legacy',wolfCount:state.players.filter(p=>p.role==='wolf').length,assignments:{},entryDecisions:{},openingStrategies:{}};
+ for(const p of state.players.filter(hostile))plan.assignments[p.id]=p.claimed||p.fakeClaimRole||null;
+ state.fakeEntryPlan86=plan;return plan;
+}
+function fakeEntryPressure86(p,snap){
+ const threatened=snap.results.some(r=>r.targetId===p.id&&r.black&&!snap.broken.has(r.seerId));
+ const gray=snap.claims.filter(x=>x.alive&&!x.claimed&&x.villagerClaim!==true),confirmed=snap.claims.filter(x=>x.alive&&x.id!==p.id&&snap.confirmations.has(x.id));
+ return {threatened,exposed:gray.length<=1||snap.aliveIds.length<=4&&confirmed.length>=snap.aliveIds.length-2};
 }
 
 function living(){return state.players.filter(p=>p.alive)}
@@ -1750,25 +1765,20 @@ function wasFullRoleCoDeclined(p,role){
     Array.isArray(r.respondentIds)&&Array.isArray(r.aliveIds)&&r.aliveIds.includes(p.id)&&!r.respondentIds.includes(p.id));
 }
 function ensureWolfSeerPlan(){
-  if(state.wolfSeerPlan?.version===1)return;
-  // 既に公表した騙りは保存。未COの新規担当は開始時の狼の予定から決める。
-  const wolves=state.players.filter(p=>p.role==="wolf");
-  const declared=wolves.filter(p=>p.claimed==="seer");
-  const planned=wolves.filter(p=>p.alive&&p.fakeClaimRole==="seer"&&!p.claimed&&
-    !wasFullRoleCoDeclined(p,"seer"));
-  const candidates=declared.length?declared:planned;
-  const candidate=candidates.length===1?candidates[0]:candidates.length?randomChoice(candidates):null;
-  state.wolfSeerPlan={version:1,candidateId:candidate?.id??null};
+ if(state.wolfSeerPlan?.version===2)return;
+ const plan=ensureFakeEntryPlan86();
+ const candidates=state.players.filter(p=>p.role==='wolf'&&(p.claimed==='seer'||p.alive&&plan.assignments[p.id]==='seer'&&!p.claimed&&!wasFullRoleCoDeclined(p,'seer')));
+ state.wolfSeerPlan={version:2,candidateId:candidates[0]?.id??null,candidateIds:candidates.map(p=>p.id)};
 }
 function canOfferFakeRole(p,role,snap){
-  if(p.claimed===role)return true; // 公表済みのCOは撤回・削除しない。
-  if(wasFullRoleCoDeclined(p,role))return false;
-  if(p.role==="wolf"&&role==="seer"){
-    ensureWolfSeerPlan();
-    return state.wolfSeerPlan.candidateId===p.id&&!p.claimed;
-  }
-  return true;
+ if(p.claimed===role)return true;
+ if(wasFullRoleCoDeclined(p,role))return false;
+ if(p.role==='wolf'&&role==='seer'){
+  ensureWolfSeerPlan();return state.wolfSeerPlan.candidateIds.includes(p.id)&&!p.claimed;
+ }
+ return true;
 }
+
 function coSnapshot(){
   return {day:state.day,aliveIds:living().map(x=>x.id),
     claims:state.players.map(p=>({id:p.id,claimed:p.claimed,villagerClaim:p.villagerClaim,alive:p.alive})),
@@ -1811,53 +1821,38 @@ const SEER_ENTRY_CROWDING_FACTORS=[1,.85,.45,.18,.06];
 function seerEntryCrowdingFactor(publicSeerCount){
   return SEER_ENTRY_CROWDING_FACTORS[Math.min(Math.max(publicSeerCount,0),4)];
 }
-function roleClaimProbability(p,role,snap,mode="role"){
-  if(!hostile(p)||!p.alive||role==="resonator")return 0;
-  const prior=snap.claims.find(x=>x.id===p.id);
-  if(prior?.claimed===role)return 1;
-  if(!canOfferFakeRole(p,role,snap))return 0;
-  // 狼の占い担当は再抽選しない。開始時に決めた担当が応答する。
-  if(p.role==="wolf"&&role==="seer")return snap.counts.seer===0?0:1;
-  // 一度役職COした人外は、基本的に自分の発言を維持する。変更は切迫時のみ。
-  const otherRole=!!prior?.claimed&&prior.claimed!==role;
-  const otherClaimants=snap.claims.filter(x=>x.alive&&x.claimed===role&&x.id!==p.id).length;
-  const gray=snap.claims.filter(x=>x.alive&&!x.claimed&&x.villagerClaim!==true);
-  const confirmedOthers=snap.claims.filter(x=>x.alive&&x.id!==p.id&&snap.confirmations.has(x.id));
-  const nearlyExposed=gray.length<=1 || (snap.aliveIds.length<=4&&confirmedOthers.length>=snap.aliveIds.length-2);
-  const prefs={wolf:{seer:.50,medium:.31,knight:.15,cat:.16},madman:{seer:.64,medium:.43,knight:.23,cat:.18},fox:{seer:.22,medium:.13,knight:.15,cat:.04}};
-  let chance=prefs[p.role]?.[role]||0;
-  if(p.fakeClaimRole===role)chance+=role==="cat"?.08:.19;
-  const usesSeerCrowding=role==="seer"&&["madman","fox"].includes(p.role);
-  if(otherClaimants>0&&!usesSeerCrowding&&role!=="cat")chance+=.07;
-  if(nearlyExposed){
-    chance+=role==="cat"?({wolf:.28,madman:.22,fox:.12}[p.role]||0):role==="knight"?.43:.27;
-  }
-  if(role==="cat"){
-    const crowd={wolf:[1,.75,.4,.18,.08],madman:[1,.65,.3,.12,.05],fox:[1,.45,.15,.04,.01]};
-    const pressured=snap.results.some(r=>r.targetId===p.id&&r.black&&!snap.broken.has(r.seerId));
-    if(pressured)chance+=p.role==='fox'?.12:.18;
-    chance*=(crowd[p.role]||crowd.fox)[Math.min(otherClaimants,4)];
-    if(snap.counts.cat===0)chance=0;
-  }
-  if(role==="knight"&&snap.counts.knight===0)chance=0;
-  if(role==="seer"&&snap.counts.seer===0)chance=0;
-  if(role==="medium"&&snap.counts.medium===0)chance=0;
-  if(otherRole)chance=nearlyExposed?chance*.21:0;
-  if(prior?.villagerClaim===true)chance*=nearlyExposed?.85:.3;
-  if(mode==="individual")chance*=.84;
-  if(usesSeerCrowding)chance*=seerEntryCrowdingFactor(otherClaimants);
+function roleClaimProbability(p,role,snap,mode='role'){
+ if(!hostile(p)||!p.alive||!['seer','medium','knight','cat'].includes(role)||!snap.counts[role])return 0;
+ const prior=snap.claims.find(x=>x.id===p.id);
+ if(prior?.claimed===role)return 1;
+ if(!canOfferFakeRole(p,role,snap))return 0;
+ const plan=ensureFakeEntryPlan86(),assigned=plan.assignments[p.id],pressure=fakeEntryPressure86(p,snap);
+ const otherRole=!!prior?.claimed&&prior.claimed!==role;
+ // Routine requests never recruit a second role for a lurking player.
+ if(assigned!==role||otherRole){
+  if(!['knight','cat'].includes(role)||!pressure.threatened&&!pressure.exposed)return 0;
+  let chance=role==='knight'?({wolf:.15,madman:.23,fox:.15}[p.role]):({wolf:.16,madman:.18,fox:.04}[p.role]);
+  if(pressure.exposed)chance+=role==='knight'?.43:({wolf:.28,madman:.22,fox:.12}[p.role]);
+  if(pressure.threatened&&role==='cat')chance+=p.role==='fox'?.12:.18;
+  if(otherRole)chance*=.21;
+  const others=snap.claims.filter(x=>x.alive&&x.claimed===role&&x.id!==p.id).length;
+  if(role==='cat')chance*=({wolf:[1,.75,.4,.18,.08],madman:[1,.65,.3,.12,.05],fox:[1,.45,.15,.04,.01]}[p.role])[Math.min(others,4)];
   return Math.max(0,Math.min(.98,chance));
+ }
+ const others=snap.claims.filter(x=>x.alive&&x.claimed===role&&x.id!==p.id).length;
+ if(role==='medium')return [1,.6,.15,.03][Math.min(others,3)];
+ if(role==='seer')return p.role==='wolf'?1:seerEntryCrowdingFactor(others);
+ if(role==='cat')return ({wolf:[1,.75,.4,.18,.08],madman:[1,.65,.3,.12,.05],fox:[1,.45,.15,.04,.01]}[p.role])[Math.min(others,4)];
+ return 1;
 }
 function chooseDynamicFakeRole(p,snap){
-  const prior=snap.claims.find(x=>x.id===p.id);
-  if(prior?.claimed)return prior.claimed;
-  if(p.role==="wolf"&&canOfferFakeRole(p,"seer",snap)&&snap.counts.seer!==0)return "seer";
-  const roles=["seer","medium","knight","cat"];
-  const ranked=roles.map(role=>({role,score:roleClaimProbability(p,role,snap,"individual")* (.85+Math.random()*.3)}));
-  ranked.sort((a,b)=>b.score-a.score);
-  const best=ranked[0];
-  return best&&Math.random()<best.score?best.role:null;
+ const prior=snap.claims.find(x=>x.id===p.id);if(prior?.claimed)return prior.claimed;
+ const assigned=ensureFakeEntryPlan86().assignments[p.id];
+ if(assigned&&q81FakeCoResponse(p,assigned,snap))return assigned;
+ for(const role of ['knight','cat'])if(role!==assigned&&q81FakeCoResponse(p,role,snap))return role;
+ return null;
 }
+
 function publishRoleClaimResults(p,role,changed,preparedFakeSeerReports){
   if(role==="seer"){
     if(p.role==="seer")reportTrueSeer(p,changed);
@@ -1936,7 +1931,7 @@ function prepareBlackSeerCoResponses(snap){
     ensureFakeSeerTimeline(p);
     const alreadyBlack=p.fakeSeerResults.some(r=>r.black&&r.day<=state.day);
     if(alreadyBlack){fakes.push(p);preparedFakeReports.set(p.id,prepareFakeSeerReports(p));continue;}
-    if(p.claimed!=="seer"&&Math.random()>=roleClaimProbability(p,"seer",snap))continue;
+    if(p.claimed!=="seer"&&!q81FakeCoResponse(p,"seer",snap))continue;
     const reports=prepareFakeSeerReports(p);
     if(reports.some(r=>r.black)){fakes.push(p);preparedFakeReports.set(p.id,reports);}
   }
@@ -2383,7 +2378,21 @@ function selectFakeSeerEvaluation(evaluation,weights){
   return {target:byId(chosen.targetId),black:chosen.black,plan:chosen.plan,strategy};
 }
 function chooseWolfFakeSeerAction(liar,results=liar.fakeSeerResults||[],allowedTargetIds=null,opportunity=null){
-  return selectFakeSeerEvaluation(buildWolfFakeSeerEvaluation(liar,results,allowedTargetIds,opportunity),WOLF_FAKE_SEER_WEIGHTS);
+ const evaluation=buildWolfFakeSeerEvaluation(liar,results,allowedTargetIds,opportunity);
+ const plan=ensureFakeEntryPlan86(),opening=plan.openingStrategies[liar.id];
+ if(evaluation&&opening&&(opportunity?.day??state.day)===1&&!results.some(r=>r.day===1)){
+  // Corpse response and explicit target instructions take precedence over opening tactics.
+  const constrained=opportunity?.forcedTarget!=null||opportunity?.lockedTarget||opportunity?.jusatsuTargetIds?.length||fakeSeerWhiteThrough(liar)>=1;
+  const requested=constrained?'white':opening.mode;
+  const eligible=evaluation.candidates.filter(c=>requested==='white'?!c.black:c.black&&(requested==='bus'?c.knownAlly:!c.knownAlly)&&byId(c.targetId)?.alive);
+  const actual=eligible.length?requested:'white';
+  const candidates=eligible.length?eligible:evaluation.candidates.filter(c=>!c.black);
+  opening.effective=actual;opening.reason=constrained?'publicConstraintOrInstruction':eligible.length?'plannedOpening':'noLegalBlackTarget';
+  const action=selectFakeSeerEvaluation({...evaluation,candidates},WOLF_FAKE_SEER_WEIGHTS);
+  if(action?.strategy)action.strategy.opening={mode:opening.mode,effective:actual,reason:opening.reason};
+  return action;
+ }
+ return selectFakeSeerEvaluation(evaluation,WOLF_FAKE_SEER_WEIGHTS);
 }
 
 const NONWOLF_FAKE_SEER_WEIGHTS={repeat:5,corpseResponse:8,window:8,temperature:4};
@@ -5755,7 +5764,7 @@ function q82RestoreCandidate(candidate,preserveDerived=false){
  const previousState=state;
  try{
   if(!isValidSavedGame(candidate))throw new Error('Invalid saved game');
-  preserveDerived=preserveDerived||/^2\.20\.0-quality8\.[12345](?:-partial|-export[1234])?$/.test(candidate.version);
+  preserveDerived=preserveDerived||/^2\.20\.0-quality8\.[123456](?:-partial|-export[1234])?$/.test(candidate.version);
     const hasGuardInstructions=Array.isArray(candidate.publicRecords?.guardInstructions);
     state=candidate;
     const priorDiagnostics=candidate.saveMeta81?.villageId&&candidate.saveMeta81.villageId===previousState?.saveMeta81?.villageId?q81Diagnostics.slice(-12):[];
@@ -7961,11 +7970,13 @@ function q81RenderSafely(){
 $('#retrySaveBtn').onclick=()=>{save();q81RenderSafely();};
 
 
-// Forced fake-CO decisions are private, once per role/person/day. Published CO is retained.
+// Entry decisions are private and shared by individual/role/black-result requests.
+// A new defensive situation may reopen knight/cat options, unless full CO was declined.
 function q81FakeCoResponse(p,role,snap){
  if(!canOfferFakeRole(p,role,snap))return false;
  const decisions=state.fakeCoDecisions81??={schemaVersion:1,visibility:'private',decisions:{}};
- const key=JSON.stringify([state.day,role,p.id]);
+ const pressure=['knight','cat'].includes(role)?fakeEntryPressure86(p,snap):null;
+ const key=JSON.stringify(['v86',role,p.id,pressure&&(pressure.threatened||pressure.exposed)?'defensive':'routine']);
  if(Object.prototype.hasOwnProperty.call(decisions.decisions,key))return decisions.decisions[key].respond;
  const probability=roleClaimProbability(p,role,snap),respond=Math.random()<probability;
  decisions.decisions[key]={day:state.day,playerId:p.id,role,probability,respond};return respond;

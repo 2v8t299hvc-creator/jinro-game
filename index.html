@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>個人用人狼アプリ v2.20.0-quality8.7</title>
+<title>個人用人狼アプリ v2.20.0-quality8.8</title>
 <style>
 :root{
   --bg:#0f1117; --panel:#171a22; --panel2:#202532; --text:#f5f7fb; --muted:#9ca6b7;
@@ -156,7 +156,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
 </head>
 <body>
 <div class="topbar"><div class="topbar-inner">
-  <div><div class="topbar-title" title="v2.20.0-quality8.7">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
+  <div><div class="topbar-title" title="v2.20.0-quality8.8">個人用人狼</div><div class="topbar-mini" id="topbarPhase">待機中</div></div>
   <div class="row topbar-actions"><button class="ghost" id="debugBtnTop">デバッグ</button><button class="danger" id="resetBtnTop">終了</button></div>
 </div></div>
 <div class="wrap">
@@ -268,7 +268,7 @@ hr{border:0;border-top:1px solid var(--line);margin:12px 0}
   <div id="notesStatus" class="muted" aria-live="polite">入力は自動で保存されます。</div>
 </section>
 <script>
-const GAME_VERSION="2.20.0-quality8.7";
+const GAME_VERSION="2.20.0-quality8.8";
 // 投票AI導入までの暫定制約。公開の村人証明としては使用しない。
 const PLAYER_RESULT_TRUTH_ONLY=true;
 function temporaryPlayerResultColor(targetId){
@@ -4637,7 +4637,7 @@ function buildRoleHypotheses(observer,context=roleTrustPublicContext(),publicOnl
     confirmed:[...context.confirmed.keys()].map(id=>[id,publiclyKnownRoleFor(id,context.confirmed)]),
     broken:[...context.broken.keys()],seer:context.seerRows,medium:context.mediumRows,
     full:state.publicRecords.fullCoRequests,privateInfo,privateRows});
-  const cacheKey=(publicOnly?'outward:':'personal:')+fingerprint+'|'+(previous?.supportKey||'');
+  const cacheKey=(publicOnly?'outward:':'personal:')+fingerprint+'|'+(previous?.supportKey||'')+'|'+q88ConstraintEpoch();
   const cached=roleHypothesisCache.get(observer);
   if(cached?.key===cacheKey)return cached.model;
   const roleNames=ROLES.map(([role])=>role),counts=Object.fromEntries(roleNames.map(role=>[role,context.counts[role]||0]));
@@ -4667,6 +4667,9 @@ function buildRoleHypotheses(observer,context=roleTrustPublicContext(),publicOnl
   }
   const hypotheses=[];
   for(const seer of options.seer)for(const medium of options.medium){
+    // quality8.8: only definitive public impossibilities constrain private hypotheses.
+    // Unknown, incomplete, or unmatched viewpoints retain the legacy reasoning path.
+    if(q88PublicContradictsHypothesis(seer.ids,medium.ids,context.counts))continue;
     const trueIds={seer:seer.ids,medium:medium.ids},colors=new Map(),notFox=new Set();
     let conflict=false;
     function color(id,black){
@@ -8729,6 +8732,27 @@ function q87Start(board,key,token){
  }catch(e){q87Stop();r.status='error';r.result=null;r.error='自動計算を開始できませんでした。ゲームは続行できます。';}
  finally{if(url&&!r.worker)URL.revokeObjectURL(url);q87Render();}
 }
+// quality8.8: read-only, public-only constraint bridge for each COM's existing model.
+// A role-pair is excluded only when the exact pair was explored and contradicted.
+// No probabilities, role trust scores, public badges, or stored state are written.
+function q88ReadyResult(){
+ const r=q87Runtime;
+ if(!state||r.owner!==state||r.status!=='done'||!r.result?.rows)return null;
+ try{if(r.key!==q87BoardKey(q87PublicBoard()))return null;}catch{return null;}
+ return r.result;
+}
+function q88ConstraintEpoch(){
+ const r=q88ReadyResult();return r?('q88:'+q87Runtime.token+':'+r.rows.length):'q88:fallback';
+}
+function q88PublicContradictsHypothesis(seerIds,mediumIds,counts){
+ // The current worker enumerates single seer / medium viewpoints. Multiple-role
+ // arrangements and all unrepresented combinations fall back to legacy inference.
+ if((counts.seer||0)!==1||(counts.medium||0)!==1||seerIds.length!==1||mediumIds.length!==1)return false;
+ const result=q88ReadyResult();if(!result)return false;
+ const same=(v,id)=>v?.kind==='person'&&String(v.id)===String(id);
+ const exact=result.rows.filter(r=>same(r.seer,seerIds[0])&&same(r.medium,mediumIds[0]));
+ return exact.length>0&&exact.every(r=>r.status==='contradiction');
+}
 function q87ViewStatus(rows,role,personId){
  const relevant=rows.filter(r=>r[role]?.kind==='person'&&r[role].id===String(personId));
  if(!relevant.length||!rows.some(r=>r.status==='feasible'))return 'unknown';
@@ -8756,7 +8780,7 @@ function q87Render(){
  el.textContent=`成立 ${feasible} ／ 不成立 ${rows.filter(x=>x.status==='contradiction').length} ／ 不明 ${unknown}（${result.elapsedMs}ms）`;
  const esc=escapeHtml,statusLabel={excluded:'成立せず',unique:'計算範囲で唯一',possible:'成立する視点あり',unknown:'不明'};
  let comparisons=[];try{comparisons=q87Comparison();}catch{el.textContent+=' ／ 既存判定との比較は取得できませんでした。';}
- panel.innerHTML='<p>公開履歴だけの比較診断。COMの推理・発言・投票にはまだ使いません。不明は破綻ではありません。</p>'+
+ panel.innerHTML='<p>公開履歴の比較診断。COMの配役仮説には確定した不成立だけを反映します。信用度・発言・投票・護衛には直接接続しません。不明は破綻ではありません。</p>'+
  (!feasible&&!unknown?'<p>入力履歴を満たす視点がありません。全員を偽と断定せず、履歴・対応範囲を確認してください。</p>':'')+
  comparisons.map(c=>`<div>${esc(c.name)}（${esc(roleName(c.role))}）：既存 ${statusLabel[c.legacy]} ／ 計算機 ${statusLabel[c.calculated]}${c.mismatch?' ⚠ 差あり':''}</div>`).join('')+
  '<details><summary>全視点の結果</summary>'+rows.map(row=>{
